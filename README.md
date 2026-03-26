@@ -11,7 +11,7 @@ Nostr-aware code generator that reads [schemata](https://github.com/nostrability
 | schemata-validator-{rs,py,go,...} | Runtime validators — pass/fail a JSON blob against a schema (AJV, jsonschema, etc.) |
 | **schemata-codegen** | **Code generator — produces typed language constructs from the schemas** |
 
-The data packages give you access to raw schemas. The validators tell you "is this event valid?" at runtime. The codegen gives you **types you can write code against** — so tags are typed tuples with known positions instead of `string[][]`.
+The data packages give you access to raw schemas. The validators check whether a JSON blob conforms to a schema (pass/fail — useful for conformance testing, which is what [sherlock](https://github.com/nostrability/sherlock) does against live relay data). The codegen produces **typed language constructs** — so when you're writing code that builds or reads tags, the compiler catches structural mistakes (wrong position, missing field, bad marker value) that `string[][]` silently accepts.
 
 ## Why not use an existing JSON Schema code generator?
 
