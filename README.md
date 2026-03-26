@@ -1,3 +1,5 @@
+⚠️ Very Experimental ⚠️
+
 # schemata-codegen
 
 Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed code. Currently generates TypeScript readonly tuple types for all 155 tag schemas.
