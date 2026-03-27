@@ -94,8 +94,9 @@ export function planKindValidator(shape: KindShape): ValidatorAction[] | undefin
   const hasPerItem = shape.perItemConditionals.length > 0;
   const hasArrayLevel = shape.arrayLevelConditionals.length > 0;
   const hasAnyOfGroups = shape.anyOfTagGroups.length > 0;
+  const hasMinTags = !!shape.tagsMinItems;
 
-  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel && !hasAnyOfGroups) return undefined;
+  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel && !hasAnyOfGroups && !hasMinTags) return undefined;
 
   const actions: ValidatorAction[] = [];
 
@@ -157,6 +158,18 @@ export function planKindValidator(shape: KindShape): ValidatorAction[] | undefin
     const tagNames = group.requirements.map(r => r.tagName).join(', ');
     const errorMsg = group.errorMessage ?? `tags must include at least one of: ${tagNames}`;
     actions.push({ type: 'any_of_group', matchers, errorMsg });
+
+    // Optional position validation for each alternative in the group
+    for (const req of group.requirements) {
+      const optChecks = getOptionalPositionChecks(req);
+      if (optChecks.length > 0) {
+        actions.push({
+          type: 'validate_optional_positions',
+          tagName: req.tagName,
+          checks: optChecks,
+        });
+      }
+    }
   }
 
   return actions;

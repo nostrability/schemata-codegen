@@ -69,7 +69,7 @@ function genericAdapter(): CApiAdapter {
     },
     tagStr: (index) => `_tag[${index}]`,
     tagCount: () => '_tag_len',
-    tagNameCheck: (name) => `_tag[0] && strcmp(_tag[0], ${JSON.stringify(name)}) == 0`,
+    tagNameCheck: (name) => `_tag_len > 0 && _tag[0] && strcmp(_tag[0], ${JSON.stringify(name)}) == 0`,
     numTags: () => 'num_tags',
     countTags: (varName) => [`    int ${varName} = num_tags;`],
     fnDecl: (kindNumber) => [
