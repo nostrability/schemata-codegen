@@ -15,6 +15,7 @@ import { emitValidatorsFile } from './emit-validators.js';
 import { emitRegistryFile } from './emit-registry.js';
 import { extractErrorMessages, emitErrorMessagesFile } from './emit-errors.js';
 import { writeAjvSchemas } from './emit-ajv.js';
+import { emitCValidators, type CApi } from './emit-c.js';
 import { planKindValidator } from './plan-validators.js';
 
 import type { TagShape } from './patterns.js';
@@ -28,6 +29,8 @@ interface CliArgs {
   registryOut?: string;
   errorsOut?: string;
   ajvSchemasDir?: string;
+  cValidatorsOut?: string;
+  cApi: CApi;
   dumpPlan?: string;
 }
 
@@ -39,6 +42,8 @@ function parseArgs(argv: string[]): CliArgs {
   let registryOut: string | undefined;
   let errorsOut: string | undefined;
   let ajvSchemasDir: string | undefined;
+  let cValidatorsOut: string | undefined;
+  let cApi: CApi = 'generic';
   let dumpPlan: string | undefined;
   let all = false;
 
@@ -57,6 +62,10 @@ function parseArgs(argv: string[]): CliArgs {
       errorsOut = argv[++i];
     } else if (argv[i] === '--ajv-schemas' && argv[i + 1]) {
       ajvSchemasDir = argv[++i];
+    } else if (argv[i] === '--c-validators' && argv[i + 1]) {
+      cValidatorsOut = argv[++i];
+    } else if (argv[i] === '--c-api' && argv[i + 1]) {
+      cApi = argv[++i] as CApi;
     } else if (argv[i] === '--dump-plan' && argv[i + 1]) {
       dumpPlan = argv[++i];
     } else if (argv[i] === '--all') {
@@ -72,6 +81,8 @@ function parseArgs(argv: string[]): CliArgs {
       console.log('  --registry     Kind metadata registry output file');
       console.log('  --errors       Error message map output file');
       console.log('  --ajv-schemas  AJV-ready schemas output directory');
+      console.log('  --c-validators C validators output file (.c, generates .h too)');
+      console.log('  --c-api        C tag API: generic (default) or nostrdb');
       console.log('  --dump-plan    Dump ValidatorAction[] plan as JSON');
       console.log('  --all          Generate all output files');
       process.exit(0);
@@ -91,7 +102,7 @@ function parseArgs(argv: string[]): CliArgs {
     ajvSchemasDir = ajvSchemasDir ?? 'ajv-schemas';
   }
 
-  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir, dumpPlan };
+  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir, cValidatorsOut, cApi, dumpPlan };
 }
 
 interface Result<T> {
@@ -108,7 +119,7 @@ function main(): void {
   const args = parseArgs(process.argv);
 
   // Determine if we need kind extraction for any output
-  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir || args.dumpPlan);
+  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir || args.cValidatorsOut || args.dumpPlan);
 
   // --- Tag extraction (always runs) ---
   const tagDir = join(args.schemasDir, '@', 'tag');
@@ -264,6 +275,19 @@ function main(): void {
   if (args.ajvSchemasDir) {
     const count = writeAjvSchemas(kindSchemas, args.ajvSchemasDir);
     console.log(`AJV:      ${count} schemas → ${args.ajvSchemasDir}/`);
+  }
+
+  // --- C Validators ---
+  if (args.cValidatorsOut) {
+    const { header, source } = emitCValidators(kindShapes, args.cApi);
+    writeFileSync(args.cValidatorsOut, source);
+    const hPath = args.cValidatorsOut.endsWith('.c')
+      ? args.cValidatorsOut.replace(/\.c$/, '.h')
+      : args.cValidatorsOut + '.h';
+    writeFileSync(hPath, header);
+
+    const fnCount = (source.match(/int schemata_validate_kind_\d+\(/g) || []).length;
+    console.log(`\nC validators: ${fnCount} functions → ${args.cValidatorsOut} + ${hPath}`);
   }
 
   // --- Dump Plan ---
