@@ -206,6 +206,23 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('typeof v === "string"'));
   });
 
+  it('emits content-required error for kinds with content constraints', () => {
+    const contentKind: KindShape = {
+      kindNumber: 13,
+      nip: 'nip-59',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      tagsMaxItems: 0,
+      contentConstraints: { minLength: 1 },
+      category: 'bare',
+    };
+    const output = emitValidatorsFile([], [contentKind]);
+    assert.ok(output.includes('event.content === undefined'));
+    assert.ok(output.includes('content is required'));
+  });
+
   it('emits wrong-type error for content in validateEvent', () => {
     const contentKind: KindShape = {
       kindNumber: 13,

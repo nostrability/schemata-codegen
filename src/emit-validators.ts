@@ -284,9 +284,8 @@ function renderContentActions(actions: ContentAction[]): string[] {
         break;
       case 'check_content_enum': {
         const vals = action.values.map(v => JSON.stringify(v)).join(', ');
-        const valsMsg = action.values.map(v => JSON.stringify(v)).join(', ');
         lines.push(`    if (![${vals}].includes(content)) {`);
-        lines.push(`      errors.push({ path: "content", message: "content must be one of: " + ${JSON.stringify(valsMsg)} });`);
+        lines.push(`      errors.push({ path: "content", message: "content must be one of: " + ${JSON.stringify(vals)} });`);
         lines.push('    }');
         break;
       }
@@ -321,7 +320,9 @@ function emitEventDispatch(
 
   // Content validation
   if (contentKinds.length > 0) {
-    lines.push('  if (typeof event.content === "string") {');
+    lines.push('  if (event.content === undefined) {');
+    lines.push('    errors.push({ path: "content", message: "content is required" });');
+    lines.push('  } else if (typeof event.content === "string") {');
     lines.push('    const content = event.content;');
     lines.push('    switch (kind) {');
     for (const [kindNumber, actions] of contentKinds) {
@@ -331,7 +332,7 @@ function emitEventDispatch(
       lines.push('      }');
     }
     lines.push('    }');
-    lines.push('  } else if (event.content !== undefined && typeof event.content !== "string") {');
+    lines.push('  } else {');
     lines.push('    errors.push({ path: "content", message: "content must be a string" });');
     lines.push('  }');
   }
