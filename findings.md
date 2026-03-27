@@ -290,40 +290,31 @@ Tags are `string[]` at the JSON level but typed tuples at the schema level. Gene
 
 ---
 
-## 5. Paths Forward
+## 5. Chosen Path: schemata-codegen
 
-### Option A: Custom nostr-aware generator
-**Effort:** High | **Value:** High
+Every generator above fails on the same three features: `contains`, `if/then`, and deeply nested `allOf` with tuple `items`. These aren't edge cases — they encode the core semantics of nostr events (which tags are required, how each tag is structured, conditional validation). No amount of schema simplification can recover them because they have no static type-level equivalent. They require runtime code generation.
 
-Write a bespoke generator that understands nostr's patterns:
-- Parse schemata schemas directly
-- Generate a `Tag` enum per NIP with typed variants (e.g., `ETag(EventId, Option<RelayUrl>, Option<Marker>)`)
-- Generate per-kind event types with tag requirements as doc comments or builder-pattern runtime checks
-- Start with one language (TypeScript Zod or Rust) as proof of concept
+[schemata-codegen](https://github.com/nostrability/schemata-codegen) is a custom nostr-aware generator that reads schemata's compiled `dist/` schemas and produces typed TypeScript. Instead of generically parsing JSON Schema, it pattern-matches against the five tag structural patterns and five kind constraint patterns documented above, and fails loudly on anything unrecognized.
 
-### Option B: Schema simplification layer
-**Effort:** Medium | **Value:** Medium
+### What it generates
 
-Add a build step that transforms schemas into a generator-friendly subset:
-- Flatten `allOf` chains
-- Convert `contains` → documentation annotations
-- Convert `if/then` → documentation
-- Emit simplified tuple schemas for typify/datamodel-codegen
-- Accept that generated types won't enforce tag requirements (that stays in the validator)
+| Output | Coverage | What the generic generators couldn't do |
+|--------|----------|----------------------------------------|
+| **Tag tuple types** (`tags.d.ts`) | 156/156 tags (100%) | Typed positional tuples for all 5 patterns — fixed, optional trailing, open-tail, discriminated union, structured metadata. No `string[]` fallbacks. |
+| **Kind event interfaces** (`kinds.d.ts`) | 177/177 kinds (100%) | Literal `kind` discriminant per interface, `NostrEvent` discriminated union, `KNOWN_KINDS` mapping. |
+| **Runtime validators** (`validators.ts`) | 132 kind validators, 3 tag validators | `contains` → existence checks. `if/then` → per-item and array-level conditionals. `anyOf` → optional-but-constrained and any-of-group patterns. `additionalItems: false` → maxItems inference. Optional position constraints (enum, pattern) validated. |
+| **AJV-ready schemas** (`ajv-schemas/`) | 177 schemas | Pre-stripped `$schema`, `$id`, `errorMessage` — load directly into `ajv.compile()`. |
+| **Kind registry** (`kind-registry.ts`) | 177 kinds | Human-readable names, NIP, required tags, category. |
+| **Error messages** (`error-messages.ts`) | 175 kinds | Extracted from schema `errorMessage` fields. |
 
-### ~~Option C: Test Zod 4 `fromJsonSchema()`~~ — TESTED, NOT VIABLE
+### How it addresses the fundamental blockers
 
-Tested in depth. `z.fromJSONSchema()` silently ignores `contains` (required tags not enforced), drops `oneOf` alongside `allOf` (tag variants lost), crashes on `if/then` (NIP-11), and treats optional tuple positions as required (false negatives on valid data). The silent failures are worse than explicit errors — code appears to work but accepts invalid events. AJV remains necessary.
+**`contains` has no type-level equivalent** — Correct. schemata-codegen generates runtime `tags.some(t => ...)` existence checks instead of trying to encode existential quantifiers in the type system. The type layer (`kinds.d.ts`) documents required tags in JSDoc; the runtime layer (`validators.ts`) enforces them.
 
-### Option D: Wait for ecosystem maturity
-**Effort:** None | **Value:** Deferred
+**`if/then` conditionals are runtime-only** — Correct. schemata-codegen extracts per-item conditionals ("if tag[0] === X, validate against schema Y") and array-level conditionals ("if tags contain X, then must also contain Y") and emits them as runtime loops with inline checks.
 
-Tuple support improved significantly in 2025-2026 (typify, datamodel-codegen, Zod 4). However, `contains` and `if/then` support remains absent across all tools. The validator ecosystem covers the immediate need.
+**Deeply nested `allOf` chains** — schemata-codegen recursively unwraps allOf chains (3-5 levels deep) to find the structural layer, instead of trying to merge them generically. This is why typify panics, datamodel-codegen collapses to empty models, and Zod loses `additionalProperties` — they all attempt generic allOf merging and fail on schemata's specific nesting patterns.
 
----
+### Zero dependencies
 
-## 6. Recommendation
-
-**Option B** (schema simplification layer) if there's demand across languages, or **Option A** (custom generator) if multiple client/relay teams express interest in generated types. Option C has been tested and is not viable.
-
-The current validator approach (schemata-validator-*) remains the only way to get full validation coverage. The README's "Generating Stubs/Client-SDKs" section should be updated to reflect that all major generators have been tested and none can handle schemata's tag validation patterns.
+The generated `validators.ts` is plain TypeScript — no AJV, no Zod, no runtime schema processing. Works in any environment that runs JavaScript. The validators are ~2200 lines of generated `if`/`for`/`some` checks that a bundler can tree-shake per kind.
