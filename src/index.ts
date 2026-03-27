@@ -16,6 +16,7 @@ import { emitRegistryFile } from './emit-registry.js';
 import { extractErrorMessages, emitErrorMessagesFile } from './emit-errors.js';
 import { writeAjvSchemas } from './emit-ajv.js';
 import { emitCValidators, type CApi } from './emit-c.js';
+import { emitRustValidators, type RustApi } from './emit-rust.js';
 import { planKindValidator } from './plan-validators.js';
 
 import type { TagShape } from './patterns.js';
@@ -31,6 +32,8 @@ interface CliArgs {
   ajvSchemasDir?: string;
   cValidatorsOut?: string;
   cApi: CApi;
+  rustValidatorsOut?: string;
+  rustApi: RustApi;
   dumpPlan?: string;
 }
 
@@ -44,6 +47,8 @@ function parseArgs(argv: string[]): CliArgs {
   let ajvSchemasDir: string | undefined;
   let cValidatorsOut: string | undefined;
   let cApi: CApi = 'generic';
+  let rustValidatorsOut: string | undefined;
+  let rustApi: RustApi = 'generic';
   let dumpPlan: string | undefined;
   let all = false;
 
@@ -66,6 +71,10 @@ function parseArgs(argv: string[]): CliArgs {
       cValidatorsOut = argv[++i];
     } else if (argv[i] === '--c-api' && argv[i + 1]) {
       cApi = argv[++i] as CApi;
+    } else if (argv[i] === '--rust-validators' && argv[i + 1]) {
+      rustValidatorsOut = argv[++i];
+    } else if (argv[i] === '--rust-api' && argv[i + 1]) {
+      rustApi = argv[++i] as RustApi;
     } else if (argv[i] === '--dump-plan' && argv[i + 1]) {
       dumpPlan = argv[++i];
     } else if (argv[i] === '--all') {
@@ -83,6 +92,8 @@ function parseArgs(argv: string[]): CliArgs {
       console.log('  --ajv-schemas  AJV-ready schemas output directory');
       console.log('  --c-validators C validators output file (.c, generates .h too)');
       console.log('  --c-api        C tag API: generic (default) or nostrdb');
+      console.log('  --rust-validators Rust validators output file (.rs)');
+      console.log('  --rust-api     Rust tag API: generic (default), nostr, or nostrdb');
       console.log('  --dump-plan    Dump ValidatorAction[] plan as JSON');
       console.log('  --all          Generate all output files');
       process.exit(0);
@@ -102,7 +113,7 @@ function parseArgs(argv: string[]): CliArgs {
     ajvSchemasDir = ajvSchemasDir ?? 'ajv-schemas';
   }
 
-  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir, cValidatorsOut, cApi, dumpPlan };
+  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir, cValidatorsOut, cApi, rustValidatorsOut, rustApi, dumpPlan };
 }
 
 interface Result<T> {
@@ -119,7 +130,7 @@ function main(): void {
   const args = parseArgs(process.argv);
 
   // Determine if we need kind extraction for any output
-  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir || args.cValidatorsOut || args.dumpPlan);
+  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir || args.cValidatorsOut || args.rustValidatorsOut || args.dumpPlan);
 
   // --- Tag extraction (always runs) ---
   const tagDir = join(args.schemasDir, '@', 'tag');
@@ -288,6 +299,15 @@ function main(): void {
 
     const fnCount = (source.match(/int schemata_validate_kind_\d+\(/g) || []).length;
     console.log(`\nC validators: ${fnCount} functions → ${args.cValidatorsOut} + ${hPath}`);
+  }
+
+  // --- Rust Validators ---
+  if (args.rustValidatorsOut) {
+    const rustOutput = emitRustValidators(kindShapes, args.rustApi);
+    writeFileSync(args.rustValidatorsOut, rustOutput);
+
+    const fnCount = (rustOutput.match(/pub fn validate_kind_\d+/g) || []).length;
+    console.log(`\nRust validators (${args.rustApi}): ${fnCount} functions → ${args.rustValidatorsOut}`);
   }
 
   // --- Dump Plan ---
