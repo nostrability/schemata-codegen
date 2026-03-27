@@ -39,11 +39,19 @@ export interface TagMatcher {
 /** A language-independent validation action */
 export type ValidatorAction =
   | { type: 'check_min_tags'; min: number }
+  | { type: 'check_max_tags'; max: number }
   | { type: 'require_tag'; matcher: TagMatcher; errorMsg: string }
   | { type: 'validate_optional_positions'; tagName: string; checks: PositionCheck[] }
   | { type: 'per_item_conditional'; condTag: string; matcher: TagMatcher; errorMsg: string; optChecks: PositionCheck[] }
   | { type: 'array_level_conditional'; condTag: string; matcher: TagMatcher; errorMsg: string; optChecks: PositionCheck[] }
   | { type: 'any_of_group'; matchers: TagMatcher[]; errorMsg: string };
+
+/** A content-level validation action */
+export type ContentAction =
+  | { type: 'check_content_min_length'; min: number }
+  | { type: 'check_content_max_length'; max: number }
+  | { type: 'check_content_pattern'; regex: string; native: PatternCheck }
+  | { type: 'check_content_enum'; values: string[] };
 
 // --- Tag-level validator actions ---
 
@@ -95,14 +103,20 @@ export function planKindValidator(shape: KindShape): ValidatorAction[] | undefin
   const hasArrayLevel = shape.arrayLevelConditionals.length > 0;
   const hasAnyOfGroups = shape.anyOfTagGroups.length > 0;
   const hasMinTags = !!shape.tagsMinItems;
+  const hasMaxTags = shape.tagsMaxItems !== undefined;
 
-  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel && !hasAnyOfGroups && !hasMinTags) return undefined;
+  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel && !hasAnyOfGroups && !hasMinTags && !hasMaxTags) return undefined;
 
   const actions: ValidatorAction[] = [];
 
   // Check tagsMinItems
   if (shape.tagsMinItems) {
     actions.push({ type: 'check_min_tags', min: shape.tagsMinItems });
+  }
+
+  // Check tagsMaxItems
+  if (shape.tagsMaxItems !== undefined) {
+    actions.push({ type: 'check_max_tags', max: shape.tagsMaxItems });
   }
 
   // Required tags (contains constraints)
@@ -255,4 +269,32 @@ function getOptionalPositionChecks(req: TagRequirement): PositionCheck[] {
   }
 
   return checks;
+}
+
+// --- Content-level validation planning ---
+
+/**
+ * Plan content validation actions for a kind.
+ * Returns undefined when there are no content constraints.
+ */
+export function planContentChecks(shape: KindShape): ContentAction[] | undefined {
+  const cc = shape.contentConstraints;
+  if (!cc) return undefined;
+
+  const actions: ContentAction[] = [];
+
+  if (cc.minLength !== undefined) {
+    actions.push({ type: 'check_content_min_length', min: cc.minLength });
+  }
+  if (cc.maxLength !== undefined) {
+    actions.push({ type: 'check_content_max_length', max: cc.maxLength });
+  }
+  if (cc.pattern) {
+    actions.push({ type: 'check_content_pattern', regex: cc.pattern, native: classifyRegex(cc.pattern) });
+  }
+  if (cc.enumValues && cc.enumValues.length > 0) {
+    actions.push({ type: 'check_content_enum', values: cc.enumValues });
+  }
+
+  return actions.length > 0 ? actions : undefined;
 }

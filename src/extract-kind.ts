@@ -120,9 +120,11 @@ export function extractKind(
   const arrayLevelConditionals: ArrayLevelConditional[] = [];
   const anyOfTagGroups: KindShape['anyOfTagGroups'] = [];
   let tagsMinItems: number | undefined;
+  let tagsMaxItems: number | undefined;
 
   if (tagsNode) {
     tagsMinItems = tagsNode.minItems;
+    tagsMaxItems = tagsNode.maxItems;
 
     // Direct contains on tags
     if (tagsNode.contains) {
@@ -176,9 +178,10 @@ export function extractKind(
   // Extract content constraints
   const contentNode = kindLayer.properties?.content;
   let contentConstraints: KindShape['contentConstraints'];
-  if (contentNode && (contentNode.minLength || contentNode.pattern || contentNode.enum)) {
+  if (contentNode && (contentNode.minLength !== undefined || contentNode.maxLength !== undefined || contentNode.pattern || contentNode.enum)) {
     contentConstraints = {
       minLength: contentNode.minLength,
+      maxLength: contentNode.maxLength,
       pattern: contentNode.pattern,
       description: contentNode.description,
       enumValues: contentNode.enum?.map(String),
@@ -210,6 +213,7 @@ export function extractKind(
     arrayLevelConditionals,
     anyOfTagGroups,
     tagsMinItems,
+    tagsMaxItems,
     contentConstraints,
     category,
   };
