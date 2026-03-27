@@ -248,21 +248,21 @@ function emitKindFunctionCpp(
         lines.push(`        if (!std::any_of(tags.begin(), tags.end(), [](const std::vector<std::string>& t) { return ${matcherExpr}; })) {`);
         lines.push(`            errors.push_back({"tags", ${JSON.stringify(action.errorMsg)}});`);
         lines.push('        }');
-        lines.push('    }');
         if (action.optChecks.length > 0) {
-          lines.push('    for (const auto& t : tags) {');
-          lines.push(`        if (!t.empty() && t[0] == ${JSON.stringify(action.matcher.tagName)}) {`);
+          lines.push('        for (const auto& t : tags) {');
+          lines.push(`            if (!t.empty() && t[0] == ${JSON.stringify(action.matcher.tagName)}) {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckCpp(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraintCpp(pc, action.matcher.tagName);
-            lines.push(`            if (t.size() > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`                errors.push_back({"tags", ${JSON.stringify(msg)}});`);
-            lines.push('            }');
+            lines.push(`                if (t.size() > ${pc.index} && !(${r.expr})) {`);
+            lines.push(`                    errors.push_back({"tags", ${JSON.stringify(msg)}});`);
+            lines.push('                }');
           }
+          lines.push('            }');
           lines.push('        }');
-          lines.push('    }');
         }
+        lines.push('    }');
         break;
       }
 

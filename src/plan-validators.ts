@@ -192,17 +192,10 @@ export function buildTagMatcher(req: TagRequirement): TagMatcher {
     }
   }
 
-  // When additionalItems is false and maxItems is not explicitly set,
-  // derive maxItems from the number of defined positions.
-  let maxItems = req.maxItems;
-  if (maxItems === undefined && !req.additionalItems && req.positions.length > 0) {
-    maxItems = Math.max(...req.positions.map(p => p.index)) + 1;
-  }
-
   return {
     tagName: req.tagName,
     minItems: req.minItems,
-    maxItems,
+    maxItems: req.maxItems,
     positionChecks,
   };
 }

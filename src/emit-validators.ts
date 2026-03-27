@@ -217,20 +217,20 @@ function emitKindValidatorFromActions(
         lines.push(`    if (!tags.some(t => ${reqMatcher})) {`);
         lines.push(`      errors.push({ path: "tags", message: ${JSON.stringify(action.errorMsg)} });`);
         lines.push('    }');
-        lines.push('  }');
         if (action.optChecks.length > 0) {
-          lines.push(`  for (const t of tags) {`);
-          lines.push(`    if (t[0] === ${JSON.stringify(action.matcher.tagName)}) {`);
+          lines.push(`    for (const t of tags) {`);
+          lines.push(`      if (t[0] === ${JSON.stringify(action.matcher.tagName)}) {`);
           for (const pc of action.optChecks) {
             const check = renderPositionCheck(pc, 't');
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`      if (t.length > ${pc.index} && !(${check})) {`);
-            lines.push(`        errors.push({ path: "tags", message: ${JSON.stringify(msg)} });`);
-            lines.push('      }');
+            lines.push(`        if (t.length > ${pc.index} && !(${check})) {`);
+            lines.push(`          errors.push({ path: "tags", message: ${JSON.stringify(msg)} });`);
+            lines.push('        }');
           }
+          lines.push('      }');
           lines.push('    }');
-          lines.push('  }');
         }
+        lines.push('  }');
         break;
       }
 

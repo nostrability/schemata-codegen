@@ -311,21 +311,21 @@ function emitKindFunctionRust(
         lines.push(`        if !${adapter.iterExpr}.any(|t| ${matcherExpr}) {`);
         lines.push(`            errors.push(ValidationError { path: "tags", message: ${JSON.stringify(action.errorMsg)} });`);
         lines.push('        }');
-        lines.push('    }');
         if (action.optChecks.length > 0) {
-          lines.push(`    for t in ${adapter.iterExpr} {`);
-          lines.push(`        if ${adapter.tagNameCheck('t', action.matcher.tagName)} {`);
+          lines.push(`        for t in ${adapter.iterExpr} {`);
+          lines.push(`            if ${adapter.tagNameCheck('t', action.matcher.tagName)} {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckRust(pc.check, adapter, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraintRust(pc, action.matcher.tagName);
-            lines.push(`            if ${adapter.tagLen('t')} > ${pc.index} && !(${r.expr}) {`);
-            lines.push(`                errors.push(ValidationError { path: "tags", message: ${JSON.stringify(msg)} });`);
-            lines.push('            }');
+            lines.push(`                if ${adapter.tagLen('t')} > ${pc.index} && !(${r.expr}) {`);
+            lines.push(`                    errors.push(ValidationError { path: "tags", message: ${JSON.stringify(msg)} });`);
+            lines.push('                }');
           }
+          lines.push('            }');
           lines.push('        }');
-          lines.push('    }');
         }
+        lines.push('    }');
         break;
       }
 

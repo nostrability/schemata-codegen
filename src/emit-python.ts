@@ -238,14 +238,14 @@ function emitKindFunctionPython(
         lines.push(`        if not any(${matcherExpr} for t in tags):`);
         lines.push(`            errors.append(ValidationError(path="tags", message=${JSON.stringify(action.errorMsg)}))`);
         if (action.optChecks.length > 0) {
-          lines.push('    for t in tags:');
-          lines.push(`        if len(t) > 0 and t[0] == ${JSON.stringify(action.matcher.tagName)}:`);
+          lines.push('        for t in tags:');
+          lines.push(`            if len(t) > 0 and t[0] == ${JSON.stringify(action.matcher.tagName)}:`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckPython(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`            if len(t) > ${pc.index} and not (${r.expr}):`);
-            lines.push(`                errors.append(ValidationError(path="tags", message=${JSON.stringify(msg)}))`);
+            lines.push(`                if len(t) > ${pc.index} and not (${r.expr}):`);
+            lines.push(`                    errors.append(ValidationError(path="tags", message=${JSON.stringify(msg)}))`);
           }
         }
         break;

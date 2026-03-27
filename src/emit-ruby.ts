@@ -253,21 +253,21 @@ function emitKindFunctionRuby(
         lines.push(`      unless tags.any? { |t| ${matcherExpr} }`);
         lines.push(`        errors << ValidationError.new('tags', ${rubyString(action.errorMsg)})`);
         lines.push('      end');
-        lines.push('    end');
         if (action.optChecks.length > 0) {
-          lines.push('    tags.each do |t|');
-          lines.push(`      if t[0] == ${rubyString(action.matcher.tagName)}`);
+          lines.push('      tags.each do |t|');
+          lines.push(`        if t[0] == ${rubyString(action.matcher.tagName)}`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckRuby(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`        if t.length > ${pc.index} && !(${r.expr})`);
-            lines.push(`          errors << ValidationError.new('tags', ${rubyString(msg)})`);
-            lines.push('        end');
+            lines.push(`          if t.length > ${pc.index} && !(${r.expr})`);
+            lines.push(`            errors << ValidationError.new('tags', ${rubyString(msg)})`);
+            lines.push('          end');
           }
+          lines.push('        end');
           lines.push('      end');
-          lines.push('    end');
         }
+        lines.push('    end');
         break;
       }
 

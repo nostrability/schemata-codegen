@@ -243,21 +243,21 @@ function emitKindFunctionSwift(
         lines.push(`        if !tags.contains(where: { t in ${matcherExpr} }) {`);
         lines.push(`            errors.append(ValidationError(path: "tags", message: ${JSON.stringify(action.errorMsg)}))`);
         lines.push('        }');
-        lines.push('    }');
         if (action.optChecks.length > 0) {
-          lines.push('    for t in tags {');
-          lines.push(`        if !t.isEmpty && t[0] == ${JSON.stringify(action.matcher.tagName)} {`);
+          lines.push('        for t in tags {');
+          lines.push(`            if !t.isEmpty && t[0] == ${JSON.stringify(action.matcher.tagName)} {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckSwift(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`            if t.count > ${pc.index} && !(${r.expr}) {`);
-            lines.push(`                errors.append(ValidationError(path: "tags", message: ${JSON.stringify(msg)}))`);
-            lines.push('            }');
+            lines.push(`                if t.count > ${pc.index} && !(${r.expr}) {`);
+            lines.push(`                    errors.append(ValidationError(path: "tags", message: ${JSON.stringify(msg)}))`);
+            lines.push('                }');
           }
+          lines.push('            }');
           lines.push('        }');
-          lines.push('    }');
         }
+        lines.push('    }');
         break;
       }
 

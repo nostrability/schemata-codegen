@@ -384,10 +384,7 @@ function emitKindFunctionC(
         lines.push(r.code);
         for (const h of r.helpers) helpers.add(h);
 
-        lines.push('        }');
-        lines.push('    }');
-
-        // Optional position checks
+        // Optional position checks (inside condTag guard)
         if (action.optChecks.length > 0) {
           const optBody: string[] = [];
           optBody.push(`    if (!(${adapter.tagNameCheck(action.matcher.tagName)})) continue;`);
@@ -399,11 +396,14 @@ function emitKindFunctionC(
             optBody.push(`        SCHEMATA_EMIT_ERR(errs, n, max_errs, "tags", ${JSON.stringify(msg)});`);
             optBody.push('    }');
           }
-          lines.push('    {');
+          lines.push('            {');
           const optLoop = adapter.forEachTag(optBody);
           for (const l of optLoop) lines.push(l);
-          lines.push('    }');
+          lines.push('            }');
         }
+
+        lines.push('        }');
+        lines.push('    }');
         break;
       }
 

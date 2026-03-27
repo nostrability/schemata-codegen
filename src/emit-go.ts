@@ -319,24 +319,24 @@ function emitKindFunctionGo(
         lines.push('\t\t\tif !matchFound {');
         lines.push(`\t\t\t\terrors = append(errors, ValidationError{Path: "tags", Message: ${JSON.stringify(action.errorMsg)}})`);
         lines.push('\t\t\t}');
-        lines.push('\t\t}');
-        lines.push('\t}');
-
-        // Optional position checks
+        // Optional position checks (inside condTag guard)
         if (action.optChecks.length > 0) {
-          lines.push('\tfor _, t := range tags {');
-          lines.push(`\t\tif len(t) > 0 && t[0] == ${JSON.stringify(action.matcher.tagName)} {`);
+          lines.push('\t\t\tfor _, t := range tags {');
+          lines.push(`\t\t\t\tif len(t) > 0 && t[0] == ${JSON.stringify(action.matcher.tagName)} {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckGoNoGuard(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`\t\t\tif len(t) > ${pc.index} && !(${r.expr}) {`);
-            lines.push(`\t\t\t\terrors = append(errors, ValidationError{Path: "tags", Message: ${JSON.stringify(msg)}})`);
-            lines.push('\t\t\t}');
+            lines.push(`\t\t\t\t\tif len(t) > ${pc.index} && !(${r.expr}) {`);
+            lines.push(`\t\t\t\t\t\terrors = append(errors, ValidationError{Path: "tags", Message: ${JSON.stringify(msg)}})`);
+            lines.push('\t\t\t\t\t}');
           }
-          lines.push('\t\t}');
-          lines.push('\t}');
+          lines.push('\t\t\t\t}');
+          lines.push('\t\t\t}');
         }
+
+        lines.push('\t\t}');
+        lines.push('\t}');
         break;
       }
 

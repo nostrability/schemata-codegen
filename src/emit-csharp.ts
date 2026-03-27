@@ -243,22 +243,22 @@ function emitKindFunctionCSharp(
         const matcherExpr = renderTagMatcherCSharp(action.matcher, 't', helpers);
         lines.push(`                if (!tags.Any(t => ${matcherExpr}))`);
         lines.push(`                    errors.Add(new ValidationError("tags", ${JSON.stringify(action.errorMsg)}));`);
-        lines.push('            }');
         if (action.optChecks.length > 0) {
-          lines.push('            foreach (var t in tags)');
-          lines.push('            {');
-          lines.push(`                if (t.Count > 0 && t[0] == ${JSON.stringify(action.matcher.tagName)})`);
+          lines.push('                foreach (var t in tags)');
           lines.push('                {');
+          lines.push(`                    if (t.Count > 0 && t[0] == ${JSON.stringify(action.matcher.tagName)})`);
+          lines.push('                    {');
           for (const pc of action.optChecks) {
             const r = renderValueCheckCSharp(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraintCSharp(pc, action.matcher.tagName);
-            lines.push(`                    if (t.Count > ${pc.index} && !(${r.expr}))`);
-            lines.push(`                        errors.Add(new ValidationError("tags", ${JSON.stringify(msg)}));`);
+            lines.push(`                        if (t.Count > ${pc.index} && !(${r.expr}))`);
+            lines.push(`                            errors.Add(new ValidationError("tags", ${JSON.stringify(msg)}));`);
           }
+          lines.push('                    }');
           lines.push('                }');
-          lines.push('            }');
         }
+        lines.push('            }');
         break;
       }
 

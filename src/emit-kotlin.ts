@@ -240,21 +240,21 @@ function emitKindFunctionKotlin(
         lines.push(`        if (!tags.any { t -> ${matcherExpr} }) {`);
         lines.push(`            errors.add(ValidationError("tags", ${JSON.stringify(action.errorMsg)}))`);
         lines.push('        }');
-        lines.push('    }');
         if (action.optChecks.length > 0) {
-          lines.push('    for (t in tags) {');
-          lines.push(`        if (t.firstOrNull() == ${JSON.stringify(action.matcher.tagName)}) {`);
+          lines.push('        for (t in tags) {');
+          lines.push(`            if (t.firstOrNull() == ${JSON.stringify(action.matcher.tagName)}) {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckKotlin(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraintKotlin(pc, action.matcher.tagName);
-            lines.push(`            if (t.size > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`                errors.add(ValidationError("tags", ${JSON.stringify(msg)}))`);
-            lines.push('            }');
+            lines.push(`                if (t.size > ${pc.index} && !(${r.expr})) {`);
+            lines.push(`                    errors.add(ValidationError("tags", ${JSON.stringify(msg)}))`);
+            lines.push('                }');
           }
+          lines.push('            }');
           lines.push('        }');
-          lines.push('    }');
         }
+        lines.push('    }');
         break;
       }
 

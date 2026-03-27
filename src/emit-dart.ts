@@ -251,21 +251,21 @@ function emitKindFunctionDart(
         lines.push(`    if (!tags.any((t) => ${matcherExpr})) {`);
         lines.push(`      errors.add(ValidationError(path: 'tags', message: ${dartString(action.errorMsg)}));`);
         lines.push('    }');
-        lines.push('  }');
         if (action.optChecks.length > 0) {
-          lines.push('  for (final t in tags) {');
-          lines.push(`    if (t.isNotEmpty && t[0] == ${dartString(action.matcher.tagName)}) {`);
+          lines.push('    for (final t in tags) {');
+          lines.push(`      if (t.isNotEmpty && t[0] == ${dartString(action.matcher.tagName)}) {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckDart(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraintDart(pc, action.matcher.tagName);
-            lines.push(`      if (t.length > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`        errors.add(ValidationError(path: 'tags', message: ${dartString(msg)}));`);
-            lines.push('      }');
+            lines.push(`        if (t.length > ${pc.index} && !(${r.expr})) {`);
+            lines.push(`          errors.add(ValidationError(path: 'tags', message: ${dartString(msg)}));`);
+            lines.push('        }');
           }
+          lines.push('      }');
           lines.push('    }');
-          lines.push('  }');
         }
+        lines.push('  }');
         break;
       }
 

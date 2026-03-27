@@ -334,22 +334,21 @@ function emitKindFunctionPhp(
         lines.push('        if (!$found) {');
         lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(action.errorMsg)});`);
         lines.push('        }');
-        lines.push('    }');
-
-        // Optional position checks
+        // Optional position checks (inside condTag guard)
         if (action.optChecks.length > 0) {
-          lines.push('    foreach ($tags as $t) {');
-          lines.push(`        if (!(${renderTagNameCheck(action.matcher.tagName)})) { continue; }`);
+          lines.push('        foreach ($tags as $t) {');
+          lines.push(`            if (!(${renderTagNameCheck(action.matcher.tagName)})) { continue; }`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckPhpNoGuard(pc.check, pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`        if (count($t) > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(msg)});`);
-            lines.push('        }');
+            lines.push(`            if (count($t) > ${pc.index} && !(${r.expr})) {`);
+            lines.push(`                $errors[] = new SchemataValidationError('tags', ${phpString(msg)});`);
+            lines.push('            }');
           }
-          lines.push('    }');
+          lines.push('        }');
         }
+        lines.push('    }');
         break;
       }
 
