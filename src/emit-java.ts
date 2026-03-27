@@ -297,21 +297,21 @@ function emitKindFunctionJava(
         lines.push(`            if (tags.stream().noneMatch(t -> ${matcherExpr})) {`);
         lines.push(`                errors.add(new ValidationError("tags", ${JSON.stringify(action.errorMsg)}));`);
         lines.push('            }');
-        lines.push('        }');
         if (action.optChecks.length > 0) {
-          lines.push('        for (List<String> t : tags) {');
-          lines.push(`            if (!t.isEmpty() && ${JSON.stringify(action.matcher.tagName)}.equals(t.get(0))) {`);
+          lines.push('            for (List<String> t : tags) {');
+          lines.push(`                if (!t.isEmpty() && ${JSON.stringify(action.matcher.tagName)}.equals(t.get(0))) {`);
           for (const pc of action.optChecks) {
             const r = renderValueCheckJavaNoGuard(pc.check, 't', pc.index);
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
-            lines.push(`                if (t.size() > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`                    errors.add(new ValidationError("tags", ${JSON.stringify(msg)}));`);
-            lines.push('                }');
+            lines.push(`                    if (t.size() > ${pc.index} && !(${r.expr})) {`);
+            lines.push(`                        errors.add(new ValidationError("tags", ${JSON.stringify(msg)}));`);
+            lines.push('                    }');
           }
+          lines.push('                }');
           lines.push('            }');
-          lines.push('        }');
         }
+        lines.push('        }');
         break;
       }
 

@@ -387,7 +387,7 @@ function emitSwiftHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkDigits')) {
     lines.push('private func checkDigits(_ s: String) -> Bool {');
-    lines.push('    !s.isEmpty && s.allSatisfy { $0.isNumber }');
+    lines.push('    !s.isEmpty && s.unicodeScalars.allSatisfy { $0.value >= 48 && $0.value <= 57 }');
     lines.push('}');
     lines.push('');
   }
@@ -395,7 +395,7 @@ function emitSwiftHelpers(helpers: Set<string>): string {
   if (helpers.has('checkSignedInt')) {
     lines.push('private func checkSignedInt(_ s: String) -> Bool {');
     lines.push('    let str = s.hasPrefix("-") ? String(s.dropFirst()) : s');
-    lines.push('    return !str.isEmpty && str.allSatisfy { $0.isNumber }');
+    lines.push('    return !str.isEmpty && str.unicodeScalars.allSatisfy { $0.value >= 48 && $0.value <= 57 }');
     lines.push('}');
     lines.push('');
   }

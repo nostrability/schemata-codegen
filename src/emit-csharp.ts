@@ -44,7 +44,7 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       return { expr: `${fn}(${varExpr})`, helpers };
     }
     case 'starts_with_any': {
-      const checks = check.prefixes.map(p => `${varExpr}.StartsWith(${JSON.stringify(p)})`);
+      const checks = check.prefixes.map(p => `${varExpr}.StartsWith(${JSON.stringify(p)}, StringComparison.Ordinal)`);
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
     case 'chars_in': {
@@ -383,7 +383,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
 
   if (helpers.has('CheckHexPrefixed')) {
     lines.push('        private static bool CheckHexPrefixed(string s, string prefix, int hexLen)');
-    lines.push("            => s != null && s.StartsWith(prefix) && s.Length == prefix.Length + hexLen && s.Substring(prefix.Length).All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));");
+    lines.push("            => s != null && s.StartsWith(prefix, StringComparison.Ordinal) && s.Length == prefix.Length + hexLen && s.Substring(prefix.Length).All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));");
     lines.push('');
   }
 
@@ -397,7 +397,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('        private static bool CheckSignedInt(string s)');
     lines.push('        {');
     lines.push('            if (s == null || s.Length == 0) return false;');
-    lines.push("            var digits = s.StartsWith(\"-\") ? s.Substring(1) : s;");
+    lines.push("            var digits = s.StartsWith(\"-\", StringComparison.Ordinal) ? s.Substring(1) : s;");
     lines.push("            return digits.Length > 0 && digits.All(c => c >= '0' && c <= '9');");
     lines.push('        }');
     lines.push('');

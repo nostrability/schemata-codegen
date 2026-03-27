@@ -12,7 +12,7 @@
  *   - === for strict string comparison
  *
  * Pattern helpers as module-level functions: schemata_check_hex64, etc.
- * Error list: $errors = []; $errors[] = new ValidationError('tags', '...');
+ * Error list: $errors = []; $errors[] = new SchemataValidationError('tags', '...');
  */
 
 import type { KindShape } from './kind-types.js';
@@ -65,7 +65,8 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       return { expr: `schemata_check_chars_in(${args.join(', ')})`, helpers };
     }
     case 'regex': {
-      return { expr: `preg_match(${phpString('/' + check.pattern + '/')}, ${varExpr}) === 1`, helpers };
+      const escaped = check.pattern.replace(/#/g, '\\#');
+      return { expr: `preg_match(${phpString('#' + escaped + '#')}, ${varExpr}) === 1`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -241,7 +242,7 @@ function emitKindFunctionPhp(
     switch (action.type) {
       case 'check_min_tags':
         lines.push(`    if (count($tags) < ${action.min}) {`);
-        lines.push(`        $errors[] = new ValidationError('tags', ${phpString(`tags must have at least ${action.min} item(s)`)});`);
+        lines.push(`        $errors[] = new SchemataValidationError('tags', ${phpString(`tags must have at least ${action.min} item(s)`)});`);
         lines.push('    }');
         break;
 
@@ -263,7 +264,7 @@ function emitKindFunctionPhp(
         lines.push('        break;');
         lines.push('    }');
         lines.push(`    if (!$found) {`);
-        lines.push(`        $errors[] = new ValidationError('tags', ${phpString(action.errorMsg)});`);
+        lines.push(`        $errors[] = new SchemataValidationError('tags', ${phpString(action.errorMsg)});`);
         lines.push('    }');
         break;
       }
@@ -276,7 +277,7 @@ function emitKindFunctionPhp(
           for (const h of r.helpers) helpers.add(h);
           const msg = describePositionConstraint(pc, action.tagName);
           lines.push(`        if (count($t) > ${pc.index} && !(${r.expr})) {`);
-          lines.push(`            $errors[] = new ValidationError('tags', ${phpString(msg)});`);
+          lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(msg)});`);
           lines.push('        }');
         }
         lines.push('    }');
@@ -288,7 +289,7 @@ function emitKindFunctionPhp(
         lines.push('    foreach ($tags as $t) {');
         lines.push(`        if (!(${renderTagNameCheck(action.condTag)})) { continue; }`);
         lines.push(`        if (!(${cond})) {`);
-        lines.push(`            $errors[] = new ValidationError('tags', ${phpString(action.errorMsg)});`);
+        lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(action.errorMsg)});`);
         lines.push('        }');
         if (action.optChecks.length > 0) {
           for (const pc of action.optChecks) {
@@ -296,7 +297,7 @@ function emitKindFunctionPhp(
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.condTag);
             lines.push(`        if (count($t) > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`            $errors[] = new ValidationError('tags', ${phpString(msg)});`);
+            lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(msg)});`);
             lines.push('        }');
           }
         }
@@ -331,7 +332,7 @@ function emitKindFunctionPhp(
         lines.push('            break;');
         lines.push('        }');
         lines.push('        if (!$found) {');
-        lines.push(`            $errors[] = new ValidationError('tags', ${phpString(action.errorMsg)});`);
+        lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(action.errorMsg)});`);
         lines.push('        }');
         lines.push('    }');
 
@@ -344,7 +345,7 @@ function emitKindFunctionPhp(
             for (const h of r.helpers) helpers.add(h);
             const msg = describePositionConstraint(pc, action.matcher.tagName);
             lines.push(`        if (count($t) > ${pc.index} && !(${r.expr})) {`);
-            lines.push(`            $errors[] = new ValidationError('tags', ${phpString(msg)});`);
+            lines.push(`            $errors[] = new SchemataValidationError('tags', ${phpString(msg)});`);
             lines.push('        }');
           }
           lines.push('    }');
@@ -376,7 +377,7 @@ function emitKindFunctionPhp(
         }
         const orExpr = varNames.join(' || ');
         lines.push(`    if (!(${orExpr})) {`);
-        lines.push(`        $errors[] = new ValidationError('tags', ${phpString(action.errorMsg)});`);
+        lines.push(`        $errors[] = new SchemataValidationError('tags', ${phpString(action.errorMsg)});`);
         lines.push('    }');
         break;
       }
@@ -409,8 +410,8 @@ function emitPhpFile(
     '',
   ];
 
-  // ValidationError class
-  lines.push('class ValidationError {');
+  // SchemataValidationError class
+  lines.push('class SchemataValidationError {');
   lines.push('    public string $path;');
   lines.push('    public string $message;');
   lines.push('');

@@ -159,7 +159,9 @@ export function planKindValidator(shape: KindShape): ValidatorAction[] | undefin
     const errorMsg = group.errorMessage ?? `tags must include at least one of: ${tagNames}`;
     actions.push({ type: 'any_of_group', matchers, errorMsg });
 
-    // Optional position validation for each alternative in the group
+    // Optional position validation for each alternative in the group.
+    // NOTE: these are emitted as standalone validate_optional_positions actions keyed by tagName.
+    // If multiple alternatives share a tagName, the checks merge — correct only when tagNames are distinct.
     for (const req of group.requirements) {
       const optChecks = getOptionalPositionChecks(req);
       if (optChecks.length > 0) {
@@ -190,10 +192,17 @@ export function buildTagMatcher(req: TagRequirement): TagMatcher {
     }
   }
 
+  // When additionalItems is false and maxItems is not explicitly set,
+  // derive maxItems from the number of defined positions.
+  let maxItems = req.maxItems;
+  if (maxItems === undefined && !req.additionalItems && req.positions.length > 0) {
+    maxItems = Math.max(...req.positions.map(p => p.index)) + 1;
+  }
+
   return {
     tagName: req.tagName,
     minItems: req.minItems,
-    maxItems: req.maxItems,
+    maxItems,
     positionChecks,
   };
 }

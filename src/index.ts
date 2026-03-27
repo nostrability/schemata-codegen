@@ -382,11 +382,12 @@ function main(): void {
 
   // --- C Validators ---
   if (args.cValidatorsOut) {
-    const { header, source } = emitCValidators(kindShapes, args.cApi);
-    writeFileSync(args.cValidatorsOut, source);
     const hPath = args.cValidatorsOut.endsWith('.c')
       ? args.cValidatorsOut.replace(/\.c$/, '.h')
       : args.cValidatorsOut + '.h';
+    const hBasename = basename(hPath);
+    const { header, source } = emitCValidators(kindShapes, args.cApi, hBasename);
+    writeFileSync(args.cValidatorsOut, source);
     writeFileSync(hPath, header);
 
     const fnCount = (source.match(/int schemata_validate_kind_\d+\(/g) || []).length;

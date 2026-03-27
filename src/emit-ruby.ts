@@ -63,7 +63,7 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       };
     }
     case 'regex': {
-      return { expr: `${varExpr}.match?(/${escapeRubyRegex(check.pattern)}/)`, helpers };
+      return { expr: `${varExpr}.match?(Regexp.new(${rubyString(check.pattern)}))`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -159,13 +159,6 @@ function renderTagMatcherRuby(
 /** Produce a single-quoted Ruby string, escaping ' and \ */
 function rubyString(s: string): string {
   return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
-}
-
-/** Escape special chars for Ruby regex literal (inside /.../) */
-function escapeRubyRegex(pattern: string): string {
-  // JSON Schema regex anchors map directly to Ruby regex
-  // Just pass through — Ruby regex syntax is close to PCRE/JS
-  return pattern;
 }
 
 // --- Main emitter ---

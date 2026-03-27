@@ -83,9 +83,9 @@ describe('emitPhpValidators', () => {
     assert.ok(output.startsWith('<?php'));
   });
 
-  it('generates class ValidationError', () => {
+  it('generates class SchemataValidationError', () => {
     const output = emitPhpValidators([kind9735]);
-    assert.ok(output.includes('class ValidationError {'));
+    assert.ok(output.includes('class SchemataValidationError {'));
     assert.ok(output.includes('public string $path;'));
     assert.ok(output.includes('public string $message;'));
     assert.ok(output.includes('public function __construct(string $path, string $message)'));
@@ -168,10 +168,10 @@ describe('emitPhpValidators', () => {
     assert.ok(output.includes('count($t) <') || output.includes('count($t) >='));
   });
 
-  it('uses $errors array and new ValidationError', () => {
+  it('uses $errors array and new SchemataValidationError', () => {
     const output = emitPhpValidators([kind9735]);
     assert.ok(output.includes('$errors = [];'));
-    assert.ok(output.includes("$errors[] = new ValidationError('tags'"));
+    assert.ok(output.includes("$errors[] = new SchemataValidationError('tags'"));
     assert.ok(output.includes('return $errors;'));
   });
 
