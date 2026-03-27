@@ -239,6 +239,12 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('content must be a string'));
   });
 
+  it('emits tags-required error in validateEvent', () => {
+    const output = emitValidatorsFile([], [kind9735]);
+    assert.ok(output.includes('event.tags === undefined'));
+    assert.ok(output.includes('tags is required'));
+  });
+
   it('emits wrong-type error for tags in validateEvent', () => {
     const output = emitValidatorsFile([], [kind9735]);
     assert.ok(output.includes('tags must be an array'));

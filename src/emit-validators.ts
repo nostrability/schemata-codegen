@@ -339,7 +339,9 @@ function emitEventDispatch(
 
   // Tag dispatch — validate tag element types, then dispatch
   if (sorted.length > 0) {
-    lines.push('  if (Array.isArray(event.tags)) {');
+    lines.push('  if (event.tags === undefined) {');
+    lines.push('    errors.push({ path: "tags", message: "tags is required" });');
+    lines.push('  } else if (Array.isArray(event.tags)) {');
     lines.push('    const tags: string[][] = [];');
     lines.push('    for (let i = 0; i < event.tags.length; i++) {');
     lines.push('      const t = event.tags[i];');
@@ -351,7 +353,7 @@ function emitEventDispatch(
     lines.push('      }');
     lines.push('    }');
     lines.push('    errors.push(...validateKindTags(kind, tags));');
-    lines.push('  } else if (event.tags !== undefined && !Array.isArray(event.tags)) {');
+    lines.push('  } else {');
     lines.push('    errors.push({ path: "tags", message: "tags must be an array" });');
     lines.push('  }');
   }
