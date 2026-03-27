@@ -1,6 +1,6 @@
 {
   "name": "@nostrability/schemata-codegen",
-  "version": "0.4.0",
+  "version": "0.1.0",
   "description": "Nostr-aware code generator for schemata schemas",
   "type": "module",
   "main": "dist/index.js",

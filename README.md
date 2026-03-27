@@ -1,6 +1,6 @@
 # schemata-codegen
 
-Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed code. Currently generates TypeScript readonly tuple types for all 155 tag schemas.
+Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed TypeScript code — tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages.
 
 ## How it fits in the schemata ecosystem
 
@@ -24,22 +24,40 @@ schemata-codegen takes a different approach: instead of generically parsing JSON
 ```bash
 npm install
 npm run build
-npm run generate          # reads ../schemata/dist, writes tags.d.ts
 
-# or point at a different dist/ location:
-node dist/index.js --schemas /path/to/schemata/dist --out tags.d.ts
+# Generate all outputs:
+node dist/index.js --schemas ../schemata/dist --all
+
+# Or pick specific outputs:
+node dist/index.js --schemas ../schemata/dist --out tags.d.ts --kinds kinds.d.ts --validators validators.ts
 ```
 
-## What it generates (v0.1 — tag tuples)
+## CLI flags
 
-155 tag schemas classified into 5 patterns:
+| Flag | Output | Description |
+|------|--------|-------------|
+| `--out` | `tags.d.ts` | Tag tuple types (always generated) |
+| `--kinds` | `kinds.d.ts` | Kind event interfaces with literal discriminants |
+| `--validators` | `validators.ts` | Zero-dependency runtime tag validators |
+| `--registry` | `kind-registry.ts` | Kind metadata (name, NIP, required tags, category) |
+| `--errors` | `error-messages.ts` | Human-friendly error messages from schema errorMessage fields |
+| `--ajv-schemas` | `ajv-schemas/` | AJV-ready JSON schemas (see [AJV schemas](#ajv-ready-schemas-ajv-schemas) below) |
+| `--all` | All of the above | Generate everything |
+
+**No generated outputs are committed.** Run `--all` or individual flags to produce them locally. Tests verify correctness by generating and compiling the outputs during CI.
+
+## Generated outputs
+
+### Tag tuple types (`tags.d.ts`)
+
+156 tag schemas classified into 5 patterns:
 
 ```typescript
 // fixed_tuple (95 tags) — exact length, typed positions
 export type AmountTag = readonly ["amount", string];
 export type EmojiTag = readonly ["emoji", string, string];
 
-// optional_trailing (8 tags) — union of valid lengths
+// optional_trailing (9 tags) — union of valid lengths
 export type RTag =
   | readonly ["r", string]
   | readonly ["r", string, "read" | "write"];
@@ -48,12 +66,6 @@ export type RTag =
 export type TTag = readonly ["t", string, ...string[]];
 
 // discriminated_union (2 tags) — oneOf with named variants
-export type ETagVariant1 =
-  | readonly ["e", string, string | "", "reply" | "root"]
-  | readonly ["e", string, string | "", "reply" | "root", string];
-export type ETagVariant2 =
-  | readonly ["e", string]
-  | readonly ["e", string, string];
 export type ETag = ETagVariant1 | ETagVariant2;
 
 // structured_metadata (4 tags) — open-tail with contains constraints
@@ -61,16 +73,71 @@ export type ImetaTag = readonly ["imeta", string, ...string[]];
 // Runtime: must contain entries matching: ^url https?://\S+$, ^m (image/...)$
 ```
 
-The generated `tags.d.ts` compiles clean under `tsc --strict --noEmit`. Zero silent fallbacks to `string[]`.
+### Kind event interfaces (`kinds.d.ts`)
+
+177 per-kind interfaces with literal `kind` discriminants, a `NostrEvent` discriminated union, and `KNOWN_KINDS` mapping.
+
+```typescript
+export interface Kind10002Event {
+  readonly kind: 10002;
+  readonly content: string;
+  readonly tags: string[][];
+  // ...
+}
+
+export type NostrEvent = Kind0Event | Kind1Event | ... | Kind40000Event;
+```
+
+### Runtime validators (`validators.ts`)
+
+132 kind-level validators and 3 tag-level validators. Zero dependencies — plain functions on `string[][]`. Works in any TypeScript/JavaScript environment without AJV.
+
+```typescript
+import { validateKind9735Tags, validateKindTags } from './validators.js';
+
+const errors = validateKind9735Tags(event.tags);
+// Or dispatch by kind number:
+const errors = validateKindTags(event.kind, event.tags);
+```
+
+### Kind registry (`kind-registry.ts`)
+
+Structured metadata for all 177 kinds — kind number, NIP, human-readable name, required tags, category.
+
+```typescript
+import { KIND_NAMES, KIND_REGISTRY } from './kind-registry.js';
+
+KIND_NAMES[9735]  // "Zap Receipt (NIP-57)"
+KIND_REGISTRY[9735].requiredTags  // ["p", "bolt11", "description"]
+```
+
+### Error messages (`error-messages.ts`)
+
+Human-friendly error messages extracted from schema `errorMessage` fields. Base field messages (shared across all kinds) and per-kind messages.
+
+```typescript
+import { BASE_ERROR_MESSAGES, KIND_ERROR_MESSAGES } from './error-messages.js';
+
+BASE_ERROR_MESSAGES["pubkey"]  // "pubkey must be a secp256k1 public key"
+KIND_ERROR_MESSAGES[7]  // [{ keyword: "...", message: "kind must equal 7" }, ...]
+```
+
+### AJV-ready schemas (`ajv-schemas/`)
+
+Pre-processed JSON schemas with nested `$schema`, `$id`, and `errorMessage` fields stripped at build time. These can be passed directly to `ajv.compile()` without runtime preprocessing.
+
+Consumers who use AJV (sherlock, nostr-watch, nostria) can generate these once and load them instead of stripping fields at runtime.
+
+```bash
+node dist/index.js --schemas ../schemata/dist --ajv-schemas ./ajv-schemas
+
+# Then in your code:
+import kind7Schema from './ajv-schemas/kind-7.json';
+const validate = ajv.compile(kind7Schema);  // No preprocessing needed
+```
 
 ## Tests
 
 ```bash
-npm test    # 19 tests — extraction, emission, tsc compilation, coverage
+npm test    # 71 tests — extraction, emission, tsc compilation, runtime validation
 ```
-
-## Roadmap
-
-- **v0.2**: Kind event interfaces with literal `kind` constants from `dist/nips/*/kind-*/schema.json`
-- **v0.3**: Runtime tag validators generated from `contains` and `if/then` constraints
-- **v0.4**: IR abstraction + second language target (when requested)
