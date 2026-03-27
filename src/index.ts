@@ -15,6 +15,7 @@ import { emitValidatorsFile } from './emit-validators.js';
 import { emitRegistryFile } from './emit-registry.js';
 import { extractErrorMessages, emitErrorMessagesFile } from './emit-errors.js';
 import { writeAjvSchemas } from './emit-ajv.js';
+import { planKindValidator } from './plan-validators.js';
 
 import type { TagShape } from './patterns.js';
 import type { KindShape } from './kind-types.js';
@@ -27,6 +28,7 @@ interface CliArgs {
   registryOut?: string;
   errorsOut?: string;
   ajvSchemasDir?: string;
+  dumpPlan?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -37,6 +39,7 @@ function parseArgs(argv: string[]): CliArgs {
   let registryOut: string | undefined;
   let errorsOut: string | undefined;
   let ajvSchemasDir: string | undefined;
+  let dumpPlan: string | undefined;
   let all = false;
 
   for (let i = 2; i < argv.length; i++) {
@@ -54,6 +57,8 @@ function parseArgs(argv: string[]): CliArgs {
       errorsOut = argv[++i];
     } else if (argv[i] === '--ajv-schemas' && argv[i + 1]) {
       ajvSchemasDir = argv[++i];
+    } else if (argv[i] === '--dump-plan' && argv[i + 1]) {
+      dumpPlan = argv[++i];
     } else if (argv[i] === '--all') {
       all = true;
     } else if (argv[i] === '--help' || argv[i] === '-h') {
@@ -67,6 +72,7 @@ function parseArgs(argv: string[]): CliArgs {
       console.log('  --registry     Kind metadata registry output file');
       console.log('  --errors       Error message map output file');
       console.log('  --ajv-schemas  AJV-ready schemas output directory');
+      console.log('  --dump-plan    Dump ValidatorAction[] plan as JSON');
       console.log('  --all          Generate all output files');
       process.exit(0);
     }
@@ -85,7 +91,7 @@ function parseArgs(argv: string[]): CliArgs {
     ajvSchemasDir = ajvSchemasDir ?? 'ajv-schemas';
   }
 
-  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir };
+  return { schemasDir, tagsOut, kindsOut, validatorsOut, registryOut, errorsOut, ajvSchemasDir, dumpPlan };
 }
 
 interface Result<T> {
@@ -102,7 +108,7 @@ function main(): void {
   const args = parseArgs(process.argv);
 
   // Determine if we need kind extraction for any output
-  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir);
+  const needKinds = !!(args.kindsOut || args.validatorsOut || args.registryOut || args.errorsOut || args.ajvSchemasDir || args.dumpPlan);
 
   // --- Tag extraction (always runs) ---
   const tagDir = join(args.schemasDir, '@', 'tag');
@@ -258,6 +264,19 @@ function main(): void {
   if (args.ajvSchemasDir) {
     const count = writeAjvSchemas(kindSchemas, args.ajvSchemasDir);
     console.log(`AJV:      ${count} schemas → ${args.ajvSchemasDir}/`);
+  }
+
+  // --- Dump Plan ---
+  if (args.dumpPlan) {
+    const plans: Record<number, unknown> = {};
+    for (const shape of kindShapes) {
+      const actions = planKindValidator(shape);
+      if (actions) {
+        plans[shape.kindNumber] = actions;
+      }
+    }
+    writeFileSync(args.dumpPlan, JSON.stringify(plans, null, 2) + '\n');
+    console.log(`\nPlan: ${Object.keys(plans).length} kinds → ${args.dumpPlan}`);
   }
 
 }
