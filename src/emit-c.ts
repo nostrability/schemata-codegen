@@ -164,10 +164,7 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       }
       const fn = 'schemata_check_chars_in';
       helpers.add(fn);
-      const args = [varExpr, JSON.stringify(check.charset)];
-      if (check.min !== undefined) args.push(String(check.min));
-      if (check.max !== undefined) args.push(String(check.max));
-      return { expr: `${fn}(${args.join(', ')})`, helpers };
+      return { expr: `${fn}(${varExpr}, ${JSON.stringify(check.charset)}, ${check.min ?? -1}, ${check.max ?? -1})`, helpers };
     }
     case 'regex': {
       helpers.add('schemata_check_regex');

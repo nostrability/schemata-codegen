@@ -181,6 +181,18 @@ function parseArgs(argv: string[]): CliArgs {
     registryOut = registryOut ?? 'kind-registry.ts';
     errorsOut = errorsOut ?? 'error-messages.ts';
     ajvSchemasDir = ajvSchemasDir ?? 'ajv-schemas';
+    cValidatorsOut = cValidatorsOut ?? 'validators.c';
+    rustValidatorsOut = rustValidatorsOut ?? 'validators.rs';
+    goValidatorsOut = goValidatorsOut ?? 'validators.go';
+    pythonValidatorsOut = pythonValidatorsOut ?? 'validators.py';
+    kotlinValidatorsOut = kotlinValidatorsOut ?? 'Validators.kt';
+    javaValidatorsOut = javaValidatorsOut ?? 'SchemataValidators.java';
+    swiftValidatorsOut = swiftValidatorsOut ?? 'Validators.swift';
+    dartValidatorsOut = dartValidatorsOut ?? 'validators.dart';
+    phpValidatorsOut = phpValidatorsOut ?? 'validators.php';
+    csharpValidatorsOut = csharpValidatorsOut ?? 'Validators.cs';
+    cppValidatorsOut = cppValidatorsOut ?? 'validators.hpp';
+    rubyValidatorsOut = rubyValidatorsOut ?? 'validators.rb';
   }
 
   return {
