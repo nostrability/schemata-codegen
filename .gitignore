@@ -1,3 +1,12 @@
 node_modules/
 dist/
 dist-tests/
+dist-validators/
+
+# Generated outputs (run --all to produce)
+tags.d.ts
+kinds.d.ts
+validators.ts
+kind-registry.ts
+error-messages.ts
+ajv-schemas/

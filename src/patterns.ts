@@ -16,6 +16,7 @@
 
 export interface SchemaNode {
   $schema?: string;
+  $id?: string;
   type?: string | string[];
   const?: string | number;
   enum?: (string | number)[];
@@ -35,6 +36,11 @@ export interface SchemaNode {
   errorMessage?: Record<string, string>;
   definitions?: Record<string, SchemaNode>;
   format?: string;
+  properties?: Record<string, SchemaNode>;
+  required?: string[];
+  additionalProperties?: boolean | SchemaNode;
+  if?: SchemaNode;
+  then?: SchemaNode;
 }
 
 // --- Tag pattern types ---
@@ -98,8 +104,10 @@ export interface TagShape {
   additionalItems: boolean;
   /** Variants (for discriminated_union pattern only) */
   variants?: TagVariant[];
-  /** Contains constraints (for structured_metadata) */
+  /** Contains pattern constraints (for structured_metadata) */
   containsPatterns?: string[];
+  /** Contains const constraints (for structured_metadata, e.g. mls_extensions) */
+  containsConstants?: string[];
   /** Additional items schema (for structured_metadata with typed additionalItems) */
   additionalItemsSchema?: SchemaNode;
 }

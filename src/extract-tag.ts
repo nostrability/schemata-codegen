@@ -188,23 +188,23 @@ function extractStructuredMetadata(
     throw new Error(`No const tag name found at position 0 in ${fileName}`);
   }
 
-  // Extract contains patterns
+  // Extract contains patterns and constants
   const containsPatterns: string[] = [];
-  if (extraAllOf) {
-    for (const entry of extraAllOf) {
+  const containsConstants: string[] = [];
+
+  function collectContains(entries: SchemaNode[]) {
+    for (const entry of entries) {
       if (entry.contains?.pattern) {
         containsPatterns.push(entry.contains.pattern);
       }
-    }
-  }
-  // Also check structural.allOf for contains
-  if (structural.allOf) {
-    for (const entry of structural.allOf) {
-      if (entry.contains?.pattern) {
-        containsPatterns.push(entry.contains.pattern);
+      if (typeof entry.contains?.const === 'string') {
+        containsConstants.push(entry.contains.const);
       }
     }
   }
+
+  // extraAllOf already includes structural.allOf contains (merged by unwrapTagSchema)
+  if (extraAllOf) collectContains(extraAllOf);
 
   // Get additionalItems schema if typed
   const additionalItemsSchema =
@@ -220,6 +220,7 @@ function extractStructuredMetadata(
     minItems,
     additionalItems: true,
     containsPatterns,
+    containsConstants: containsConstants.length > 0 ? containsConstants : undefined,
     additionalItemsSchema,
   };
 }

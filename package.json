@@ -1,6 +1,6 @@
 {
   "name": "@nostrability/schemata-codegen",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Nostr-aware code generator for schemata schemas",
   "type": "module",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.test.json",
-    "generate": "node dist/index.js --schemas ../schemata/dist",
+    "generate": "npm run build && node dist/index.js --schemas ../schemata/dist --all",
     "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/*.test.js",
     "check": "tsc --noEmit"
   },
