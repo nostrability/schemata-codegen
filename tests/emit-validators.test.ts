@@ -193,6 +193,40 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('content must match pattern'));
   });
 
+  it('emits null/object guard in validateEvent', () => {
+    const output = emitValidatorsFile([], [kind9735]);
+    assert.ok(output.includes('event == null'));
+    assert.ok(output.includes('typeof event !== "object"'));
+    assert.ok(output.includes('event must be a non-null object'));
+  });
+
+  it('emits tag element type filtering in validateEvent', () => {
+    const output = emitValidatorsFile([], [kind9735]);
+    assert.ok(output.includes('.filter('));
+    assert.ok(output.includes('typeof v === "string"'));
+  });
+
+  it('emits wrong-type error for content in validateEvent', () => {
+    const contentKind: KindShape = {
+      kindNumber: 13,
+      nip: 'nip-59',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      tagsMaxItems: 0,
+      contentConstraints: { minLength: 1 },
+      category: 'bare',
+    };
+    const output = emitValidatorsFile([], [contentKind]);
+    assert.ok(output.includes('content must be a string'));
+  });
+
+  it('emits wrong-type error for tags in validateEvent', () => {
+    const output = emitValidatorsFile([], [kind9735]);
+    assert.ok(output.includes('tags must be an array'));
+  });
+
   it('emits validateEvent with content enum', () => {
     const enumKind: KindShape = {
       kindNumber: 100,
