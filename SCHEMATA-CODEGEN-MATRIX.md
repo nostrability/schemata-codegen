@@ -17,7 +17,7 @@ All emitters consume the same `ValidatorAction[]` IR from `plan-validators.ts` a
 | Swift | 5.0+ | `String` ranges, `contains(where:)` | `.swift` |
 | Dart | 2.0+ | `const` constructors, `codeUnits` | `.dart` |
 | PHP | 8.0+ | `match` expression, `str_starts_with` | `.php` |
-| C# | 8.0+ | `record` type, switch expression | `.cs` |
+| C# | 9.0+ | `record` type (9.0), switch expression (8.0) | `.cs` |
 | C++ | C++17 | `std::all_of`, `<algorithm>`, structured bindings | `.hpp` |
 | Ruby | 2.7+ | `Struct.new`, `match?`, `any?` | `.rb` |
 
@@ -58,7 +58,7 @@ All 12 emitters handle all 6 action types. No gaps.
 
 ## PatternCheck Support
 
-92%+ of schemata regex patterns classify as native checks, avoiding regex dependencies.
+A majority of schemata regex patterns (~74%, 23 of 31 in the test suite) classify as native checks, avoiding regex dependencies. The test enforces a >= 50% floor.
 
 | Pattern | Description | All 12? |
 |---------|-------------|---------|
@@ -72,7 +72,7 @@ All 12 emitters handle all 6 action types. No gaps.
 
 ## Regex Dependencies
 
-Regex is only imported when a kind schema requires a pattern that can't be classified as a native check (~8% of patterns).
+Regex is only imported when a kind schema requires a pattern that can't be classified as a native check (~26% of patterns).
 
 | Language | Regex Source | Import | Conditional? |
 |----------|-------------|--------|--------------|
@@ -197,7 +197,7 @@ Regex is only imported when a kind schema requires a pattern that can't be class
 
 | Emitter | Lines | Notes |
 |---------|-------|-------|
-| emit-c.ts | 684 | Largest: two adapter modes + dual-file output |
+| emit-c.ts | 681 | Largest: two adapter modes + dual-file output |
 | emit-go.ts | 620 | Statement-oriented style (found flags) |
 | emit-php.ts | 536 | Namespace-prefixed functions, verbose syntax |
 | emit-rust.ts | 479 | Three adapter modes |
