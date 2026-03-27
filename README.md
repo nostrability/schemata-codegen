@@ -1,5 +1,3 @@
-⚠️ Very Experimental ⚠️
-
 # schemata-codegen
 
 Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed TypeScript code — tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages.
@@ -17,7 +15,7 @@ The data packages give you access to raw schemas. The validators check whether a
 
 ## Why not use an existing JSON Schema code generator?
 
-Every existing generator (quicktype, typify, datamodel-codegen, Zod 4) fails on schemata's schemas. The features that make schemata valuable — tag tuple structure via `items`-as-array, `contains`, `if/then`, `oneOf` + `allOf` composition — are exactly what every generator chokes on. See [findings.md](https://github.com/nostrability/schemata/blob/main/findings.md) for the full assessment.
+Every existing generator ([quicktype](https://quicktype.io/), [typify](https://github.com/nicholasgasior/gojsonschema-typify), [datamodel-codegen](https://github.com/koxudaxi/datamodel-code-generator), [Zod 4](https://zod.dev/)) fails on schemata's schemas. The features that make schemata valuable — tag tuple structure via `items`-as-array, `contains`, `if/then`, `oneOf` + `allOf` composition — are exactly what every generator chokes on. See [findings.md](https://github.com/nostrability/schemata/blob/main/findings.md) for the full assessment.
 
 schemata-codegen takes a different approach: instead of generically parsing JSON Schema, it pattern-matches against the specific structural shapes schemata uses and fails loudly on anything unrecognized.
 
@@ -141,5 +139,5 @@ const validate = ajv.compile(kind7Schema);  // No preprocessing needed
 ## Tests
 
 ```bash
-npm test    # 71 tests — extraction, emission, tsc compilation, runtime validation
+npm test    # 85 tests — extraction, emission, tsc compilation, runtime validation
 ```
