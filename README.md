@@ -15,7 +15,7 @@ The data packages give you access to raw schemas. The validators check whether a
 
 ## Why not use an existing JSON Schema code generator?
 
-Every existing generator ([quicktype](https://quicktype.io/), [typify](https://github.com/nicholasgasior/gojsonschema-typify), [datamodel-codegen](https://github.com/koxudaxi/datamodel-code-generator), [Zod 4](https://zod.dev/)) fails on schemata's schemas. The features that make schemata valuable — tag tuple structure via `items`-as-array, `contains`, `if/then`, `oneOf` + `allOf` composition — are exactly what every generator chokes on. See [findings.md](https://github.com/nostrability/schemata/blob/main/findings.md) for the full assessment.
+Every existing generator ([quicktype](https://quicktype.io/), [typify](https://github.com/oxidecomputer/typify), [datamodel-codegen](https://github.com/koxudaxi/datamodel-code-generator), [Zod 4](https://zod.dev/)) fails on schemata's schemas. The features that make schemata valuable — tag tuple structure via `items`-as-array, `contains`, `if/then`, `oneOf` + `allOf` composition — are exactly what every generator chokes on.
 
 schemata-codegen takes a different approach: instead of generically parsing JSON Schema, it pattern-matches against the specific structural shapes schemata uses and fails loudly on anything unrecognized.
 
