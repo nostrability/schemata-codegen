@@ -51,8 +51,10 @@ export interface KindShape {
   /** anyOf tag groups: at least one tag from each group must be present */
   anyOfTagGroups: Array<{ requirements: TagRequirement[]; errorMessage?: string }>;
   tagsMinItems?: number;
+  tagsMaxItems?: number;
   contentConstraints?: {
     minLength?: number;
+    maxLength?: number;
     pattern?: string;
     description?: string;
     enumValues?: string[];
