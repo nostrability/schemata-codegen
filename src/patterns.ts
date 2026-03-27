@@ -24,6 +24,7 @@ export interface SchemaNode {
   description?: string;
   title?: string;
   minLength?: number;
+  maxLength?: number;
   minItems?: number;
   maxItems?: number;
   items?: SchemaNode | SchemaNode[];

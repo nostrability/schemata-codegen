@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { planKindValidator, planTagValidator, buildTagMatcher, buildValueCheck } from '../src/plan-validators.js';
+import { planKindValidator, planTagValidator, planContentChecks, buildTagMatcher, buildValueCheck } from '../src/plan-validators.js';
 import type { KindShape } from '../src/kind-types.js';
 import type { TagShape } from '../src/patterns.js';
 
@@ -288,5 +288,104 @@ describe('planTagValidator', () => {
     const actions = planTagValidator(shape);
     assert.ok(actions);
     assert.ok(actions.some(a => a.type === 'check_const_contains'));
+  });
+});
+
+describe('planKindValidator check_max_tags', () => {
+  it('emits check_max_tags when tagsMaxItems is set', () => {
+    const sealKind: KindShape = {
+      kindNumber: 13,
+      nip: 'nip-59',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      tagsMaxItems: 0,
+      category: 'bare',
+    };
+    const actions = planKindValidator(sealKind);
+    assert.ok(actions);
+    const maxAction = actions.find(a => a.type === 'check_max_tags');
+    assert.ok(maxAction);
+    assert.ok(maxAction.type === 'check_max_tags');
+    assert.strictEqual(maxAction.max, 0);
+  });
+
+  it('does not emit check_max_tags when tagsMaxItems is absent', () => {
+    const actions = planKindValidator(conditionalKind);
+    assert.ok(actions);
+    assert.ok(!actions.some(a => a.type === 'check_max_tags'));
+  });
+});
+
+describe('planContentChecks', () => {
+  it('returns undefined when no content constraints', () => {
+    assert.strictEqual(planContentChecks(bareKind), undefined);
+  });
+
+  it('plans minLength content check', () => {
+    const shape: KindShape = {
+      ...bareKind,
+      contentConstraints: { minLength: 1 },
+    };
+    const actions = planContentChecks(shape);
+    assert.ok(actions);
+    assert.strictEqual(actions.length, 1);
+    assert.strictEqual(actions[0].type, 'check_content_min_length');
+    assert.ok(actions[0].type === 'check_content_min_length');
+    assert.strictEqual(actions[0].min, 1);
+  });
+
+  it('plans maxLength content check', () => {
+    const shape: KindShape = {
+      ...bareKind,
+      contentConstraints: { maxLength: 100 },
+    };
+    const actions = planContentChecks(shape);
+    assert.ok(actions);
+    assert.strictEqual(actions.length, 1);
+    assert.strictEqual(actions[0].type, 'check_content_max_length');
+    assert.ok(actions[0].type === 'check_content_max_length');
+    assert.strictEqual(actions[0].max, 100);
+  });
+
+  it('plans pattern content check', () => {
+    const shape: KindShape = {
+      ...bareKind,
+      contentConstraints: { pattern: '^[a-f0-9]{64}$' },
+    };
+    const actions = planContentChecks(shape);
+    assert.ok(actions);
+    assert.strictEqual(actions.length, 1);
+    assert.strictEqual(actions[0].type, 'check_content_pattern');
+    assert.ok(actions[0].type === 'check_content_pattern');
+    assert.strictEqual(actions[0].regex, '^[a-f0-9]{64}$');
+    assert.strictEqual(actions[0].native.op, 'hex');
+  });
+
+  it('plans enum content check', () => {
+    const shape: KindShape = {
+      ...bareKind,
+      contentConstraints: { enumValues: ['', 'approve', 'reject'] },
+    };
+    const actions = planContentChecks(shape);
+    assert.ok(actions);
+    assert.strictEqual(actions.length, 1);
+    assert.strictEqual(actions[0].type, 'check_content_enum');
+    assert.ok(actions[0].type === 'check_content_enum');
+    assert.deepStrictEqual(actions[0].values, ['', 'approve', 'reject']);
+  });
+
+  it('plans multiple content checks together', () => {
+    const shape: KindShape = {
+      ...bareKind,
+      contentConstraints: { minLength: 1, maxLength: 500, pattern: '^.+$' },
+    };
+    const actions = planContentChecks(shape);
+    assert.ok(actions);
+    assert.strictEqual(actions.length, 3);
+    assert.strictEqual(actions[0].type, 'check_content_min_length');
+    assert.strictEqual(actions[1].type, 'check_content_max_length');
+    assert.strictEqual(actions[2].type, 'check_content_pattern');
   });
 });

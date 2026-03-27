@@ -150,4 +150,63 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('validateKind9735Tags'));
     assert.ok(output.includes('validateKindTags'));
   });
+
+  it('emits check_max_tags for kind with tagsMaxItems', () => {
+    const sealKind: KindShape = {
+      kindNumber: 13,
+      nip: 'nip-59',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      tagsMaxItems: 0,
+      category: 'bare',
+    };
+    const output = emitValidatorsFile([], [sealKind]);
+    assert.ok(output.includes('validateKind13Tags'));
+    assert.ok(output.includes('tags.length > 0'));
+    assert.ok(output.includes('at most 0 item(s)'));
+  });
+
+  it('emits validateEvent function', () => {
+    const output = emitValidatorsFile([], [kind9735]);
+    assert.ok(output.includes('export function validateEvent'));
+    assert.ok(output.includes('validateKindTags'));
+  });
+
+  it('emits content constraint checks in validateEvent', () => {
+    const contentKind: KindShape = {
+      kindNumber: 4,
+      nip: 'nip-04',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      tagsMinItems: 1,
+      contentConstraints: { minLength: 1, pattern: '^[a-f0-9]{64}$' },
+      category: 'conditional',
+    };
+    const output = emitValidatorsFile([], [contentKind]);
+    assert.ok(output.includes('validateEvent'));
+    assert.ok(output.includes('content.length < 1'));
+    assert.ok(output.includes('content must be at least 1 character(s)'));
+    assert.ok(output.includes('content must match pattern'));
+  });
+
+  it('emits validateEvent with content enum', () => {
+    const enumKind: KindShape = {
+      kindNumber: 100,
+      nip: 'nip-custom',
+      requiredTags: [],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      contentConstraints: { enumValues: ['', 'approve'] },
+      category: 'bare',
+    };
+    const output = emitValidatorsFile([], [enumKind]);
+    assert.ok(output.includes('validateEvent'));
+    assert.ok(output.includes('"approve"'));
+    assert.ok(output.includes('content must be one of'));
+  });
 });
