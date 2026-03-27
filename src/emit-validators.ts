@@ -344,6 +344,7 @@ function emitEventDispatch(
     lines.push('      const t = event.tags[i];');
     lines.push('      if (!Array.isArray(t) || !t.every(v => typeof v === "string")) {');
     lines.push('        errors.push({ path: `tags[${i}]`, message: `tags[${i}] must be an array of strings` });');
+    lines.push('        tags.push([]);');
     lines.push('      } else {');
     lines.push('        tags.push(t as string[]);');
     lines.push('      }');
