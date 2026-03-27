@@ -134,6 +134,31 @@ const imetaSchema: SchemaNode = {
   }],
 };
 
+// 6. Structured metadata with contains.const: mls_extensions tag
+const mlsExtensionsSchema: SchemaNode = {
+  allOf: [{
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    title: 'MLS Extensions',
+    allOf: [
+      { allOf: [BASE_TAG] },
+      {
+        type: 'array',
+        minItems: 3,
+        uniqueItems: true,
+        items: [
+          { const: 'mls_extensions' },
+          { type: 'string', pattern: '^0x[0-9a-f]{4}$', description: 'MLS extension identifier' },
+        ],
+        additionalItems: { type: 'string', pattern: '^0x[0-9a-f]{4}$' },
+        allOf: [
+          { contains: { const: '0xf2ee' }, errorMessage: { contains: 'must include 0xf2ee' } },
+          { contains: { const: '0x000a' }, errorMessage: { contains: 'must include 0x000a' } },
+        ],
+      },
+    ],
+  }],
+};
+
 describe('extractTag', () => {
   it('extracts fixed-length tuple (amount)', () => {
     const shape = extractTag(amountSchema, 'amount');
@@ -195,5 +220,15 @@ describe('extractTag', () => {
     assert.equal(shape.additionalItems, true);
     assert.ok(shape.containsPatterns);
     assert.ok(shape.containsPatterns!.length >= 2);
+  });
+
+  it('extracts containsConstants for mls_extensions', () => {
+    const shape = extractTag(mlsExtensionsSchema, 'mls_extensions');
+    assert.equal(shape.pattern, 'structured_metadata');
+    assert.equal(shape.tagName, 'mls_extensions');
+    assert.ok(shape.containsConstants);
+    assert.deepEqual(shape.containsConstants, ['0xf2ee', '0x000a']);
+    // Should not have containsPatterns (no pattern in contains)
+    assert.equal(shape.containsPatterns!.length, 0);
   });
 });
