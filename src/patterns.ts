@@ -39,6 +39,7 @@ export interface SchemaNode {
   properties?: Record<string, SchemaNode>;
   required?: string[];
   additionalProperties?: boolean | SchemaNode;
+  not?: SchemaNode;
   if?: SchemaNode;
   then?: SchemaNode;
 }

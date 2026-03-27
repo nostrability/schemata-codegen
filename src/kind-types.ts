@@ -48,6 +48,8 @@ export interface KindShape {
   requiredTags: TagRequirement[];
   perItemConditionals: PerItemConditional[];
   arrayLevelConditionals: ArrayLevelConditional[];
+  /** anyOf tag groups: at least one tag from each group must be present */
+  anyOfTagGroups: Array<{ requirements: TagRequirement[]; errorMessage?: string }>;
   tagsMinItems?: number;
   contentConstraints?: {
     minLength?: number;

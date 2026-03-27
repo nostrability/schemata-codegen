@@ -69,6 +69,7 @@ const kind9735: KindShape = {
   ],
   perItemConditionals: [],
   arrayLevelConditionals: [],
+  anyOfTagGroups: [],
   category: 'multi-contains',
 };
 
@@ -78,6 +79,7 @@ const bareKind: KindShape = {
   requiredTags: [],
   perItemConditionals: [],
   arrayLevelConditionals: [],
+  anyOfTagGroups: [],
   category: 'bare',
 };
 

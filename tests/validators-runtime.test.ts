@@ -169,4 +169,134 @@ describe('validators runtime', () => {
 
     assert.equal(okErrors.length, 0, `Should pass, got: ${JSON.stringify(okErrors)}`);
   });
+
+  // --- P1a regression: additionalItems:false must cap tag length ---
+
+  it('rejects overlong p tag on kind 4 (additionalItems:false)', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    // kind 4 p tag schema: items = [const "p", hex64, petname], additionalItems: false
+    // So max length should be 3. A 4-element p tag should fail.
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64), 'petname', 'extra-element'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.ok(errors.length > 0, 'should reject 4-element p tag when additionalItems:false');
+  });
+
+  it('accepts valid 2-element p tag on kind 4', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64)],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept valid p tag, got: ${JSON.stringify(errors)}`);
+  });
+
+  it('accepts valid 3-element p tag on kind 4', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64), 'alice'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept valid p tag with petname, got: ${JSON.stringify(errors)}`);
+  });
+
+  // --- P1b regression: optional positions with enum constraints must be validated ---
+
+  it('rejects invalid r tag marker on kind 10002', () => {
+    if (!validators?.validateKind10002Tags) { console.log('Skipping'); return; }
+
+    // kind 10002 r tag: items[2] has enum ["read", "write"], optional (minItems=2)
+    // "bogus" is not in the enum and should fail
+    const errors = validators.validateKind10002Tags([
+      ['r', 'wss://relay.example.com', 'bogus'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.ok(errors.length > 0, 'should reject r tag with invalid 3rd item');
+  });
+
+  it('accepts valid r tag with read marker on kind 10002', () => {
+    if (!validators?.validateKind10002Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind10002Tags([
+      ['r', 'wss://relay.example.com', 'read'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept valid r tag with read marker, got: ${JSON.stringify(errors)}`);
+  });
+
+  it('accepts valid r tag with write marker on kind 10002', () => {
+    if (!validators?.validateKind10002Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind10002Tags([
+      ['r', 'wss://relay.example.com', 'write'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept valid r tag with write marker, got: ${JSON.stringify(errors)}`);
+  });
+
+  // --- P2 regression: anyOf patterns in tags.allOf ---
+
+  it('rejects malformed e tag on kind 4 when present (optional-but-constrained)', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    // kind 4 has anyOf: [not contains "e", contains valid "e" tag]
+    // So if an "e" tag IS present, it must have at least 2 items with hex64 event id
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64)],
+      ['e'],  // malformed — missing event_id
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.ok(errors.length > 0, 'should reject e tag with only 1 element when 2 required');
+  });
+
+  it('accepts kind 4 without e tag (optional tag absent)', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64)],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept kind 4 without e tag, got: ${JSON.stringify(errors)}`);
+  });
+
+  it('accepts kind 4 with valid e tag', () => {
+    if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind4Tags([
+      ['p', 'a'.repeat(64)],
+      ['e', 'b'.repeat(64)],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept kind 4 with valid e tag, got: ${JSON.stringify(errors)}`);
+  });
+
+  it('rejects kind 777 without any filter tag (any-of-group)', () => {
+    if (!validators?.validateKind777Tags) { console.log('Skipping'); return; }
+
+    // kind 777 requires at least one of: k, authors, ids, tag, limit, since, until, search
+    // Having cmd + a random non-filter tag should satisfy minItems but fail the anyOf check
+    const errors = validators.validateKind777Tags([
+      ['cmd', 'REQ'],
+      ['x', 'something'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.ok(errors.length > 0, 'should reject kind 777 without any filter tag');
+    assert.ok(errors.some(e => e.message.includes('at least one')),
+      `should mention "at least one", got: ${JSON.stringify(errors)}`);
+  });
+
+  it('accepts kind 777 with a filter tag', () => {
+    if (!validators?.validateKind777Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind777Tags([
+      ['cmd', 'REQ'],
+      ['k', '1'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept kind 777 with k filter tag, got: ${JSON.stringify(errors)}`);
+  });
 });

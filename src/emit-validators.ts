@@ -69,6 +69,68 @@ function emitTagValidator(shape: TagShape): string | undefined {
 // --- Kind-level validators ---
 
 /**
+ * Emit a single position constraint check as a boolean expression string.
+ * Returns undefined if the position has no constraints.
+ */
+function emitSinglePositionCheck(
+  pos: import('./patterns.js').PositionType,
+  tagVar: string,
+): string | undefined {
+  const checks: string[] = [];
+
+  if (pos.anyOf && pos.anyOf.length > 0) {
+    const altChecks: string[] = [];
+    for (const alt of pos.anyOf) {
+      if (alt.constValue !== undefined) {
+        altChecks.push(`${tagVar}[${pos.index}] === ${JSON.stringify(alt.constValue)}`);
+      } else if (alt.enumValues && alt.enumValues.length > 0) {
+        const vals = alt.enumValues.map(v => JSON.stringify(v)).join(', ');
+        altChecks.push(`[${vals}].includes(${tagVar}[${pos.index}] ?? "")`);
+      } else if (alt.pattern) {
+        altChecks.push(`new RegExp(${JSON.stringify(alt.pattern)}).test(${tagVar}[${pos.index}] ?? "")`);
+      }
+    }
+    if (altChecks.length > 0) return `(${altChecks.join(' || ')})`;
+    return undefined;
+  }
+
+  if (pos.pattern) {
+    checks.push(`new RegExp(${JSON.stringify(pos.pattern)}).test(${tagVar}[${pos.index}] ?? "")`);
+  }
+  if (pos.constValue !== undefined) {
+    checks.push(`${tagVar}[${pos.index}] === ${JSON.stringify(pos.constValue)}`);
+  }
+  if (pos.enumValues && pos.enumValues.length > 0) {
+    const vals = pos.enumValues.map(v => JSON.stringify(v)).join(', ');
+    checks.push(`[${vals}].includes(${tagVar}[${pos.index}] ?? "")`);
+  }
+
+  return checks.length > 0 ? checks.join(' && ') : undefined;
+}
+
+/**
+ * Describe a position constraint for an error message.
+ */
+function describePositionConstraint(
+  pos: import('./patterns.js').PositionType,
+  tagName: string,
+): string {
+  if (pos.enumValues && pos.enumValues.length > 0) {
+    return `${tagName} tag position ${pos.index} must be one of: ${pos.enumValues.join(', ')}`;
+  }
+  if (pos.pattern) {
+    return `${tagName} tag position ${pos.index} must match pattern ${pos.pattern}`;
+  }
+  if (pos.constValue !== undefined) {
+    return `${tagName} tag position ${pos.index} must be "${pos.constValue}"`;
+  }
+  if (pos.anyOf && pos.anyOf.length > 0) {
+    return `${tagName} tag position ${pos.index} does not match any allowed alternative`;
+  }
+  return `${tagName} tag position ${pos.index} is invalid`;
+}
+
+/**
  * Emit a tag-matching check for a TagRequirement.
  * Returns a condition string that checks if a tag matches the requirement.
  */
@@ -125,8 +187,9 @@ function emitKindValidator(shape: KindShape): string | undefined {
   const hasRequiredTags = shape.requiredTags.length > 0;
   const hasPerItem = shape.perItemConditionals.length > 0;
   const hasArrayLevel = shape.arrayLevelConditionals.length > 0;
+  const hasAnyOfGroups = shape.anyOfTagGroups.length > 0;
 
-  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel) return undefined;
+  if (!hasRequiredTags && !hasPerItem && !hasArrayLevel && !hasAnyOfGroups) return undefined;
 
   const fnName = `validateKind${shape.kindNumber}Tags`;
   const lines: string[] = [];
@@ -151,6 +214,33 @@ function emitKindValidator(shape: KindShape): string | undefined {
     lines.push('  }');
   }
 
+  // Optional position validation: for tags that matched by name, validate constrained optional positions
+  for (const req of shape.requiredTags) {
+    const optionalChecks = req.positions.slice(1).filter(pos =>
+      !pos.required && (
+        (pos.enumValues && pos.enumValues.length > 0) ||
+        pos.pattern ||
+        pos.constValue !== undefined ||
+        (pos.anyOf && pos.anyOf.length > 0)
+      )
+    );
+    if (optionalChecks.length === 0) continue;
+
+    lines.push(`  for (const t of tags) {`);
+    lines.push(`    if (t[0] === ${JSON.stringify(req.tagName)}) {`);
+    for (const pos of optionalChecks) {
+      const check = emitSinglePositionCheck(pos, 't');
+      if (check) {
+        const msg = describePositionConstraint(pos, req.tagName);
+        lines.push(`      if (t.length > ${pos.index} && !(${check})) {`);
+        lines.push(`        errors.push({ path: "tags", message: ${JSON.stringify(msg)} });`);
+        lines.push('      }');
+      }
+    }
+    lines.push('    }');
+    lines.push('  }');
+  }
+
   // Per-item conditionals
   for (const cond of shape.perItemConditionals) {
     const condCheck = `t[0] === ${JSON.stringify(cond.conditionTagName)}`;
@@ -172,6 +262,16 @@ function emitKindValidator(shape: KindShape): string | undefined {
     lines.push(`    if (!tags.some(t => ${reqMatcher})) {`);
     lines.push(`      errors.push({ path: "tags", message: ${JSON.stringify(errMsg)} });`);
     lines.push('    }');
+    lines.push('  }');
+  }
+
+  // anyOf tag groups: at least one tag from each group must be present
+  for (const group of shape.anyOfTagGroups) {
+    const matchers = group.requirements.map(req => `tags.some(t => ${emitTagMatcher(req, 't')})`);
+    const tagNames = group.requirements.map(r => r.tagName).join(', ');
+    const errMsg = group.errorMessage ?? `tags must include at least one of: ${tagNames}`;
+    lines.push(`  if (!(${matchers.join(' || ')})) {`);
+    lines.push(`    errors.push({ path: "tags", message: ${JSON.stringify(errMsg)} });`);
     lines.push('  }');
   }
 

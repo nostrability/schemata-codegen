@@ -108,6 +108,7 @@ export function extractKind(
       requiredTags: [],
       perItemConditionals: [],
       arrayLevelConditionals: [],
+      anyOfTagGroups: [],
       category: 'bare',
     };
   }
@@ -117,6 +118,7 @@ export function extractKind(
   const requiredTags: TagRequirement[] = [];
   const perItemConditionals: PerItemConditional[] = [];
   const arrayLevelConditionals: ArrayLevelConditional[] = [];
+  const anyOfTagGroups: KindShape['anyOfTagGroups'] = [];
   let tagsMinItems: number | undefined;
 
   if (tagsNode) {
@@ -141,6 +143,18 @@ export function extractKind(
         if (entry.if && entry.then) {
           const cond = extractArrayLevelConditional(entry);
           if (cond) arrayLevelConditionals.push(cond);
+        }
+
+        // anyOf entries: optional-but-constrained or any-of-group
+        if (entry.anyOf) {
+          const result = extractAnyOfTagConstraint(entry.anyOf, entry.errorMessage);
+          if (result) {
+            if (result.type === 'optional-constrained') {
+              arrayLevelConditionals.push(result.conditional);
+            } else if (result.type === 'any-of-group') {
+              anyOfTagGroups.push(result.group);
+            }
+          }
         }
       }
     }
@@ -172,7 +186,9 @@ export function extractKind(
   }
 
   // Categorize
-  const hasConditionals = perItemConditionals.length > 0 || arrayLevelConditionals.length > 0;
+  const hasConditionals = perItemConditionals.length > 0 ||
+    arrayLevelConditionals.length > 0 ||
+    anyOfTagGroups.length > 0;
   let category: KindCategory;
   if (hasConditionals) {
     category = 'conditional';
@@ -192,6 +208,7 @@ export function extractKind(
     requiredTags,
     perItemConditionals,
     arrayLevelConditionals,
+    anyOfTagGroups,
     tagsMinItems,
     contentConstraints,
     category,
@@ -244,11 +261,15 @@ function extractTagRequirementFromContains(
 
     if (!tagName) return undefined;
 
+    // When additionalItems is explicitly false, cap at items.length if no maxItems given.
+    // undefined means "allow anything" in JSON Schema — only false means "cap".
+    const explicitlyNoAdditional = structural.additionalItems === false;
+
     return {
       tagName,
       positions,
       minItems,
-      maxItems: structural.maxItems,
+      maxItems: structural.maxItems ?? (explicitlyNoAdditional ? items.length : undefined),
       additionalItems: structural.additionalItems === true ||
         (typeof structural.additionalItems === 'object' && structural.additionalItems !== null),
       errorMessage,
@@ -272,11 +293,12 @@ function extractSimpleContains(
     const positions = extractPositions(node.items, node.minItems);
     const tagName = positions[0]?.constValue;
     if (!tagName) return undefined;
+    const explicitlyNoAdditional = node.additionalItems === false;
     return {
       tagName,
       positions,
       minItems: node.minItems,
-      maxItems: node.maxItems,
+      maxItems: node.maxItems ?? (explicitlyNoAdditional ? node.items.length : undefined),
       additionalItems: node.additionalItems === true ||
         (typeof node.additionalItems === 'object' && node.additionalItems !== null),
       errorMessage,
@@ -358,6 +380,66 @@ function extractArrayLevelConditional(
 }
 
 /**
+ * Extract an anyOf tag constraint from a tags.allOf entry.
+ *
+ * Pattern A (optional-but-constrained): [{not: {contains: ...}}, {contains: ...}]
+ *   "Either no tag X, or tag X must match this shape" → ArrayLevelConditional
+ *
+ * Pattern B (any-of-group): [{contains: ...}, {contains: ...}, ...]
+ *   "At least one of these tags must be present" → anyOfTagGroup
+ */
+function extractAnyOfTagConstraint(
+  anyOf: SchemaNode[],
+  errorMessage?: Record<string, string>,
+): { type: 'optional-constrained'; conditional: ArrayLevelConditional }
+  | { type: 'any-of-group'; group: { requirements: TagRequirement[]; errorMessage?: string } }
+  | undefined {
+
+  // Pattern A: exactly 2 entries, one with "not.contains" and one with "contains"
+  if (anyOf.length === 2) {
+    const notEntry = anyOf.find(e => e.not?.contains);
+    const containsEntry = anyOf.find(e => e.contains && !e.not);
+    if (notEntry && containsEntry) {
+      // The "not" branch tells us the condition tag name
+      const condTagName = extractConditionTagName(notEntry.not!.contains!);
+      if (condTagName) {
+        const req = extractTagRequirementFromContains(containsEntry.contains!);
+        if (req) {
+          return {
+            type: 'optional-constrained',
+            conditional: {
+              conditionTagName: condTagName,
+              requirement: req,
+              errorMessage: errorMessage?.anyOf,
+            },
+          };
+        }
+      }
+    }
+  }
+
+  // Pattern B: all entries have "contains" → at-least-one-of group
+  if (anyOf.length >= 2 && anyOf.every(e => e.contains)) {
+    const requirements: TagRequirement[] = [];
+    for (const entry of anyOf) {
+      const req = extractTagRequirementFromContains(entry.contains!);
+      if (req) requirements.push(req);
+    }
+    if (requirements.length > 0) {
+      return {
+        type: 'any-of-group',
+        group: {
+          requirements,
+          errorMessage: errorMessage?.anyOf,
+        },
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Extract the tag name from an if-condition.
  * Handles: { items: [{ const: "name" }] } and { type: "array", items: [{ const: "name" }] }
  */
@@ -395,12 +477,13 @@ function extractRequirementFromThen(
     const minItems = structural.minItems ?? items.length;
     const positions = extractPositions(items, minItems);
     const tagName = positions[0]?.constValue ?? fallbackTagName;
+    const explicitlyNoAdditional = structural.additionalItems === false;
 
     return {
       tagName,
       positions,
       minItems,
-      maxItems: structural.maxItems,
+      maxItems: structural.maxItems ?? (explicitlyNoAdditional ? items.length : undefined),
       additionalItems: structural.additionalItems === true ||
         (typeof structural.additionalItems === 'object' && structural.additionalItems !== null),
     };

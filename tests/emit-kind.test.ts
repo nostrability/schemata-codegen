@@ -20,6 +20,7 @@ describe('emitKindsFile', () => {
     requiredTags: [],
     perItemConditionals: [],
     arrayLevelConditionals: [],
+    anyOfTagGroups: [],
     category: 'bare',
   };
 
@@ -41,6 +42,7 @@ describe('emitKindsFile', () => {
     }],
     perItemConditionals: [],
     arrayLevelConditionals: [],
+    anyOfTagGroups: [],
     category: 'simple-contains',
   };
 
