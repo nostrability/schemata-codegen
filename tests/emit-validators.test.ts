@@ -200,9 +200,9 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('event must be a non-null object'));
   });
 
-  it('emits tag element type filtering in validateEvent', () => {
+  it('emits per-element tag type validation in validateEvent', () => {
     const output = emitValidatorsFile([], [kind9735]);
-    assert.ok(output.includes('.filter('));
+    assert.ok(output.includes('must be an array of strings'));
     assert.ok(output.includes('typeof v === "string"'));
   });
 
