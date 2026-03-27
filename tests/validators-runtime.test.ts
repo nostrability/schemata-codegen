@@ -238,6 +238,43 @@ describe('validators runtime', () => {
     assert.deepStrictEqual(errors, [], `should accept valid r tag with write marker, got: ${JSON.stringify(errors)}`);
   });
 
+  // --- P1b extended: optional position validation in per-item conditionals ---
+
+  it('rejects invalid optional position in conditional price tag on kind 30402', () => {
+    if (!validators?.validateKind30402Tags) { console.log('Skipping'); return; }
+
+    // price tag: items[3] is optional with pattern ^[A-Za-z]{3,}$
+    // "bad-unit!" contains non-alpha chars and should fail
+    const errors = validators.validateKind30402Tags([
+      ['d', 'listing-id'],
+      ['price', '12.00', 'USD', 'bad-unit!'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.ok(errors.length > 0, 'should reject price tag with invalid optional 4th item');
+  });
+
+  it('accepts valid price tag with optional 4th item on kind 30402', () => {
+    if (!validators?.validateKind30402Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind30402Tags([
+      ['d', 'listing-id'],
+      ['price', '12.00', 'USD', 'BTC'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept valid price tag, got: ${JSON.stringify(errors)}`);
+  });
+
+  it('accepts price tag without optional 4th item on kind 30402', () => {
+    if (!validators?.validateKind30402Tags) { console.log('Skipping'); return; }
+
+    const errors = validators.validateKind30402Tags([
+      ['d', 'listing-id'],
+      ['price', '12.00', 'USD'],
+    ]) as Array<{ path: string; message: string }>;
+
+    assert.deepStrictEqual(errors, [], `should accept 3-element price tag, got: ${JSON.stringify(errors)}`);
+  });
+
   // --- P2 regression: anyOf patterns in tags.allOf ---
 
   it('rejects malformed e tag on kind 4 when present (optional-but-constrained)', () => {

@@ -245,11 +245,36 @@ function emitKindValidator(shape: KindShape): string | undefined {
   for (const cond of shape.perItemConditionals) {
     const condCheck = `t[0] === ${JSON.stringify(cond.conditionTagName)}`;
     const reqMatcher = emitTagMatcher(cond.requirement, 't');
+    const errMsg = cond.errorMessage ?? `${cond.conditionTagName} tag does not match required schema`;
+
+    // Collect optional constrained positions for this conditional's requirement
+    const optChecks = cond.requirement.positions.slice(1).filter(pos =>
+      !pos.required && (
+        (pos.enumValues && pos.enumValues.length > 0) ||
+        pos.pattern ||
+        pos.constValue !== undefined ||
+        (pos.anyOf && pos.anyOf.length > 0)
+      )
+    );
+
     lines.push(`  for (const t of tags) {`);
     lines.push(`    if (${condCheck} && !(${reqMatcher})) {`);
-    const errMsg = cond.errorMessage ?? `${cond.conditionTagName} tag does not match required schema`;
     lines.push(`      errors.push({ path: "tags", message: ${JSON.stringify(errMsg)} });`);
     lines.push('    }');
+    // Validate optional constrained positions on matching tags
+    if (optChecks.length > 0) {
+      lines.push(`    if (${condCheck}) {`);
+      for (const pos of optChecks) {
+        const check = emitSinglePositionCheck(pos, 't');
+        if (check) {
+          const msg = describePositionConstraint(pos, cond.conditionTagName);
+          lines.push(`      if (t.length > ${pos.index} && !(${check})) {`);
+          lines.push(`        errors.push({ path: "tags", message: ${JSON.stringify(msg)} });`);
+          lines.push('      }');
+        }
+      }
+      lines.push('    }');
+    }
     lines.push('  }');
   }
 
@@ -263,6 +288,31 @@ function emitKindValidator(shape: KindShape): string | undefined {
     lines.push(`      errors.push({ path: "tags", message: ${JSON.stringify(errMsg)} });`);
     lines.push('    }');
     lines.push('  }');
+
+    // Validate optional constrained positions on matching tags for array-level conditionals
+    const optChecks = cond.requirement.positions.slice(1).filter(pos =>
+      !pos.required && (
+        (pos.enumValues && pos.enumValues.length > 0) ||
+        pos.pattern ||
+        pos.constValue !== undefined ||
+        (pos.anyOf && pos.anyOf.length > 0)
+      )
+    );
+    if (optChecks.length > 0) {
+      lines.push(`  for (const t of tags) {`);
+      lines.push(`    if (t[0] === ${JSON.stringify(cond.requirement.tagName)}) {`);
+      for (const pos of optChecks) {
+        const check = emitSinglePositionCheck(pos, 't');
+        if (check) {
+          const msg = describePositionConstraint(pos, cond.requirement.tagName);
+          lines.push(`      if (t.length > ${pos.index} && !(${check})) {`);
+          lines.push(`        errors.push({ path: "tags", message: ${JSON.stringify(msg)} });`);
+          lines.push('      }');
+        }
+      }
+      lines.push('    }');
+      lines.push('  }');
+    }
   }
 
   // anyOf tag groups: at least one tag from each group must be present
