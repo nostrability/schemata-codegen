@@ -19,10 +19,18 @@ export interface KindTagEntry {
 }
 
 /**
- * PascalCase a tag name for use in a type name.
- * "n" → "N", "published_at" → "PublishedAt", "rtt-open" → "RttOpen"
+ * PascalCase a tag name for use in a type name, preserving case distinction.
+ * "n" → "N", "N" → "Upper_N", "published_at" → "PublishedAt", "rtt-open" → "RttOpen"
+ *
+ * Single uppercase letters get an "Upper_" prefix to avoid collisions
+ * with their lowercase counterparts (e.g., "p" vs "P" both map to "P"
+ * without this).
  */
 export function tagNameToTypePart(tagName: string): string {
+  // Single uppercase letter: prefix to distinguish from lowercase
+  if (tagName.length === 1 && tagName === tagName.toUpperCase() && tagName !== tagName.toLowerCase()) {
+    return `Upper_${tagName}`;
+  }
   return tagName
     .split(/[-_]/)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
@@ -95,12 +103,21 @@ export function collectKindTags(shape: KindShape): KindTagEntry[] {
  *   - optional_trailing: minItems < maxItems, no additionalItems → union of lengths
  *   - open_tail: additionalItems allowed → tuple with rest element
  */
-export function emitKindTagType(kindNumber: number, entry: KindTagEntry): string {
+export function emitKindTagType(kindNumber: number, entry: KindTagEntry): string | undefined {
   const name = kindScopedTagTypeName(kindNumber, entry.tagName);
   const { requirement: req } = entry;
 
-  // Determine effective maxItems
-  const effectiveMax = req.maxItems ?? req.positions.length;
+  // Skip entries with no usable positions (e.g., minItems > positions.length)
+  if (req.positions.length === 0) return undefined;
+
+  // Determine effective maxItems, clamped to available positions
+  const effectiveMax = Math.min(
+    req.maxItems ?? req.positions.length,
+    req.positions.length,
+  );
+
+  // Skip when minItems exceeds available positions and no additionalItems
+  if (req.minItems > effectiveMax && !req.additionalItems) return undefined;
 
   if (req.additionalItems) {
     // Open tail: readonly ["tag", string, ...string[]]
@@ -122,7 +139,7 @@ export function emitKindTagType(kindNumber: number, entry: KindTagEntry): string
     variants.push(emitTupleType(subset));
   }
 
-  if (variants.length === 1) {
+  if (variants.length <= 1) {
     return `export type ${name} = ${variants[0]};`;
   }
 
@@ -147,10 +164,15 @@ export function emitKindTagsFile(shapes: KindShape[]): string {
     if (entries.length === 0) continue;
 
     const kindHeader = `// --- Kind ${shape.kindNumber} (${shape.nip}) ---`;
-    const types = entries.map(entry => {
-      tagTypeCount++;
-      return emitKindTagType(shape.kindNumber, entry);
-    });
+    const types: string[] = [];
+    for (const entry of entries) {
+      const line = emitKindTagType(shape.kindNumber, entry);
+      if (line !== undefined) {
+        tagTypeCount++;
+        types.push(line);
+      }
+    }
+    if (types.length === 0) continue;
 
     sections.push([kindHeader, ...types].join('\n'));
   }
