@@ -28,6 +28,7 @@ import { emitCSharpValidators } from './emit-csharp.js';
 import { emitCppValidators } from './emit-cpp.js';
 import { emitRubyValidators } from './emit-ruby.js';
 import { emitKindTagsFile } from './emit-kind-tags.js';
+import { emitBuildersFile } from './emit-builders.js';
 import { planKindValidator } from './plan-validators.js';
 
 import type { TagShape } from './patterns.js';
@@ -56,6 +57,7 @@ interface CliArgs {
   cppValidatorsOut?: string;
   rubyValidatorsOut?: string;
   kindTagsOut?: string;
+  buildersOut?: string;
   dumpPlan?: string;
 }
 
@@ -82,6 +84,7 @@ function parseArgs(argv: string[]): CliArgs {
   let cppValidatorsOut: string | undefined;
   let rubyValidatorsOut: string | undefined;
   let kindTagsOut: string | undefined;
+  let buildersOut: string | undefined;
   let dumpPlan: string | undefined;
   let all = false;
 
@@ -140,6 +143,8 @@ function parseArgs(argv: string[]): CliArgs {
       rubyValidatorsOut = argv[++i];
     } else if (argv[i] === '--kind-tags' && argv[i + 1]) {
       kindTagsOut = argv[++i];
+    } else if (argv[i] === '--builders' && argv[i + 1]) {
+      buildersOut = argv[++i];
     } else if (argv[i] === '--dump-plan' && argv[i + 1]) {
       dumpPlan = argv[++i];
     } else if (argv[i] === '--all') {
@@ -170,6 +175,7 @@ function parseArgs(argv: string[]): CliArgs {
       console.log('  --cpp-validators C++ validators output file (.hpp)');
       console.log('  --ruby-validators Ruby validators output file (.rb)');
       console.log('  --kind-tags    Kind-scoped tag types output file (.d.ts)');
+      console.log('  --builders     Tag builder functions output file (.ts)');
       console.log('  --dump-plan    Dump ValidatorAction[] plan as JSON');
       console.log('  --all          Generate all output files');
       process.exit(0);
@@ -200,6 +206,7 @@ function parseArgs(argv: string[]): CliArgs {
     cppValidatorsOut = cppValidatorsOut ?? 'validators.hpp';
     rubyValidatorsOut = rubyValidatorsOut ?? 'validators.rb';
     kindTagsOut = kindTagsOut ?? 'kind-tags.d.ts';
+    buildersOut = buildersOut ?? 'builders.ts';
   }
 
   return {
@@ -207,7 +214,7 @@ function parseArgs(argv: string[]): CliArgs {
     cValidatorsOut, cApi, rustValidatorsOut, rustApi,
     goValidatorsOut, pythonValidatorsOut, kotlinValidatorsOut, javaValidatorsOut,
     swiftValidatorsOut, dartValidatorsOut, phpValidatorsOut, csharpValidatorsOut,
-    cppValidatorsOut, rubyValidatorsOut, kindTagsOut, dumpPlan,
+    cppValidatorsOut, rubyValidatorsOut, kindTagsOut, buildersOut, dumpPlan,
   };
 }
 
@@ -229,7 +236,7 @@ function main(): void {
     args.cValidatorsOut || args.rustValidatorsOut ||
     args.goValidatorsOut || args.pythonValidatorsOut || args.kotlinValidatorsOut || args.javaValidatorsOut ||
     args.swiftValidatorsOut || args.dartValidatorsOut || args.phpValidatorsOut || args.csharpValidatorsOut ||
-    args.cppValidatorsOut || args.rubyValidatorsOut || args.kindTagsOut || args.dumpPlan);
+    args.cppValidatorsOut || args.rubyValidatorsOut || args.kindTagsOut || args.buildersOut || args.dumpPlan);
 
   // --- Tag extraction (always runs) ---
   const tagDir = join(args.schemasDir, '@', 'tag');
@@ -352,6 +359,14 @@ function main(): void {
       const typeCount = (kindTagsOutput.match(/^export type /gm) || []).length;
       console.log(`\nKind tags: ${typeCount} types → ${args.kindTagsOut}`);
     }
+  }
+
+  // --- Builders ---
+  if (args.buildersOut) {
+    const buildersOutput = emitBuildersFile(kindShapes);
+    writeFileSync(args.buildersOut, buildersOutput);
+    const fnCount = (buildersOutput.match(/export function buildKind\d+Tags\b/g) || []).length;
+    console.log(`\nBuilders: ${fnCount} functions → ${args.buildersOut}`);
   }
 
   // --- Validators ---
