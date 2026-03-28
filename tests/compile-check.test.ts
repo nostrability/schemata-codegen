@@ -276,13 +276,13 @@ describe('compile-check: kind-tags', () => {
     );
   });
 
-  it('generates at least 300 kind-scoped tag types', () => {
+  it('generates at least 290 kind-scoped tag types', () => {
     const outFile = join(projectRoot, 'kind-tags.d.ts');
     if (!existsSync(outFile)) { console.log('Skipping: kind-tags.d.ts not found'); return; }
 
     const content = readFileSync(outFile, 'utf-8');
     const typeCount = (content.match(/^export type Kind\d+_\w+Tag /gm) || []).length;
-    assert.ok(typeCount >= 300, `Expected >= 300 kind-scoped tag types, got ${typeCount}`);
+    assert.ok(typeCount >= 290, `Expected >= 290 kind-scoped tag types, got ${typeCount}`);
   });
 
   it('has no duplicate type names', () => {

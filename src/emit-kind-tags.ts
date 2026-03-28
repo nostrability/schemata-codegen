@@ -133,13 +133,14 @@ export function emitKindTagType(kindNumber: number, entry: KindTagEntry): string
   }
 
   // Optional trailing: union of lengths from minItems to maxItems
+  // Floor at 1 so the shortest variant always includes the tag name (position 0)
   const variants: string[] = [];
-  for (let len = req.minItems; len <= effectiveMax; len++) {
+  for (let len = Math.max(req.minItems, 1); len <= effectiveMax; len++) {
     const subset = req.positions.slice(0, len);
     variants.push(emitTupleType(subset));
   }
 
-  if (variants.length <= 1) {
+  if (variants.length === 1) {
     return `export type ${name} = ${variants[0]};`;
   }
 
