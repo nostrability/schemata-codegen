@@ -4,6 +4,8 @@ Nostr-aware code generator that reads [schemata](https://github.com/nostrability
 
 Unlike the [validator approach](https://github.com/nostrability/schemata?tab=readme-ov-file#validators), no "heavy" validator is needed (e.g. AJV etc.), and code is run natively. For the real world practitioner, this means that schemata-codegen can be deployed to production, and not just constrained to CI. 
 
+The above said, schemata-codegen is complementary to the schemata validator approach.
+
 ## How it fits in the schemata ecosystem
 
 | Repo | Role |
@@ -14,6 +16,16 @@ Unlike the [validator approach](https://github.com/nostrability/schemata?tab=rea
 | **schemata-codegen** | **Code generator — produces typed language constructs from the schemas** |
 
 The data packages give you access to raw schemas. The validators check whether a JSON blob conforms to a schema (pass/fail — useful for conformance testing, which is what [sherlock](https://github.com/nostrability/sherlock) does against live relay data). The codegen produces **typed language constructs** — so when you're writing code that builds or reads tags, the compiler catches structural mistakes (wrong position, missing field, bad marker value) that `string[][]` silently accepts.
+
+## Direct comparison schemata-codegen vs schemata-validator approach
+
+| Phase | schemata-js-ajv | schemata-codegen |                                                                                          
+  |-------|-----------------|------------------|                                                                                                                           
+  | **Write code** (authoring) | Nothing / no types | IDE autocomplete, type errors at compile time |                                                                      
+  | **Build** (compile) | Nothing | Type checker catches wrong field names, missing tags |                                                                                 
+  | **Construct event** (runtime) | Nothing until event is finished | Lightweight tag validator can check before signing |                                                 
+  | **Validate finished event** | Full JSON Schema validation via AJV | Could also validate, but AJV is more thorough |                                                    
+  | **Display to user** | Cryptic error paths | KIND_NAMES for UI, human-friendly error messages |             
 
 ## Why not use an existing JSON Schema code generator?
 
