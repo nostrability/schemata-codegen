@@ -122,14 +122,66 @@ export function planBuilder(shape: KindShape): BuilderAction[] | undefined {
 
   const actions: BuilderAction[] = [];
 
+  // Collect all tag names that belong to anyOf groups
+  const anyOfTagNames = new Set<string>();
+  for (const group of shape.anyOfTagGroups) {
+    for (const req of group.requirements) {
+      anyOfTagNames.add(req.tagName);
+    }
+  }
+
+  // Build a lookup from collectKindTags entries (has the more constrained version)
+  const entryByTag = new Map<string, KindTagEntry>();
   for (const entry of entries) {
+    entryByTag.set(entry.tagName, entry);
+  }
+
+  // Track required tag names (auto-satisfy anyOf group constraints)
+  const requiredTagNames = new Set<string>();
+
+  // Phase 1: Emit non-anyOf tags
+  for (const entry of entries) {
+    // If this tag belongs to an anyOf group AND wasn't promoted to required,
+    // defer to group handling in phase 2
+    if (anyOfTagNames.has(entry.tagName) && entry.source !== 'required') continue;
+
     const tag = buildBuilderTag(entry);
     if (!tag) continue;
 
     if (entry.source === 'required') {
       actions.push({ type: 'required_tag', tag });
+      requiredTagNames.add(entry.tagName);
     } else {
       actions.push({ type: 'optional_tag', tag });
+    }
+  }
+
+  // Phase 2: Emit anyOf groups
+  for (const group of shape.anyOfTagGroups) {
+    // If any tag in the group is already required, the group is auto-satisfied
+    const autoSatisfied = group.requirements.some(r => requiredTagNames.has(r.tagName));
+
+    if (autoSatisfied) {
+      // Emit remaining non-required tags as individual optionals
+      for (const req of group.requirements) {
+        if (requiredTagNames.has(req.tagName)) continue;
+        const entry = entryByTag.get(req.tagName) ??
+          { tagName: req.tagName, requirement: req, source: 'anyOf' as const };
+        const tag = buildBuilderTag(entry);
+        if (tag) actions.push({ type: 'optional_tag', tag });
+      }
+    } else {
+      // Emit as any_of_group with runtime enforcement
+      const groupTags: BuilderTag[] = [];
+      for (const req of group.requirements) {
+        const entry = entryByTag.get(req.tagName) ??
+          { tagName: req.tagName, requirement: req, source: 'anyOf' as const };
+        const tag = buildBuilderTag(entry);
+        if (tag) groupTags.push(tag);
+      }
+      if (groupTags.length > 0) {
+        actions.push({ type: 'any_of_group', tags: groupTags, description: group.errorMessage });
+      }
     }
   }
 
@@ -138,15 +190,20 @@ export function planBuilder(shape: KindShape): BuilderAction[] | undefined {
 
 /**
  * Build a BuilderTag from a KindTagEntry.
- * Returns undefined if the tag has no usable input positions.
+ * Handles all-literal tags (e.g., ["z", "order"]) which have no user input.
  */
 function buildBuilderTag(entry: KindTagEntry): BuilderTag | undefined {
   const { tagName, requirement: req } = entry;
   const positions: BuilderPosition[] = [];
 
-  // Count input positions to determine naming strategy
-  const inputPositions = req.positions.filter((_, i) => i > 0);
-  const useObjectField = inputPositions.length > 1;
+  // Determine how many total positions we need (schema may imply more via minItems)
+  const impliedCount = Math.max(req.positions.length, req.minItems);
+
+  // Count non-literal positions after index 0 to determine naming strategy
+  const explicitInputCount = req.positions.filter((p, i) => i > 0 && p.constValue === undefined).length;
+  const impliedInputCount = impliedCount - req.positions.length;
+  const totalInputCount = explicitInputCount + impliedInputCount;
+  const useObjectField = totalInputCount > 1;
   let inputIndex = 0;
 
   for (const pos of req.positions) {
@@ -186,9 +243,18 @@ function buildBuilderTag(entry: KindTagEntry): BuilderTag | undefined {
     });
   }
 
-  // If no input positions, nothing to build
-  const hasInput = positions.some(p => p.source === 'input');
-  if (!hasInput) return undefined;
+  // Add implied unconstrained positions when minItems > explicit positions
+  for (let i = req.positions.length; i < impliedCount; i++) {
+    inputIndex++;
+    const fieldName = useObjectField ? (inputIndex === 1 ? 'value' : `value${inputIndex}`) : undefined;
+    positions.push({
+      index: i,
+      source: 'input',
+      inputType: { type: 'string' },
+      required: i < req.minItems,
+      fieldName,
+    });
+  }
 
   // Deduplicate sub-field names: if two positions resolve to the same name,
   // append a numeric suffix to disambiguate.

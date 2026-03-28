@@ -204,4 +204,65 @@ describe('emitBuildersFile', () => {
     assert.ok(output.includes('d: string'));
     assert.ok(output.includes('t?: string'));
   });
+
+  it('emits constant-only tag in function body without interface field', () => {
+    const shapes = [makeShape(38383, {
+      requiredTags: [
+        makeReq('d'),
+        makeReq('z', {
+          positions: [
+            { index: 0, required: true, constValue: 'z', type: 'string' },
+            { index: 1, required: true, constValue: 'order', type: 'string' },
+          ],
+        }),
+      ],
+      category: 'multi-contains',
+    })];
+    const output = emitBuildersFile(shapes);
+    // z should appear in the function body as a literal push
+    assert.ok(output.includes('tags.push(["z", "order"])'), 'Should emit literal push for z tag');
+    // z should NOT appear as an interface field
+    assert.ok(!output.includes('z: string'), 'z should not be an interface field');
+    assert.ok(!output.includes('z?: string'), 'z should not be an optional interface field');
+    // d should still be in the interface
+    assert.ok(output.includes('d: string'), 'd should be a required interface field');
+  });
+
+  it('emits anyOf group with runtime check', () => {
+    const shapes = [makeShape(777, {
+      requiredTags: [makeReq('cmd', {
+        positions: [
+          { index: 0, required: true, constValue: 'cmd', type: 'string' },
+          { index: 1, required: true, type: 'string', enumValues: ['REQ', 'COUNT'] },
+        ],
+      })],
+      anyOfTagGroups: [{
+        requirements: [makeReq('k'), makeReq('authors')],
+        errorMessage: 'must include at least one filter tag',
+      }],
+      category: 'conditional',
+    })];
+    const output = emitBuildersFile(shapes);
+    // cmd should be required
+    assert.ok(output.includes('cmd: "REQ" | "COUNT"'));
+    // k and authors should be optional
+    assert.ok(output.includes('k?: string'));
+    assert.ok(output.includes('authors?: string'));
+    // Runtime check for at least one
+    assert.ok(output.includes('At least one of k, authors is required'));
+    // Group JSDoc
+    assert.ok(output.includes('At least one required: k, authors'));
+  });
+
+  it('emits anyOf group tags with if guards', () => {
+    const shapes = [makeShape(777, {
+      anyOfTagGroups: [{
+        requirements: [makeReq('e'), makeReq('a')],
+      }],
+      category: 'conditional',
+    })];
+    const output = emitBuildersFile(shapes);
+    assert.ok(output.includes('if (data.e !== undefined)'));
+    assert.ok(output.includes('if (data.a !== undefined)'));
+  });
 });

@@ -39,6 +39,13 @@ function emitFieldType(input: FieldInputType): string {
 }
 
 /**
+ * Check if a tag has any user-input positions.
+ */
+function hasInputPositions(tag: BuilderTag): boolean {
+  return tag.positions.some(p => p.source === 'input');
+}
+
+/**
  * Check if a tag uses an object field (multiple input positions).
  */
 function isObjectField(tag: BuilderTag): boolean {
@@ -133,6 +140,36 @@ function emitTagConstruction(tag: BuilderTag, required: boolean, tagIndex: numbe
   return lines;
 }
 
+/**
+ * Emit construction + runtime check for an any_of_group.
+ * Each tag is emitted with an if guard; a final check ensures at least one was provided.
+ */
+function emitAnyOfGroupConstruction(tags: BuilderTag[], tagIndexStart: number): string[] {
+  const lines: string[] = [];
+  const inputTags = tags.filter(hasInputPositions);
+  const literalTags = tags.filter(t => !hasInputPositions(t));
+
+  // Emit literal-only tags unconditionally
+  let idx = tagIndexStart;
+  for (const tag of literalTags) {
+    lines.push(...emitTagConstruction(tag, true, idx++));
+  }
+
+  // Emit input tags with if guards
+  for (const tag of inputTags) {
+    lines.push(...emitTagConstruction(tag, false, idx++));
+  }
+
+  // Runtime check: at least one input tag must be provided
+  if (inputTags.length > 0) {
+    const checks = inputTags.map(t => `data.${t.fieldName} !== undefined`).join(' || ');
+    const names = inputTags.map(t => t.tagName).join(', ');
+    lines.push(`  if (!(${checks})) throw new Error("At least one of ${names} is required");`);
+  }
+
+  return lines;
+}
+
 // --- Per-kind generation ---
 
 /**
@@ -146,10 +183,21 @@ function emitKindBuilder(kindNumber: number, nip: string, actions: BuilderAction
   const interfaceLines: string[] = [];
   interfaceLines.push(`export interface ${interfaceName} {`);
   for (const action of actions) {
-    if (action.type === 'required_tag') {
+    if (action.type === 'required_tag' && hasInputPositions(action.tag)) {
       interfaceLines.push(emitInterfaceField(action.tag, true));
-    } else if (action.type === 'optional_tag') {
+    } else if (action.type === 'optional_tag' && hasInputPositions(action.tag)) {
       interfaceLines.push(emitInterfaceField(action.tag, false));
+    } else if (action.type === 'any_of_group') {
+      // All tags in an anyOf group are individually optional
+      const groupNames = action.tags.filter(hasInputPositions).map(t => t.tagName).join(', ');
+      if (groupNames) {
+        interfaceLines.push(`  /** At least one required: ${groupNames} */`);
+      }
+      for (const tag of action.tags) {
+        if (hasInputPositions(tag)) {
+          interfaceLines.push(emitInterfaceField(tag, false));
+        }
+      }
     }
   }
   interfaceLines.push('}');
@@ -160,11 +208,18 @@ function emitKindBuilder(kindNumber: number, nip: string, actions: BuilderAction
   fnLines.push('  const tags: string[][] = [];');
   let tagIndex = 0;
   for (const action of actions) {
-    const required = action.type === 'required_tag';
-    const tag = action.type === 'required_tag' || action.type === 'optional_tag'
-      ? action.tag : undefined;
-    if (tag) {
-      fnLines.push(...emitTagConstruction(tag, required, tagIndex++));
+    if (action.type === 'required_tag') {
+      fnLines.push(...emitTagConstruction(action.tag, true, tagIndex++));
+    } else if (action.type === 'optional_tag') {
+      if (hasInputPositions(action.tag)) {
+        fnLines.push(...emitTagConstruction(action.tag, false, tagIndex++));
+      } else {
+        // All-literal optional tag — emit unconditionally
+        fnLines.push(...emitTagConstruction(action.tag, true, tagIndex++));
+      }
+    } else if (action.type === 'any_of_group') {
+      fnLines.push(...emitAnyOfGroupConstruction(action.tags, tagIndex));
+      tagIndex += action.tags.length;
     }
   }
   fnLines.push('  return tags;');

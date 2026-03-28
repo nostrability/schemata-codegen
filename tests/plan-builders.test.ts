@@ -146,7 +146,7 @@ describe('planBuilder', () => {
     assert.equal(actions[0].type, 'optional_tag');
   });
 
-  it('classifies anyOf source as optional', () => {
+  it('emits any_of_group for anyOf tags', () => {
     const shape = makeShape(7, {
       anyOfTagGroups: [{
         requirements: [makeReq('e'), makeReq('a')],
@@ -155,10 +155,12 @@ describe('planBuilder', () => {
     });
     const actions = planBuilder(shape);
     assert.ok(actions);
-    // Both entries are from anyOf → optional
-    for (const action of actions) {
-      assert.equal(action.type, 'optional_tag');
-    }
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].type, 'any_of_group');
+    assert.ok(actions[0].type === 'any_of_group');
+    assert.equal(actions[0].tags.length, 2);
+    const names = actions[0].tags.map(t => t.tagName).sort();
+    assert.deepEqual(names, ['a', 'e']);
   });
 
   it('handles position 0 as literal', () => {
@@ -249,6 +251,76 @@ describe('planBuilder', () => {
     const inputPositions = tag.positions.filter(p => p.source === 'input');
     assert.equal(inputPositions[0].fieldName, 'value');
     assert.equal(inputPositions[1].fieldName, 'value2');
+  });
+
+  it('includes constant-only required tags', () => {
+    const shape = makeShape(38383, {
+      requiredTags: [
+        makeReq('d'),
+        makeReq('z', {
+          positions: [
+            { index: 0, required: true, constValue: 'z', type: 'string' },
+            { index: 1, required: true, constValue: 'order', type: 'string' },
+          ],
+        }),
+      ],
+      category: 'multi-contains',
+    });
+    const actions = planBuilder(shape)!;
+    assert.ok(actions);
+    // Both d and z should be required
+    const zAction = actions.find(a => a.type === 'required_tag' && a.tag.tagName === 'z');
+    assert.ok(zAction, 'z tag should be present as required_tag');
+    assert.ok(zAction.type === 'required_tag');
+    // z has no input positions — all literal
+    const inputPos = zAction.tag.positions.filter(p => p.source === 'input');
+    assert.equal(inputPos.length, 0, 'z tag should have zero input positions');
+    const litPos = zAction.tag.positions.filter(p => p.source === 'literal');
+    assert.equal(litPos.length, 2);
+  });
+
+  it('adds implied positions when minItems > positions.length', () => {
+    const shape = makeShape(777, {
+      anyOfTagGroups: [{
+        requirements: [{
+          tagName: 'k',
+          positions: [{ index: 0, required: true, constValue: 'k', type: 'string' }],
+          minItems: 2,
+          maxItems: 2,
+          additionalItems: false,
+        }],
+      }],
+      category: 'conditional',
+    });
+    const actions = planBuilder(shape)!;
+    assert.ok(actions);
+    const groupAction = actions.find(a => a.type === 'any_of_group');
+    assert.ok(groupAction && groupAction.type === 'any_of_group');
+    const kTag = groupAction.tags[0];
+    // Should have 2 positions: literal "k" + implied input
+    assert.equal(kTag.positions.length, 2);
+    assert.equal(kTag.positions[0].source, 'literal');
+    assert.equal(kTag.positions[1].source, 'input');
+    assert.equal(kTag.positions[1].inputType?.type, 'string');
+  });
+
+  it('auto-satisfies anyOf group when tag is also required', () => {
+    const shape = makeShape(999, {
+      requiredTags: [makeReq('e')],
+      anyOfTagGroups: [{
+        requirements: [makeReq('e'), makeReq('a')],
+      }],
+      category: 'conditional',
+    });
+    const actions = planBuilder(shape)!;
+    assert.ok(actions);
+    // e should be required_tag (from required), a should be optional_tag (group auto-satisfied)
+    const eAction = actions.find(a => a.type === 'required_tag' && a.tag.tagName === 'e');
+    assert.ok(eAction, 'e should be required');
+    const aAction = actions.find(a => a.type === 'optional_tag' && a.tag.tagName === 'a');
+    assert.ok(aAction, 'a should be optional (group auto-satisfied by required e)');
+    // No any_of_group action
+    assert.ok(!actions.some(a => a.type === 'any_of_group'), 'No any_of_group when auto-satisfied');
   });
 
   it('field name uses title when available', () => {

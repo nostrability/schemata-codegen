@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { planBuilder, type BuilderAction, type FieldInputType } from '../src/plan-builders.js';
+import { planBuilder, type BuilderAction, type BuilderTag, type FieldInputType } from '../src/plan-builders.js';
 import { planKindValidator } from '../src/plan-validators.js';
 import { emitBuildersFile } from '../src/emit-builders.js';
 import { discoverKindSchemas, extractKindFromFile } from '../src/extract-kind.js';
@@ -58,21 +58,28 @@ function generateSampleData(actions: BuilderAction[]): Record<string, unknown> {
   const data: Record<string, unknown> = {};
 
   for (const action of actions) {
-    if (action.type !== 'required_tag' && action.type !== 'optional_tag') continue;
-    const tag = action.tag;
-    const inputPositions = tag.positions.filter(p => p.source === 'input');
-    if (inputPositions.length === 0) continue;
+    const tags: BuilderTag[] = [];
+    if (action.type === 'required_tag' || action.type === 'optional_tag') {
+      tags.push(action.tag);
+    } else if (action.type === 'any_of_group') {
+      tags.push(...action.tags);
+    }
 
-    if (inputPositions.length === 1) {
-      const pos = inputPositions[0];
-      data[tag.fieldName] = sampleValue(pos.inputType ?? { type: 'string' });
-    } else {
-      const obj: Record<string, string> = {};
-      for (const pos of inputPositions) {
-        const fname = pos.fieldName ?? 'value';
-        obj[fname] = sampleValue(pos.inputType ?? { type: 'string' });
+    for (const tag of tags) {
+      const inputPositions = tag.positions.filter(p => p.source === 'input');
+      if (inputPositions.length === 0) continue;
+
+      if (inputPositions.length === 1) {
+        const pos = inputPositions[0];
+        data[tag.fieldName] = sampleValue(pos.inputType ?? { type: 'string' });
+      } else {
+        const obj: Record<string, string> = {};
+        for (const pos of inputPositions) {
+          const fname = pos.fieldName ?? 'value';
+          obj[fname] = sampleValue(pos.inputType ?? { type: 'string' });
+        }
+        data[tag.fieldName] = obj;
       }
-      data[tag.fieldName] = obj;
     }
   }
 
@@ -81,54 +88,55 @@ function generateSampleData(actions: BuilderAction[]): Record<string, unknown> {
 
 /**
  * Simulate builder execution: walk actions + data → string[][].
- * Mirrors what the generated code does.
+ * Mirrors what the generated code does, including any_of_group and literal-only tags.
  */
 function simulateBuilder(actions: BuilderAction[], data: Record<string, unknown>): string[][] {
   const tags: string[][] = [];
 
   for (const action of actions) {
-    if (action.type !== 'required_tag' && action.type !== 'optional_tag') continue;
-    const tag = action.tag;
-    const inputPositions = tag.positions.filter(p => p.source === 'input');
-    const isObj = inputPositions.length > 1;
+    const actionTags: Array<{ tag: BuilderTag; required: boolean }> = [];
 
-    const fieldData = data[tag.fieldName];
-    if (fieldData === undefined) continue;
-
-    const result: string[] = [];
-    for (const pos of tag.positions) {
-      if (pos.source === 'literal') {
-        result.push(pos.literalValue!);
-      } else if (!pos.required) {
-        // Optional position: add only if value present
-        const val = isObj
-          ? (fieldData as Record<string, string>)[pos.fieldName ?? 'value']
-          : undefined; // single-field tags can't have optional sub-parts
-        if (val !== undefined) result.push(val);
-      } else if (isObj) {
-        const val = (fieldData as Record<string, string>)[pos.fieldName ?? 'value'];
-        if (val !== undefined) result.push(val);
-      } else {
-        result.push(fieldData as string);
+    if (action.type === 'required_tag') {
+      actionTags.push({ tag: action.tag, required: true });
+    } else if (action.type === 'optional_tag') {
+      actionTags.push({ tag: action.tag, required: false });
+    } else if (action.type === 'any_of_group') {
+      for (const tag of action.tags) {
+        actionTags.push({ tag, required: false });
       }
     }
-    if (result.length > 0) tags.push(result);
+
+    for (const { tag, required } of actionTags) {
+      const inputPositions = tag.positions.filter(p => p.source === 'input');
+      const isObj = inputPositions.length > 1;
+      const isLiteral = inputPositions.length === 0;
+
+      const fieldData = data[tag.fieldName];
+
+      // Skip optional tags whose field data is absent (unless all-literal)
+      if (!required && fieldData === undefined && !isLiteral) continue;
+
+      const result: string[] = [];
+      for (const pos of tag.positions) {
+        if (pos.source === 'literal') {
+          result.push(pos.literalValue!);
+        } else if (!pos.required) {
+          const val = isObj
+            ? (fieldData as Record<string, string>)[pos.fieldName ?? 'value']
+            : undefined;
+          if (val !== undefined) result.push(val);
+        } else if (isObj) {
+          const val = (fieldData as Record<string, string>)[pos.fieldName ?? 'value'];
+          if (val !== undefined) result.push(val);
+        } else {
+          result.push(fieldData as string);
+        }
+      }
+      if (result.length > 0) tags.push(result);
+    }
   }
 
   return tags;
-}
-
-/**
- * Collect tag names that the builder can produce (have at least one input position).
- */
-function builderTagNames(actions: BuilderAction[]): Set<string> {
-  const names = new Set<string>();
-  for (const action of actions) {
-    if (action.type === 'required_tag' || action.type === 'optional_tag') {
-      names.add(action.tag.tagName);
-    }
-  }
-  return names;
 }
 
 // --- Synthetic round-trip tests (always run) ---
@@ -201,6 +209,103 @@ describe('round-trip (synthetic)', () => {
     assert.ok(found, 'Builder output should have r tag');
     assert.ok(tags[0][1].startsWith('wss://'), `URL should start with wss://, got: ${tags[0][1]}`);
   });
+
+  it('constant-only required tag is emitted', () => {
+    const shape: KindShape = {
+      kindNumber: 38383,
+      nip: 'nip-69',
+      requiredTags: [
+        {
+          tagName: 'd',
+          positions: [
+            { index: 0, required: true, constValue: 'd', type: 'string' },
+            { index: 1, required: true, type: 'string' },
+          ],
+          minItems: 2, maxItems: 2, additionalItems: false,
+        },
+        {
+          tagName: 'z',
+          positions: [
+            { index: 0, required: true, constValue: 'z', type: 'string' },
+            { index: 1, required: true, constValue: 'order', type: 'string' },
+          ],
+          minItems: 2, maxItems: 2, additionalItems: false,
+        },
+      ],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [],
+      category: 'multi-contains',
+    };
+
+    const actions = planBuilder(shape)!;
+    assert.ok(actions, 'Should have actions');
+
+    const data = generateSampleData(actions);
+    const tags = simulateBuilder(actions, data);
+
+    // z tag must be present even though it has no user input
+    const foundZ = tags.some(t => t[0] === 'z' && t[1] === 'order');
+    assert.ok(foundZ, `Builder output must include ["z", "order"]. Tags: ${JSON.stringify(tags)}`);
+  });
+
+  it('anyOf group produces at least one tag', () => {
+    const shape: KindShape = {
+      kindNumber: 777,
+      nip: 'nip-test',
+      requiredTags: [{
+        tagName: 'cmd',
+        positions: [
+          { index: 0, required: true, constValue: 'cmd', type: 'string' },
+          { index: 1, required: true, type: 'string' },
+        ],
+        minItems: 2, maxItems: 2, additionalItems: false,
+      }],
+      perItemConditionals: [],
+      arrayLevelConditionals: [],
+      anyOfTagGroups: [{
+        requirements: [
+          {
+            tagName: 'k',
+            positions: [
+              { index: 0, required: true, constValue: 'k', type: 'string' },
+              { index: 1, required: true, type: 'string' },
+            ],
+            minItems: 2, maxItems: 2, additionalItems: false,
+          },
+          {
+            tagName: 'authors',
+            positions: [
+              { index: 0, required: true, constValue: 'authors', type: 'string' },
+              { index: 1, required: true, type: 'string' },
+            ],
+            minItems: 2, maxItems: 2, additionalItems: false,
+          },
+        ],
+        errorMessage: 'Must include at least one filter tag',
+      }],
+      category: 'conditional',
+    };
+
+    const actions = planBuilder(shape)!;
+    assert.ok(actions, 'Should have actions');
+
+    // Should contain an any_of_group action
+    const groupAction = actions.find(a => a.type === 'any_of_group');
+    assert.ok(groupAction, 'Should have any_of_group action');
+    assert.ok(groupAction.type === 'any_of_group');
+    assert.equal(groupAction.tags.length, 2);
+
+    // Simulate with all optional data filled
+    const data = generateSampleData(actions);
+    const tags = simulateBuilder(actions, data);
+
+    // Must have cmd + at least one filter tag
+    const foundCmd = tags.some(t => t[0] === 'cmd');
+    assert.ok(foundCmd, 'Should have cmd tag');
+    const foundFilter = tags.some(t => t[0] === 'k' || t[0] === 'authors');
+    assert.ok(foundFilter, 'Should have at least one filter tag from anyOf group');
+  });
 });
 
 // --- Full round-trip with real schemas (if available) ---
@@ -233,6 +338,7 @@ describe('round-trip (real schemas)', () => {
 
     // For each constrained kind, plan builder + validator and cross-check
     let checked = 0;
+    const failures: string[] = [];
     for (const shape of shapes) {
       const builderActions = planBuilder(shape);
       const validatorActions = planKindValidator(shape);
@@ -241,21 +347,42 @@ describe('round-trip (real schemas)', () => {
 
       const data = generateSampleData(builderActions);
       const tags = simulateBuilder(builderActions, data);
-      const builtNames = builderTagNames(builderActions);
 
-      // Check that each require_tag the builder CAN produce is satisfied.
-      // Some required tags have only literal positions (e.g., "-" protected tag)
-      // and the builder correctly doesn't generate them — skip those checks.
+      // Check ALL require_tag actions — builder MUST produce every required tag
       for (const va of validatorActions) {
         if (va.type !== 'require_tag') continue;
-        if (!builtNames.has(va.matcher.tagName)) continue; // builder can't produce this tag
         const found = tags.some(t => t[0] === va.matcher.tagName && t.length >= va.matcher.minItems);
-        assert.ok(found,
-          `Kind ${shape.kindNumber}: builder should produce a ${va.matcher.tagName} tag ` +
-          `with >= ${va.matcher.minItems} items. Tags: ${JSON.stringify(tags)}`);
+        if (!found) {
+          failures.push(
+            `Kind ${shape.kindNumber}: missing required ${va.matcher.tagName} tag ` +
+            `(need >= ${va.matcher.minItems} items). Tags: ${JSON.stringify(tags)}`);
+        }
       }
 
+      // Check any_of_group actions — at least one tag from each group must be present
+      for (const va of validatorActions) {
+        if (va.type !== 'any_of_group') continue;
+        const groupNames = va.matchers.map(m => m.tagName);
+        const found = groupNames.some(name =>
+          tags.some(t => t[0] === name)
+        );
+        if (!found) {
+          failures.push(
+            `Kind ${shape.kindNumber}: no tag from anyOf group [${groupNames.join(', ')}]. ` +
+            `Tags: ${JSON.stringify(tags)}`);
+        }
+      }
+
+      // Note: check_min_tags/check_max_tags are NOT checked here.
+      // Those constrain the total event tags array, which may include
+      // unconstrained tags the user adds. The builder only produces
+      // the structurally constrained subset.
+
       checked++;
+    }
+
+    if (failures.length > 0) {
+      assert.fail(`Round-trip failures (${failures.length}):\n  ${failures.join('\n  ')}`);
     }
 
     console.log(`Cross-checked ${checked} kinds (builder → validator)`);
