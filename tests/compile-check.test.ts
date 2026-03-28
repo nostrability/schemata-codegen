@@ -73,6 +73,7 @@ describe('compile-check: kinds', () => {
     assert.ok(existsSync(join(projectRoot, 'kind-registry.ts')), 'kind-registry.ts should be created');
     assert.ok(existsSync(join(projectRoot, 'error-messages.ts')), 'error-messages.ts should be created');
     assert.ok(existsSync(join(projectRoot, 'ajv-schemas', 'index.json')), 'ajv-schemas/index.json should be created');
+    assert.ok(existsSync(join(projectRoot, 'kind-tags.d.ts')), 'kind-tags.d.ts should be created');
   });
 
   it('generated kinds.d.ts compiles with tsc --strict', () => {
@@ -261,6 +262,54 @@ describe('compile-check: error-messages', () => {
     assert.ok(content.includes('tags must include an e tag referencing the reacted event'));
     // Kind-9735 has zap-specific messages
     assert.ok(content.includes('9735: ['));
+  });
+});
+
+describe('compile-check: kind-tags', () => {
+  it('generated kind-tags.d.ts compiles with tsc --strict', () => {
+    const outFile = join(projectRoot, 'kind-tags.d.ts');
+    if (!existsSync(outFile)) { console.log('Skipping: kind-tags.d.ts not found'); return; }
+
+    execSync(
+      `npx tsc --strict --noEmit --target ES2022 --module Node16 --moduleResolution Node16 ${outFile}`,
+      { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' }
+    );
+  });
+
+  it('generates at least 300 kind-scoped tag types', () => {
+    const outFile = join(projectRoot, 'kind-tags.d.ts');
+    if (!existsSync(outFile)) { console.log('Skipping: kind-tags.d.ts not found'); return; }
+
+    const content = readFileSync(outFile, 'utf-8');
+    const typeCount = (content.match(/^export type Kind\d+_\w+Tag /gm) || []).length;
+    assert.ok(typeCount >= 300, `Expected >= 300 kind-scoped tag types, got ${typeCount}`);
+  });
+
+  it('has no duplicate type names', () => {
+    const outFile = join(projectRoot, 'kind-tags.d.ts');
+    if (!existsSync(outFile)) { console.log('Skipping: kind-tags.d.ts not found'); return; }
+
+    const content = readFileSync(outFile, 'utf-8');
+    const matches = content.match(/^export type (\S+)/gm) || [];
+    const names = matches.map(m => m.replace('export type ', ''));
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    assert.equal(dupes.length, 0, `Duplicate type names: ${[...new Set(dupes)].join(', ')}`);
+  });
+
+  it('has no empty type aliases (missing RHS)', () => {
+    const outFile = join(projectRoot, 'kind-tags.d.ts');
+    if (!existsSync(outFile)) { console.log('Skipping: kind-tags.d.ts not found'); return; }
+
+    const content = readFileSync(outFile, 'utf-8');
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('export type ') && line.trimEnd().endsWith('=')) {
+        // Multiline union: next line should start with '  |'
+        const next = lines[i + 1] ?? '';
+        assert.ok(next.startsWith('  |'), `Empty type alias at line ${i + 1}: ${line.trim()}`);
+      }
+    }
   });
 });
 
