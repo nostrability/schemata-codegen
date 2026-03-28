@@ -1,6 +1,8 @@
 # schemata-codegen
 
-Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed code for 13 languages — tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages.
+Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed code for 13 languages. Schemata-codegen includes tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages. 
+
+Unlike the [validator approach](https://github.com/nostrability/schemata?tab=readme-ov-file#validators), no "heavy" validator is needed (e.g. AJV etc.), and code is run natively. For the real world practitioner, this means that schemata-codegen can be deployed to production, and not just constrained to CI. 
 
 ## How it fits in the schemata ecosystem
 
