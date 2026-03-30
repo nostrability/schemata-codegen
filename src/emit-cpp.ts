@@ -72,6 +72,14 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('regex');
       return { expr: `std::regex_match(${varExpr}, std::regex(${JSON.stringify(check.pattern)}))`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('check_date_iso');
+      return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('check_decimal');
+      return { expr: `check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -81,6 +89,10 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -428,6 +440,34 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    return s.size() >= min && (max == std::string::npos || s.size() <= max) && std::all_of(s.begin(), s.end(), [&charset](char c) {');
     lines.push('        return charset.find(c) != std::string::npos;');
     lines.push('    });');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_date_iso')) {
+    lines.push('inline bool check_date_iso(const std::string& s) {');
+    lines.push('    if (s.size() != 10) return false;');
+    lines.push("    if (s[4] != '-' || s[7] != '-') return false;");
+    lines.push('    for (int i = 0; i < 10; i++) {');
+    lines.push('        if (i == 4 || i == 7) continue;');
+    lines.push("        if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_decimal')) {
+    lines.push('inline bool check_decimal(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    if (i < s.size() && s[i] == '.') {");
+    lines.push('        i++;');
+    lines.push("        if (i >= s.size() || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("        while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    }');
+    lines.push('    return i == s.size();');
     lines.push('}');
     lines.push('');
   }

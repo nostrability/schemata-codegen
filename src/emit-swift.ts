@@ -71,6 +71,14 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('regex');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('checkDateIso');
+      return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('checkDecimal');
+      return { expr: `checkDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -80,6 +88,10 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -427,6 +439,36 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    guard !data.isEmpty, data.allSatisfy({ isBech32Char($0) }) else { return false }');
     lines.push('    if let dataLen = dataLen { return data.count == dataLen }');
     lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDateIso')) {
+    lines.push('private func checkDateIso(_ s: String) -> Bool {');
+    lines.push('    guard s.count == 10 else { return false }');
+    lines.push('    let chars = Array(s)');
+    lines.push("    guard chars[4] == Character(\"-\") && chars[7] == Character(\"-\") else { return false }");
+    lines.push('    for i in 0..<10 {');
+    lines.push('        if i == 4 || i == 7 { continue }');
+    lines.push('        if !chars[i].isNumber { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDecimal')) {
+    lines.push('private func checkDecimal(_ s: String) -> Bool {');
+    lines.push('    if s.isEmpty { return false }');
+    lines.push('    let chars = Array(s)');
+    lines.push('    var i = 0');
+    lines.push('    while i < chars.count && chars[i].isNumber { i += 1 }');
+    lines.push("    if i < chars.count && chars[i] == Character(\".\") {");
+    lines.push('        i += 1');
+    lines.push('        if i >= chars.count || !chars[i].isNumber { return false }');
+    lines.push('        while i < chars.count && chars[i].isNumber { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == chars.count');
     lines.push('}');
     lines.push('');
   }

@@ -177,6 +177,14 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_regex');
       return { expr: `schemata_check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('schemata_check_date_iso');
+      return { expr: `schemata_check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('schemata_check_decimal');
+      return { expr: `schemata_check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -186,6 +194,10 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -688,6 +700,37 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    if (data_len >= 0) return i == data_len;');
     lines.push('    return i > 0;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_date_iso')) {
+    lines.push('static int schemata_check_date_iso(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    int len = 0;');
+    lines.push('    for (const char *p = s; *p; p++) len++;');
+    lines.push('    if (len != 10) return 0;');
+    lines.push("    if (s[4] != '-' || s[7] != '-') return 0;");
+    lines.push("    for (int i = 0; i < 10; i++) {");
+    lines.push("        if (i == 4 || i == 7) continue;");
+    lines.push("        if (s[i] < '0' || s[i] > '9') return 0;");
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_decimal')) {
+    lines.push('static int schemata_check_decimal(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push("    const char *p = s;");
+    lines.push("    while (*p >= '0' && *p <= '9') p++;");
+    lines.push("    if (*p == '.') {");
+    lines.push('        p++;');
+    lines.push("        if (*p < '0' || *p > '9') return 0;");
+    lines.push("        while (*p >= '0' && *p <= '9') p++;");
+    lines.push('    }');
+    lines.push("    return *p == '\\0';");
     lines.push('}');
     lines.push('');
   }

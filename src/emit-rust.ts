@@ -131,6 +131,14 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('regex');
       return { expr: `check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('check_date_iso');
+      return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('check_decimal');
+      return { expr: `check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -140,6 +148,10 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -487,6 +499,33 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        Some(len) => data.len() == len,');
     lines.push('        None => true,');
     lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_date_iso')) {
+    lines.push('fn check_date_iso(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push("    b.len() == 10 && b[4] == b'-' && b[7] == b'-'");
+    lines.push('        && b[..4].iter().all(|c| c.is_ascii_digit())');
+    lines.push('        && b[5..7].iter().all(|c| c.is_ascii_digit())');
+    lines.push('        && b[8..10].iter().all(|c| c.is_ascii_digit())');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_decimal')) {
+    lines.push('fn check_decimal(s: &str) -> bool {');
+    lines.push('    if s.is_empty() { return false; }');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let mut i = 0;');
+    lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push("    if i < b.len() && b[i] == b'.' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= b.len() || !b[i].is_ascii_digit() { return false; }');
+    lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == b.len() && i > 0');
     lines.push('}');
     lines.push('');
   }

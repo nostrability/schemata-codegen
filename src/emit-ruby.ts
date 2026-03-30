@@ -72,6 +72,14 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     case 'regex': {
       return { expr: `${varExpr}.match?(Regexp.new(${rubyString(check.pattern)}))`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('check_date_iso');
+      return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('check_decimal');
+      return { expr: `check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -81,6 +89,10 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -410,6 +422,34 @@ function emitRubyHelpers(helpers: Set<string>): string {
   if (helpers.has('check_chars_in')) {
     lines.push('  def self.check_chars_in(s, charset, min, max)');
     lines.push('    s.is_a?(String) && s.length >= min && s.length <= max && s.chars.all? { |c| charset.include?(c) }');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_date_iso')) {
+    lines.push('  def self.check_date_iso(s)');
+    lines.push('    return false unless s.is_a?(String) && s.length == 10');
+    lines.push("    return false unless s[4] == '-' && s[7] == '-'");
+    lines.push('    (0...10).each do |i|');
+    lines.push('      next if i == 4 || i == 7');
+    lines.push("      return false unless s[i] >= '0' && s[i] <= '9'");
+    lines.push('    end');
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_decimal')) {
+    lines.push('  def self.check_decimal(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("    if i < s.length && s[i] == '.'");
+    lines.push('      i += 1');
+    lines.push("      return false if i >= s.length || s[i] < '0' || s[i] > '9'");
+    lines.push("      i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('    end');
+    lines.push('    i == s.length');
     lines.push('  end');
     lines.push('');
   }

@@ -189,15 +189,23 @@ describe('classifyRegex', () => {
     assert.deepStrictEqual(r, { op: 'bech32', hrp: 'lnurl', dataLen: undefined });
   });
 
-  // --- Regex fallback ---
+  // --- date_iso ---
 
-  it('falls back to regex for complex patterns', () => {
-    const r = classifyRegex('^\\d+(?:\\.\\d+)?$');
-    assert.strictEqual(r.op, 'regex');
-    assert.ok(r.op === 'regex');
-    assert.strictEqual(r.pattern, '^\\d+(?:\\.\\d+)?$');
-    assert.ok(!isNativeCheck(r));
+  it('classifies ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ as date_iso', () => {
+    const r = classifyRegex('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    assert.deepStrictEqual(r, { op: 'date_iso' });
+    assert.ok(isNativeCheck(r));
   });
+
+  // --- decimal ---
+
+  it('classifies ^\\d+(?:\\.\\d+)?$ as decimal', () => {
+    const r = classifyRegex('^\\d+(?:\\.\\d+)?$');
+    assert.deepStrictEqual(r, { op: 'decimal' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- Regex fallback ---
 
   it('falls back to regex for PGP signature', () => {
     const r = classifyRegex('^-----BEGIN PGP SIGNATURE-----[\\s\\S]*-----END PGP SIGNATURE-----$');

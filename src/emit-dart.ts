@@ -66,6 +66,14 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     case 'regex': {
       return { expr: `RegExp(${dartString(check.pattern)}).hasMatch(${varExpr})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('_checkDateIso');
+      return { expr: `_checkDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('_checkDecimal');
+      return { expr: `_checkDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -75,6 +83,10 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -408,6 +420,34 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('bool _checkCharsIn(String s, String charset, int min, int max) {');
     lines.push('  final len = s.length;');
     lines.push('  return len >= min && len <= max && s.runes.every((r) => charset.contains(String.fromCharCode(r)));');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkDateIso')) {
+    lines.push('bool _checkDateIso(String s) {');
+    lines.push("  if (s.length != 10 || s[4] != '-' || s[7] != '-') return false;");
+    lines.push('  for (int i = 0; i < 10; i++) {');
+    lines.push('    if (i == 4 || i == 7) continue;');
+    lines.push("    final c = s.codeUnitAt(i);");
+    lines.push('    if (c < 48 || c > 57) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkDecimal')) {
+    lines.push('bool _checkDecimal(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push("  if (i < s.length && s[i] == '.') {");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length || s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('    while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
     lines.push('}');
     lines.push('');
   }

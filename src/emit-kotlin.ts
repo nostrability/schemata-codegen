@@ -67,6 +67,14 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('regex');
       return { expr: `Regex(${JSON.stringify(check.pattern)}).matches(${varExpr})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('checkDateIso');
+      return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('checkDecimal');
+      return { expr: `checkDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -76,6 +84,10 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -388,6 +400,33 @@ function emitKotlinHelpers(helpers: Set<string>): string {
   if (helpers.has('checkCharsIn')) {
     lines.push('private fun checkCharsIn(s: String, charset: String, min: Int, max: Int): Boolean =');
     lines.push('    s.length in min..max && s.all { it in charset }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDateIso')) {
+    lines.push('private fun checkDateIso(s: String): Boolean {');
+    lines.push("    if (s.length != 10 || s[4] != '-' || s[7] != '-') return false");
+    lines.push('    for (i in 0 until 10) {');
+    lines.push('        if (i == 4 || i == 7) continue');
+    lines.push("        if (s[i] < '0' || s[i] > '9') return false");
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDecimal')) {
+    lines.push('private fun checkDecimal(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push("    if (i < s.length && s[i] == '.') {");
+    lines.push('        i++');
+    lines.push("        if (i >= s.length || s[i] !in '0'..'9') return false");
+    lines.push("        while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
     lines.push('');
   }
 
