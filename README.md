@@ -1,6 +1,10 @@
 # schemata-codegen
 
-Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed TypeScript code — tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages.
+Nostr-aware code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas and produces typed code for 13 languages. Schemata-codegen includes tag tuple types, kind event interfaces, runtime validators, kind metadata, and error messages. 
+
+Unlike the [validator approach](https://github.com/nostrability/schemata?tab=readme-ov-file#validators), no "heavy" validator is needed (e.g. AJV etc.), and code is run natively. For the real world practitioner, this means that schemata-codegen can be deployed to production, and not just constrained to CI. 
+
+The above said, schemata-codegen is complementary to the schemata validator approach.
 
 ## How it fits in the schemata ecosystem
 
@@ -12,6 +16,16 @@ Nostr-aware code generator that reads [schemata](https://github.com/nostrability
 | **schemata-codegen** | **Code generator — produces typed language constructs from the schemas** |
 
 The data packages give you access to raw schemas. The validators check whether a JSON blob conforms to a schema (pass/fail — useful for conformance testing, which is what [sherlock](https://github.com/nostrability/sherlock) does against live relay data). The codegen produces **typed language constructs** — so when you're writing code that builds or reads tags, the compiler catches structural mistakes (wrong position, missing field, bad marker value) that `string[][]` silently accepts.
+
+## Direct comparison schemata-codegen vs schemata-validator approach
+
+| Phase | schemata-js-ajv | schemata-codegen |                                                                                          
+  |-------|-----------------|------------------|                                                                                                                           
+  | **Write code** (authoring) | Nothing / no types | IDE autocomplete, type errors at compile time |                                                                      
+  | **Build** (compile) | Nothing | Type checker catches wrong field names, missing tags |                                                                                 
+  | **Construct event** (runtime) | Nothing until event is finished | Lightweight tag validator can check before signing |                                                 
+  | **Validate finished event** | Full JSON Schema validation via AJV | Could also validate, but AJV is more thorough |                                                    
+  | **Display to user** | Cryptic error paths | KIND_NAMES for UI, human-friendly error messages |             
 
 ## Why not use an existing JSON Schema code generator?
 
@@ -34,6 +48,8 @@ node dist/index.js --schemas ../schemata/dist --out tags.d.ts --kinds kinds.d.ts
 
 ## CLI flags
 
+### TypeScript outputs
+
 | Flag | Output | Description |
 |------|--------|-------------|
 | `--out` | `tags.d.ts` | Tag tuple types (always generated) |
@@ -42,7 +58,30 @@ node dist/index.js --schemas ../schemata/dist --out tags.d.ts --kinds kinds.d.ts
 | `--registry` | `kind-registry.ts` | Kind metadata (name, NIP, required tags, category) |
 | `--errors` | `error-messages.ts` | Human-friendly error messages from schema errorMessage fields |
 | `--ajv-schemas` | `ajv-schemas/` | AJV-ready JSON schemas (see [AJV schemas](#ajv-ready-schemas-ajv-schemas) below) |
-| `--all` | All of the above | Generate everything |
+
+### Multi-language validators
+
+| Flag | Output | API option |
+|------|--------|------------|
+| `--c-validators` | `validators.c` + `validators.h` | `--c-api generic\|nostrdb` |
+| `--rust-validators` | `validators.rs` | `--rust-api generic\|nostr\|nostrdb` |
+| `--go-validators` | `validators.go` | |
+| `--python-validators` | `validators.py` | |
+| `--kotlin-validators` | `Validators.kt` | |
+| `--java-validators` | `SchemataValidators.java` | |
+| `--swift-validators` | `Validators.swift` | |
+| `--dart-validators` | `validators.dart` | |
+| `--php-validators` | `validators.php` | |
+| `--csharp-validators` | `Validators.cs` | |
+| `--cpp-validators` | `validators.hpp` | |
+| `--ruby-validators` | `validators.rb` | |
+
+### Other
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Generate all outputs |
+| `--dump-plan` | Dump ValidatorAction[] plan as JSON |
 
 **No generated outputs are committed.** Run `--all` or individual flags to produce them locally. Tests verify correctness by generating and compiling the outputs during CI.
 
@@ -53,11 +92,11 @@ node dist/index.js --schemas ../schemata/dist --out tags.d.ts --kinds kinds.d.ts
 156 tag schemas classified into 5 patterns:
 
 ```typescript
-// fixed_tuple (95 tags) — exact length, typed positions
+// fixed_tuple (96 tags) — exact length, typed positions
 export type AmountTag = readonly ["amount", string];
 export type EmojiTag = readonly ["emoji", string, string];
 
-// optional_trailing (9 tags) — union of valid lengths
+// optional_trailing (8 tags) — union of valid lengths
 export type RTag =
   | readonly ["r", string]
   | readonly ["r", string, "read" | "write"];
@@ -90,7 +129,7 @@ export type NostrEvent = Kind0Event | Kind1Event | ... | Kind40000Event;
 
 ### Runtime validators (`validators.ts`)
 
-132 kind-level validators and 3 tag-level validators. Zero dependencies — plain functions on `string[][]`. Works in any TypeScript/JavaScript environment without AJV.
+136 kind-level validators and 3 tag-level validators. Zero dependencies — plain functions on `string[][]`. Works in any TypeScript/JavaScript environment without AJV. The same 136 validators are also generated for C, Rust, Go, Python, Kotlin, Java, Swift, Dart, PHP, C#, C++, and Ruby.
 
 ```typescript
 import { validateKind9735Tags, validateKindTags } from './validators.js';
@@ -139,5 +178,5 @@ const validate = ajv.compile(kind7Schema);  // No preprocessing needed
 ## Tests
 
 ```bash
-npm test    # 85 tests — extraction, emission, tsc compilation, runtime validation
+npm test    # 317 tests — extraction, emission, tsc compilation, runtime validation
 ```
