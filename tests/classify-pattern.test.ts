@@ -154,6 +154,41 @@ describe('classifyRegex', () => {
     assert.strictEqual(r.max, 0);
   });
 
+  // --- Bech32 ---
+
+  it('classifies ^npub1[02-9ac-hj-np-z]{58}$ as bech32 with fixed length', () => {
+    const r = classifyRegex('^npub1[02-9ac-hj-np-z]{58}$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'npub', dataLen: 58 });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^note1[02-9ac-hj-np-z]{58}$ as bech32 with fixed length', () => {
+    const r = classifyRegex('^note1[02-9ac-hj-np-z]{58}$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'note', dataLen: 58 });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^nprofile1[02-9ac-hj-np-z]+$ as bech32 variable length', () => {
+    const r = classifyRegex('^nprofile1[02-9ac-hj-np-z]+$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'nprofile', dataLen: undefined });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^nevent1[02-9ac-hj-np-z]+$ as bech32 variable length', () => {
+    const r = classifyRegex('^nevent1[02-9ac-hj-np-z]+$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'nevent', dataLen: undefined });
+  });
+
+  it('classifies ^naddr1[02-9ac-hj-np-z]+$ as bech32 variable length', () => {
+    const r = classifyRegex('^naddr1[02-9ac-hj-np-z]+$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'naddr', dataLen: undefined });
+  });
+
+  it('classifies ^lnurl1[02-9ac-hj-np-z]+$ as bech32 variable length', () => {
+    const r = classifyRegex('^lnurl1[02-9ac-hj-np-z]+$');
+    assert.deepStrictEqual(r, { op: 'bech32', hrp: 'lnurl', dataLen: undefined });
+  });
+
   // --- Regex fallback ---
 
   it('falls back to regex for complex patterns', () => {
@@ -239,6 +274,12 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\\s*;\\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$',
     '^\\d+:[a-f0-9]{64}:.+$',
     '^(31922|31923):[a-f0-9]{64}:.+$',
+    '^npub1[02-9ac-hj-np-z]{58}$',
+    '^note1[02-9ac-hj-np-z]{58}$',
+    '^nprofile1[02-9ac-hj-np-z]+$',
+    '^nevent1[02-9ac-hj-np-z]+$',
+    '^naddr1[02-9ac-hj-np-z]+$',
+    '^lnurl1[02-9ac-hj-np-z]+$',
   ];
 
   it('processes all schemata patterns without throwing', () => {

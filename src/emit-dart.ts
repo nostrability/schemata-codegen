@@ -56,6 +56,13 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('_checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `_checkBech32(${varExpr}, ${dartString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `_checkBech32(${varExpr}, ${dartString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       return { expr: `RegExp(${dartString(check.pattern)}).hasMatch(${varExpr})`, helpers };
     }
@@ -401,6 +408,22 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('bool _checkCharsIn(String s, String charset, int min, int max) {');
     lines.push('  final len = s.length;');
     lines.push('  return len >= min && len <= max && s.runes.every((r) => charset.contains(String.fromCharCode(r)));');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkBech32')) {
+    lines.push('bool _isBech32Char(int c) {');
+    lines.push('  // 0-9 except 1, a-z except b, i, o');
+    lines.push('  return (c >= 48 && c <= 57 && c != 49) || (c >= 97 && c <= 122 && c != 98 && c != 105 && c != 111);');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkBech32(String s, String prefix, [int? dataLen]) {');
+    lines.push('  if (!s.startsWith(prefix)) return false;');
+    lines.push('  final data = s.substring(prefix.length);');
+    lines.push('  if (data.isEmpty || !data.codeUnits.every(_isBech32Char)) return false;');
+    lines.push('  if (dataLen != null) return data.length == dataLen;');
+    lines.push('  return true;');
     lines.push('}');
     lines.push('');
   }

@@ -60,6 +60,13 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
@@ -404,6 +411,22 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('private func checkCharsIn(_ s: String, _ charset: String, _ min: Int, _ max: Int) -> Bool {');
     lines.push('    let len = s.count');
     lines.push('    return len >= min && len <= max && s.allSatisfy { charset.contains($0) }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBech32')) {
+    lines.push('private func isBech32Char(_ c: Character) -> Bool {');
+    lines.push('    let s = c.asciiValue ?? 0');
+    lines.push('    return (s >= 48 && s <= 57 && s != 49) || (s >= 97 && s <= 122 && s != 98 && s != 105 && s != 111)');
+    lines.push('}');
+    lines.push('');
+    lines.push('private func checkBech32(_ s: String, _ prefix: String, _ dataLen: Int? = nil) -> Bool {');
+    lines.push('    guard s.hasPrefix(prefix) else { return false }');
+    lines.push('    let data = s.dropFirst(prefix.count)');
+    lines.push('    guard !data.isEmpty, data.allSatisfy({ isBech32Char($0) }) else { return false }');
+    lines.push('    if let dataLen = dataLen { return data.count == dataLen }');
+    lines.push('    return true');
     lines.push('}');
     lines.push('');
   }

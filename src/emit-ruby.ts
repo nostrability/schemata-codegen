@@ -62,6 +62,13 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `check_bech32(${varExpr}, ${rubyString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `check_bech32(${varExpr}, ${rubyString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       return { expr: `${varExpr}.match?(Regexp.new(${rubyString(check.pattern)}))`, helpers };
     }
@@ -403,6 +410,19 @@ function emitRubyHelpers(helpers: Set<string>): string {
   if (helpers.has('check_chars_in')) {
     lines.push('  def self.check_chars_in(s, charset, min, max)');
     lines.push('    s.is_a?(String) && s.length >= min && s.length <= max && s.chars.all? { |c| charset.include?(c) }');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_bech32')) {
+    lines.push('  BECH32_CHARS = Set.new("023456789acdefghjklmnpqrstuvwxyz".chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_bech32(s, prefix, data_len = nil)');
+    lines.push('    return false unless s.is_a?(String) && s.start_with?(prefix)');
+    lines.push('    data = s[prefix.length..]');
+    lines.push('    return false if data.nil? || data.empty? || !data.chars.all? { |c| BECH32_CHARS.include?(c) }');
+    lines.push('    return data.length == data_len unless data_len.nil?');
+    lines.push('    true');
     lines.push('  end');
     lines.push('');
   }

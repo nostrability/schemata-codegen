@@ -120,6 +120,13 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, Some(${check.dataLen}))`, helpers };
+      }
+      return { expr: `check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, None)`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
@@ -462,6 +469,24 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('fn check_chars_in(s: &str, charset: &str, min: usize, max: usize) -> bool {');
     lines.push('    let len = s.len();');
     lines.push('    len >= min && len <= max && s.chars().all(|c| charset.contains(c))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_bech32')) {
+    lines.push('fn is_bech32_char(b: u8) -> bool {');
+    lines.push("    matches!(b, b'0' | b'2'..=b'9' | b'a' | b'c'..=b'h' | b'j'..=b'n' | b'p'..=b'z')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_bech32(s: &str, prefix: &str, data_len: Option<usize>) -> bool {');
+    lines.push('    if !s.starts_with(prefix) { return false; }');
+    lines.push('    let data = &s[prefix.len()..];');
+    lines.push('    if data.is_empty() { return false; }');
+    lines.push('    if !data.bytes().all(is_bech32_char) { return false; }');
+    lines.push('    match data_len {');
+    lines.push('        Some(len) => data.len() == len,');
+    lines.push('        None => true,');
+    lines.push('    }');
     lines.push('}');
     lines.push('');
   }

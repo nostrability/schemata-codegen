@@ -213,6 +213,12 @@ function handleEvent(event: NDKEvent) {
 }
 ```
 
+## See Also
+
+- [PATTERNS.md](https://github.com/nostrability/schemata/blob/master/PATTERNS.md) — catalog of 69+ regex patterns with codegen classification and pipeline docs
+- [schemata](https://github.com/nostrability/schemata) — source YAML schemas and compiled JSON dist/
+- [sherlock](https://github.com/nostrability/sherlock) — schema conformance scanner using codegen outputs
+
 ## Tests
 
 ```bash

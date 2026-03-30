@@ -22,6 +22,7 @@ export type PatternCheck =
   | { op: 'all_digits'; allowNeg?: boolean }
   | { op: 'starts_with_any'; prefixes: string[] }
   | { op: 'chars_in'; charset: string; min?: number; max?: number }
+  | { op: 'bech32'; hrp: string; dataLen?: number }
   | { op: 'compound'; checks: PatternCheck[] }
   | { op: 'regex'; pattern: string };
 
@@ -155,6 +156,16 @@ export function classifyRegex(pattern: string): PatternCheck {
     }
   }
 
+  // Bech32: ^<hrp>1[02-9ac-hj-np-z]{N}$ (fixed-length) or ^<hrp>1[02-9ac-hj-np-z]+$ (variable)
+  {
+    const m = pattern.match(/^\^([a-z]+)1\[02-9ac-hj-np-z\](\{(\d+)\}|\+)\$$/);
+    if (m) {
+      const hrp = m[1];
+      const dataLen = m[3] ? parseInt(m[3], 10) : undefined;
+      return { op: 'bech32', hrp, dataLen };
+    }
+  }
+
   // Decimal number: ^\d+(?:\.\d+)?$
   if (pattern === '^\\d+(?:\\.\\d+)?$') {
     return { op: 'regex', pattern };
@@ -216,6 +227,7 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'all_digits':
     case 'starts_with_any':
     case 'chars_in':
+    case 'bech32':
       return true;
     case 'compound':
       return check.checks.every(isNativeCheck);

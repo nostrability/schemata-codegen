@@ -56,6 +56,13 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `Regex(${JSON.stringify(check.pattern)}).matches(${varExpr})`, helpers };
@@ -381,6 +388,20 @@ function emitKotlinHelpers(helpers: Set<string>): string {
   if (helpers.has('checkCharsIn')) {
     lines.push('private fun checkCharsIn(s: String, charset: String, min: Int, max: Int): Boolean =');
     lines.push('    s.length in min..max && s.all { it in charset }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBech32')) {
+    lines.push('private fun isBech32Char(c: Char): Boolean =');
+    lines.push("    (c in '0'..'9' && c != '1') || (c in 'a'..'z' && c != 'b' && c != 'i' && c != 'o')");
+    lines.push('');
+    lines.push('private fun checkBech32(s: String, prefix: String, dataLen: Int = -1): Boolean {');
+    lines.push('    if (!s.startsWith(prefix)) return false');
+    lines.push('    val data = s.substring(prefix.length)');
+    lines.push('    if (data.isEmpty() || !data.all { isBech32Char(it) }) return false');
+    lines.push('    if (dataLen >= 0) return data.length == dataLen');
+    lines.push('    return true');
+    lines.push('}');
     lines.push('');
   }
 

@@ -61,6 +61,13 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `std::regex_match(${varExpr}, std::regex(${JSON.stringify(check.pattern)}))`, helpers };
@@ -421,6 +428,22 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    return s.size() >= min && (max == std::string::npos || s.size() <= max) && std::all_of(s.begin(), s.end(), [&charset](char c) {');
     lines.push('        return charset.find(c) != std::string::npos;');
     lines.push('    });');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_bech32')) {
+    lines.push('inline bool is_bech32_char(char c) {');
+    lines.push("    return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('inline bool check_bech32(const std::string& s, const std::string& prefix, int data_len = -1) {');
+    lines.push('    if (s.size() < prefix.size() || s.compare(0, prefix.size(), prefix) != 0) return false;');
+    lines.push('    auto data = s.substr(prefix.size());');
+    lines.push('    if (data.empty()) return false;');
+    lines.push('    if (!std::all_of(data.begin(), data.end(), is_bech32_char)) return false;');
+    lines.push('    if (data_len >= 0) return static_cast<int>(data.size()) == data_len;');
+    lines.push('    return true;');
     lines.push('}');
     lines.push('');
   }

@@ -64,6 +64,13 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       if (check.max !== undefined) args.push(String(check.max));
       return { expr: `schemata_check_chars_in(${args.join(', ')})`, helpers };
     }
+    case 'bech32': {
+      helpers.add('schemata_check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `schemata_check_bech32(${varExpr}, ${phpString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `schemata_check_bech32(${varExpr}, ${phpString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       const escaped = check.pattern.replace(/#/g, '\\#');
       return { expr: `preg_match(${phpString('#' + escaped + '#')}, ${varExpr}) === 1`, helpers };
@@ -527,6 +534,24 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    for ($i = 0; $i < $len; $i++) {');
     lines.push('        if (strpos($charset, $s[$i]) === false) { return false; }');
     lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_bech32')) {
+    lines.push('function schemata_is_bech32_char(string $c): bool {');
+    lines.push("    return ($c >= '0' && $c <= '9' && $c !== '1') || ($c >= 'a' && $c <= 'z' && $c !== 'b' && $c !== 'i' && $c !== 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_bech32(string $s, string $prefix, ?int $dataLen = null): bool {');
+    lines.push('    if (!str_starts_with($s, $prefix)) { return false; }');
+    lines.push('    $data = substr($s, strlen($prefix));');
+    lines.push("    if ($data === '' || $data === false) { return false; }");
+    lines.push('    for ($i = 0; $i < strlen($data); $i++) {');
+    lines.push('        if (!schemata_is_bech32_char($data[$i])) { return false; }');
+    lines.push('    }');
+    lines.push('    if ($dataLen !== null) { return strlen($data) === $dataLen; }');
     lines.push('    return true;');
     lines.push('}');
     lines.push('');
