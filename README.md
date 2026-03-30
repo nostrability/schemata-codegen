@@ -177,7 +177,7 @@ const validate = ajv.compile(kind7Schema);  // No preprocessing needed
 
 ## Using with nostr-tools
 
-The generated outputs work directly with [nostr-tools](https://github.com/nbd-wtf/nostr-tools) — no wrapper needed. Both `kind` (`number`) and `tags` (`string[][]`) match what codegen expects:
+After generating outputs (see [Usage](#usage) above), the validators and kind registry work directly with [nostr-tools](https://github.com/nbd-wtf/nostr-tools) — no wrapper needed. Both `kind` (`number`) and `tags` (`string[][]`) match what codegen expects:
 
 ```typescript
 import type { Event } from 'nostr-tools';
@@ -196,7 +196,7 @@ function handleEvent(event: Event) {
 
 ## Using with NDK
 
-Same pattern with [NDK](https://github.com/nostr-dev-kit/ndk) — `NDKEvent` exposes `kind` and `tags` in the same shape:
+Same pattern with [NDK](https://github.com/nostr-dev-kit/ndk). `NDKEvent.tags` is `string[][]` and `NDKEvent.kind` is `NDKKind | number` — both compatible with codegen's validators:
 
 ```typescript
 import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -204,9 +204,9 @@ import { validateKindTags } from './validators.js';
 import { KIND_NAMES } from './kind-registry.js';
 
 function handleEvent(event: NDKEvent) {
-  const errors = validateKindTags(event.kind!, event.tags);
+  const errors = validateKindTags(event.kind, event.tags);
   if (errors.length > 0) {
-    console.warn(`Invalid ${KIND_NAMES[event.kind!]}:`, errors);
+    console.warn(`Invalid ${KIND_NAMES[event.kind]}:`, errors);
     return;
   }
   // event.tags validated — safe to process
