@@ -1,0 +1,198 @@
+# AGENTS.md — READ THIS BEFORE MAKING CHANGES
+
+## Repository Overview
+
+Code generator that reads [schemata](https://github.com/nostrability/schemata)'s compiled JSON schemas (`dist/`) and produces typed code for 13 languages. Zero runtime dependencies — Node builtins only.
+
+**This repo does NOT define schemas.** Schema authoring rules live in [schemata/AGENTS.md](https://github.com/nostrability/schemata/blob/master/AGENTS.md). This repo consumes `dist/*.json` as read-only input.
+
+## Architecture
+
+### Pipeline
+
+```text
+schemata dist/*.json
+    ↓
+extract-tag.ts / extract-kind.ts    → TagShape[] / KindShape[]
+    ↓
+classify-pattern.ts                  → PatternCheck intermediate representation (regex → native ops)
+    ↓
+plan-validators.ts / plan-builders.ts → ValidatorAction[] / BuilderAction[]
+    ↓
+emit-*.ts (12 languages + TS)       → source files (.ts, .c, .rs, .go, ...)
+```
+
+### Key abstractions
+
+| Abstraction | File | Purpose |
+|---|---|---|
+| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (9 ops: hex, hex_range, hex_prefixed, all_digits, starts_with_any, chars_in, bech32, compound, regex) |
+| `ValidatorAction` | `plan-validators.ts` | Language-independent validation step (require_tag, check_pattern, etc.) |
+| `BuilderAction` | `plan-builders.ts` | Language-independent tag construction step |
+| `KindShape` | `kind-types.ts` | Extracted kind metadata (kind number, NIP spec reference, tag constraints) |
+| `TagShape` | `patterns.ts` | Extracted tag metadata (positions, types, constraints) |
+
+### Language emitters
+
+Each language has its own `emit-*.ts` file that renders `ValidatorAction[]` into idiomatic code:
+
+| File | Language | Helper naming |
+|---|---|---|
+| `emit-c.ts` | C | `schemata_check_*` |
+| `emit-rust.ts` | Rust | `check_*` |
+| `emit-cpp.ts` | C++ | `check_*` |
+| `emit-csharp.ts` | C# | `Check*` (PascalCase) |
+| `emit-go.ts` | Go | `check*` (camelCase) |
+| `emit-java.ts` | Java | `check*` (camelCase) |
+| `emit-kotlin.ts` | Kotlin | `check*` (camelCase) |
+| `emit-swift.ts` | Swift | `check*` (camelCase) |
+| `emit-dart.ts` | Dart | `_check*` (private) |
+| `emit-python.ts` | Python | `_check_*` (private) |
+| `emit-php.ts` | PHP | `schemata_check_*` |
+| `emit-ruby.ts` | Ruby | `check_*` |
+| `emit-validators.ts` | TypeScript | Uses regex directly (no PatternCheck rendering) |
+
+## Critical Rules — MUST follow
+
+### 1. NEVER update only some emitters — ALL 12 language emitters MUST stay in sync
+
+Every `renderPatternCheck*()` function has a `switch (check.op)` that MUST handle all `PatternCheck` ops. When adding a new op, you MUST complete ALL of these steps:
+
+1. Add the op to the `PatternCheck` type union in `classify-pattern.ts`
+2. Add classification logic in `classifyRegex()`
+3. Add `case` to `isNativeCheck()` (return `true` if no regex needed)
+4. Add `case` to `renderPatternCheck*()` in **ALL 12** emit files
+5. Add helper implementation in **ALL 12** `emit*Helpers()` functions
+6. Add tests in `classify-pattern.test.ts`
+
+**Past incident:** The `bech32` op was added to all 12 `renderPatternCheck*()` functions but helper implementations were only added to 2 (C, Rust). The other 10 emitted calls to undefined functions → generated code failed to compile in 10 languages. No test caught this.
+
+### 2. EVERY `helpers.add()` MUST have a matching `emit*Helpers()` implementation
+
+In each emitter:
+1. `renderPatternCheck*()` calls `helpers.add('helperName')` and returns an expression referencing it
+2. `emit*Helpers()` checks `if (helpers.has('helperName'))` and emits the function body
+
+If step 1 exists without step 2, generated code will reference undefined functions. There is NO automated check for this.
+
+### 3. Changes to the planner affect ALL languages simultaneously
+
+`plan-validators.ts` produces `ValidatorAction[]` consumed by all emitters. Changing action types or semantics affects 12+ languages. ALWAYS test with `--all` after planner changes.
+
+### 4. ALWAYS export public functions
+
+Any function used by test files or other modules MUST be `export`ed. A missing `export` on `emitTupleType` once caused 4 test files to cascade-fail.
+
+### 5. Schema extraction MUST use recursive unwrap, not fixed depth
+
+Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts`, `extract-tag.ts`) MUST recursively unwrap. NEVER assume a fixed depth.
+
+## Anti-patterns
+
+### NEVER:
+
+- **NEVER assume helpers exist** — adding a `case` in `renderPatternCheck*()` is NOT enough; you MUST also add the helper body in `emit*Helpers()`
+- **NEVER update only some emitters** — if you touch `renderPatternCheck*()` in one emitter, you MUST touch all 12
+- **NEVER use bare leaf keywords for AJV (JSON Schema validator) error enrichment** — keywords like `pattern`, `items`, `contains` collide with unrelated schema paths; only match path-like keywords containing `properties` (e.g., `allOf[1].properties.kind`)
+- **NEVER double-collect tag constraints** — `unwrapTagSchema` already merges `structural.allOf` contains into `extraAllOf`
+- **NEVER skip constrained optional positions in validation** — `emitTagMatcher` skips optional positions for existence checks, but constrained optional positions need a separate `validate_optional_positions` action
+- **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
+- **NEVER add runtime dependencies** — zero dependencies (Node builtins only)
+
+### ALWAYS:
+
+- **ALWAYS follow existing helper naming conventions** per language (see emitter table above)
+- **ALWAYS test with `--all` flag** to generate all languages and catch cross-language regressions
+- **ALWAYS run `npm test`** — 333+ tests covering extraction, emission, compilation, and runtime validation
+- **ALWAYS check `isNativeCheck()`** returns `true` for any new op that doesn't need regex fallback
+- **Use `--dump-plan`** to inspect the `ValidatorAction[]` plan when debugging validator output
+
+## Common Tasks
+
+### Adding a new PatternCheck op
+
+1. Add the op type to the `PatternCheck` union in `classify-pattern.ts`
+2. Add detection logic in `classifyRegex()` — order matters (check before regex fallback)
+3. Update `isNativeCheck()` to return `true`
+4. For each of the 12 `emit-*.ts` files:
+   - Add `case '<op>':` to `renderPatternCheck*()`
+   - Add `helpers.add('<helperName>')` with appropriate naming
+   - Add `if (helpers.has('<helperName>'))` block in `emit*Helpers()` with the implementation
+5. Add tests in `classify-pattern.test.ts` for classification
+6. Run `npm test` to verify
+
+### Adding a new language emitter
+
+1. Create `src/emit-<lang>.ts` following the pattern of existing emitters
+2. Implement: `renderPatternCheck<Lang>()`, `renderValueCheck<Lang>()`, `renderTagMatcher<Lang>()`, `emitKindFunction<Lang>()`, `emit<Lang>Helpers()`, `emit<Lang>File()`
+3. Handle ALL `PatternCheck` ops in `renderPatternCheck<Lang>()`
+4. Handle ALL `ValidatorAction` types in `emitKindFunction<Lang>()`
+5. Add CLI flag in `src/index.ts`
+6. Add test file `tests/emit-<lang>.test.ts`
+7. Typical size: ~260 lines for `renderPatternCheck` + `emit*Helpers` + CLI glue
+
+### Debugging validator output
+
+```bash
+# Generate ALL languages at once (use after planner changes)
+node dist/index.js --schemas ../schemata/dist --all
+
+# Dump the action plan for inspection
+node dist/index.js --schemas ../schemata/dist --dump-plan > plan.json
+
+# Generate a specific language to inspect
+node dist/index.js --schemas ../schemata/dist --go-validators validators.go
+```
+
+## Testing
+
+```bash
+npm run build    # TypeScript → dist/
+npm test         # Run all tests (333+ pass)
+```
+
+Test structure:
+- `classify-pattern.test.ts` — PatternCheck classification from regex strings
+- `extract-tag.test.ts` / `extract-kind.test.ts` — schema extraction
+- `plan-validators.test.ts` — action planning
+- `emit-*.test.ts` — per-language output verification
+- `validators-runtime.test.ts` — generated TS validators executed against sample data
+- `compile-check.test.ts` — TypeScript compilation of generated outputs
+
+
+## File Map
+
+```text
+schemata-codegen/
+├── src/
+│   ├── index.ts                # CLI entry point
+│   ├── classify-pattern.ts     # Regex → PatternCheck intermediate representation
+│   ├── patterns.ts             # TagShape extraction
+│   ├── extract-tag.ts          # Tag schema → TagShape
+│   ├── extract-kind.ts         # Kind schema → KindShape
+│   ├── kind-types.ts           # KindShape type definition
+│   ├── plan-validators.ts      # KindShape → ValidatorAction[]
+│   ├── plan-builders.ts        # KindShape → BuilderAction[]
+│   ├── emit-typescript.ts      # Tags/kinds type emission
+│   ├── emit-kind.ts            # Kind interface emission
+│   ├── emit-validators.ts      # TypeScript validators (uses regex directly)
+│   ├── emit-builders.ts        # TypeScript builder functions
+│   ├── emit-c.ts               # C validators (nostrdb API support)
+│   ├── emit-rust.ts            # Rust validators (nostr/nostrdb API support)
+│   ├── emit-cpp.ts             # C++ validators (header-only)
+│   ├── emit-go.ts              # Go validators
+│   ├── emit-java.ts            # Java validators
+│   ├── emit-kotlin.ts          # Kotlin validators
+│   ├── emit-swift.ts           # Swift validators
+│   ├── emit-dart.ts            # Dart validators
+│   ├── emit-python.ts          # Python validators
+│   ├── emit-php.ts             # PHP validators
+│   ├── emit-csharp.ts          # C# validators
+│   ├── emit-ruby.ts            # Ruby validators
+│   ├── emit-registry.ts        # Kind metadata registry
+│   ├── emit-errors.ts          # Error message extraction
+│   └── emit-ajv.ts             # AJV (JSON Schema validator) schema preprocessing
+├── tests/                       # Node test runner (node --test)
+├── dist/                        # Compiled JS (git-ignored)
+└── AGENTS.md                    # This file
+```
