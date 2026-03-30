@@ -64,6 +64,13 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       if (check.max !== undefined) args.push(String(check.max));
       return { expr: `schemata_check_chars_in(${args.join(', ')})`, helpers };
     }
+    case 'bech32': {
+      helpers.add('schemata_check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `schemata_check_bech32(${varExpr}, ${phpString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `schemata_check_bech32(${varExpr}, ${phpString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       const escaped = check.pattern.replace(/#/g, '\\#');
       return { expr: `preg_match(${phpString('#' + escaped + '#')}, ${varExpr}) === 1`, helpers };

@@ -56,6 +56,13 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `Regex(${JSON.stringify(check.pattern)}).matches(${varExpr})`, helpers };

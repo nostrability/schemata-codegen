@@ -62,6 +62,13 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `check_bech32(${varExpr}, ${rubyString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `check_bech32(${varExpr}, ${rubyString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       return { expr: `${varExpr}.match?(Regexp.new(${rubyString(check.pattern)}))`, helpers };
     }

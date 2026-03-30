@@ -65,6 +65,13 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, -1)`, helpers };
+    }
     case 'regex': {
       helpers.add('regexp');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };

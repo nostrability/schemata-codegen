@@ -166,6 +166,13 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add(fn);
       return { expr: `${fn}(${varExpr}, ${JSON.stringify(check.charset)}, ${check.min ?? -1}, ${check.max ?? -1})`, helpers };
     }
+    case 'bech32': {
+      helpers.add('schemata_check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `schemata_check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `schemata_check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, -1)`, helpers };
+    }
     case 'regex': {
       helpers.add('schemata_check_regex');
       return { expr: `schemata_check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
@@ -661,6 +668,26 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (min_len >= 0 && len < min_len) return 0;');
     lines.push('    if (max_len >= 0 && len > max_len) return 0;');
     lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_bech32')) {
+    lines.push('static int schemata_is_bech32_char(char c) {');
+    lines.push("    return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('static int schemata_check_bech32(const char *s, const char *prefix, int data_len) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t plen = strlen(prefix);');
+    lines.push('    if (strncmp(s, prefix, plen) != 0) return 0;');
+    lines.push('    s += plen;');
+    lines.push('    int i = 0;');
+    lines.push('    for (; s[i]; i++) {');
+    lines.push('        if (!schemata_is_bech32_char(s[i])) return 0;');
+    lines.push('    }');
+    lines.push('    if (data_len >= 0) return i == data_len;');
+    lines.push('    return i > 0;');
     lines.push('}');
     lines.push('');
   }

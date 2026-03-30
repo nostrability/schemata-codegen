@@ -56,6 +56,13 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('_checkBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `_checkBech32(${varExpr}, ${dartString(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `_checkBech32(${varExpr}, ${dartString(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       return { expr: `RegExp(${dartString(check.pattern)}).hasMatch(${varExpr})`, helpers };
     }

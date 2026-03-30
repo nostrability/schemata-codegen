@@ -61,6 +61,13 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('_check_bech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `_check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `_check_bech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('_regex');
       return { expr: `bool(re.match(${JSON.stringify(check.pattern)}, ${varExpr}))`, helpers };

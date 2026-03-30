@@ -58,6 +58,13 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
         helpers,
       };
     }
+    case 'bech32': {
+      helpers.add('CheckBech32');
+      if (check.dataLen !== undefined) {
+        return { expr: `CheckBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
+      }
+      return { expr: `CheckBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')})`, helpers };
+    }
     case 'regex': {
       helpers.add('regex');
       return { expr: `Regex.IsMatch(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
