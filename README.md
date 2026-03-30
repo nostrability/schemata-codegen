@@ -175,6 +175,44 @@ import kind7Schema from './ajv-schemas/kind-7.json';
 const validate = ajv.compile(kind7Schema);  // No preprocessing needed
 ```
 
+## Using with nostr-tools
+
+The generated outputs work directly with [nostr-tools](https://github.com/nbd-wtf/nostr-tools) — no wrapper needed. Both `kind` (`number`) and `tags` (`string[][]`) match what codegen expects:
+
+```typescript
+import type { Event } from 'nostr-tools';
+import { validateKindTags } from './validators.js';
+import { KIND_NAMES } from './kind-registry.js';
+
+function handleEvent(event: Event) {
+  const errors = validateKindTags(event.kind, event.tags);
+  if (errors.length > 0) {
+    console.warn(`Invalid ${KIND_NAMES[event.kind]}:`, errors);
+    return;
+  }
+  // event.tags validated — safe to process
+}
+```
+
+## Using with NDK
+
+Same pattern with [NDK](https://github.com/nostr-dev-kit/ndk) — `NDKEvent` exposes `kind` and `tags` in the same shape:
+
+```typescript
+import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { validateKindTags } from './validators.js';
+import { KIND_NAMES } from './kind-registry.js';
+
+function handleEvent(event: NDKEvent) {
+  const errors = validateKindTags(event.kind!, event.tags);
+  if (errors.length > 0) {
+    console.warn(`Invalid ${KIND_NAMES[event.kind!]}:`, errors);
+    return;
+  }
+  // event.tags validated — safe to process
+}
+```
+
 ## Tests
 
 ```bash
