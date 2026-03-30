@@ -90,7 +90,7 @@ function emitJSDoc(shape: TagShape): string {
 /**
  * Emit a single readonly tuple type for a list of positions.
  */
-function emitTupleType(positions: PositionType[], rest?: string): string {
+export function emitTupleType(positions: PositionType[], rest?: string): string {
   const parts = positions.map(p => emitPositionType(p));
   const tuple = parts.join(', ');
   if (rest) {
