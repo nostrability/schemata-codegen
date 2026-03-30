@@ -462,6 +462,7 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    if (s.empty()) return false;');
     lines.push('    size_t i = 0;');
     lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    if (i == 0) return false;");
     lines.push("    if (i < s.size() && s[i] == '.') {");
     lines.push('        i++;');
     lines.push("        if (i >= s.size() || s[i] < '0' || s[i] > '9') return false;");

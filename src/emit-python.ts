@@ -460,6 +460,8 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    i = 0');
     lines.push("    while i < len(s) and s[i].isdigit():");
     lines.push('        i += 1');
+    lines.push('    if i == 0:');
+    lines.push('        return False');
     lines.push("    if i < len(s) and s[i] == '.':");
     lines.push('        i += 1');
     lines.push('        if i >= len(s) or not s[i].isdigit():');

@@ -520,6 +520,7 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    let b = s.as_bytes();');
     lines.push('    let mut i = 0;');
     lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('    if i == 0 { return false; }');
     lines.push("    if i < b.len() && b[i] == b'.' {");
     lines.push('        i += 1;');
     lines.push('        if i >= b.len() || !b[i].is_ascii_digit() { return false; }');

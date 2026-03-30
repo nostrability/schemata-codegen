@@ -725,6 +725,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (!s || !*s) return 0;');
     lines.push("    const char *p = s;");
     lines.push("    while (*p >= '0' && *p <= '9') p++;");
+    lines.push("    if (p == s) return 0;");
     lines.push("    if (*p == '.') {");
     lines.push('        p++;');
     lines.push("        if (*p < '0' || *p > '9') return 0;");

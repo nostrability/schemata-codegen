@@ -463,6 +463,7 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    let chars = Array(s)');
     lines.push('    var i = 0');
     lines.push('    while i < chars.count && chars[i].isNumber { i += 1 }');
+    lines.push('    guard i > 0 else { return false }');
     lines.push("    if i < chars.count && chars[i] == Character(\".\") {");
     lines.push('        i += 1');
     lines.push('        if i >= chars.count || !chars[i].isNumber { return false }');

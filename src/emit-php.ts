@@ -568,6 +568,7 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push("    if ($s === '') { return false; }");
     lines.push('    $i = 0;');
     lines.push("    while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push("    if ($i === 0) { return false; }");
     lines.push("    if ($i < strlen($s) && $s[$i] === '.') {");
     lines.push('        $i++;');
     lines.push("        if ($i >= strlen($s) || $s[$i] < '0' || $s[$i] > '9') { return false; }");

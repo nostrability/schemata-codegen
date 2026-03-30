@@ -507,6 +507,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (s == null || s.isEmpty()) return false;');
     lines.push('        int i = 0;');
     lines.push("        while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
+    lines.push("        if (i == 0) return false;");
     lines.push("        if (i < s.length() && s.charAt(i) == '.') {");
     lines.push('            i++;');
     lines.push("            if (i >= s.length() || s.charAt(i) < '0' || s.charAt(i) > '9') return false;");

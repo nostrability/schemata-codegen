@@ -448,6 +448,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            if (string.IsNullOrEmpty(s)) return false;');
     lines.push('            int i = 0;');
     lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("            if (i == 0) return false;");
     lines.push("            if (i < s.Length && s[i] == '.')");
     lines.push('            {');
     lines.push('                i++;');

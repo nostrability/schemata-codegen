@@ -681,6 +681,9 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
     lines.push('\t\ti++');
     lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
     lines.push("\tif i < len(s) && s[i] == '.' {");
     lines.push('\t\ti++');
     lines.push("\t\tif i >= len(s) || s[i] < '0' || s[i] > '9' {");

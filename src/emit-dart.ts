@@ -442,6 +442,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  if (s.isEmpty) return false;');
     lines.push('  int i = 0;');
     lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('  if (i == 0) return false;');
     lines.push("  if (i < s.length && s[i] == '.') {");
     lines.push('    i++;');
     lines.push('    if (i >= s.length || s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');

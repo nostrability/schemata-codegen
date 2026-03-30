@@ -444,6 +444,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false unless s.is_a?(String) && !s.empty?');
     lines.push('    i = 0');
     lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("    return false if i == 0");
     lines.push("    if i < s.length && s[i] == '.'");
     lines.push('      i += 1');
     lines.push("      return false if i >= s.length || s[i] < '0' || s[i] > '9'");
