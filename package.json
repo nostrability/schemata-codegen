@@ -2,6 +2,7 @@
   "name": "@nostrability/schemata-codegen",
   "version": "0.1.0",
   "description": "Nostr-aware code generator for schemata schemas",
+  "license": "(MIT OR Apache-2.0)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
