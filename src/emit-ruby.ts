@@ -414,5 +414,18 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('check_bech32')) {
+    lines.push('  BECH32_CHARS = Set.new("023456789acdefghjklmnpqrstuvwxyz".chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_bech32(s, prefix, data_len = nil)');
+    lines.push('    return false unless s.is_a?(String) && s.start_with?(prefix)');
+    lines.push('    data = s[prefix.length..]');
+    lines.push('    return false if data.nil? || data.empty? || !data.chars.all? { |c| BECH32_CHARS.include?(c) }');
+    lines.push('    return data.length == data_len unless data_len.nil?');
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
   return lines.join('\n');
 }

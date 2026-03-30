@@ -412,5 +412,21 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('_checkBech32')) {
+    lines.push('bool _isBech32Char(int c) {');
+    lines.push('  // 0-9 except 1, a-z except b, i, o');
+    lines.push('  return (c >= 48 && c <= 57 && c != 49) || (c >= 97 && c <= 122 && c != 98 && c != 105 && c != 111);');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkBech32(String s, String prefix, [int? dataLen]) {');
+    lines.push('  if (!s.startsWith(prefix)) return false;');
+    lines.push('  final data = s.substring(prefix.length);');
+    lines.push('  if (data.isEmpty || !data.codeUnits.every(_isBech32Char)) return false;');
+    lines.push('  if (dataLen != null) return data.length == dataLen;');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
   return lines.join('\n');
 }

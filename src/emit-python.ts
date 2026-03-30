@@ -425,5 +425,22 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    return all(c in charset for c in s)');
   }
 
+  if (helpers.has('_check_bech32')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('_BECH32_CHARS = set("023456789acdefghjklmnpqrstuvwxyz")');
+    lines.push('');
+    lines.push('');
+    lines.push('def _check_bech32(s: str, prefix: str, data_len: int | None = None) -> bool:');
+    lines.push('    if not s.startswith(prefix):');
+    lines.push('        return False');
+    lines.push('    data = s[len(prefix):]');
+    lines.push('    if not data or not all(c in _BECH32_CHARS for c in data):');
+    lines.push('        return False');
+    lines.push('    if data_len is not None:');
+    lines.push('        return len(data) == data_len');
+    lines.push('    return True');
+  }
+
   return lines.join('\n');
 }

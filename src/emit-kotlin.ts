@@ -391,6 +391,20 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkBech32')) {
+    lines.push('private fun isBech32Char(c: Char): Boolean =');
+    lines.push("    (c in '0'..'9' && c != '1') || (c in 'a'..'z' && c != 'b' && c != 'i' && c != 'o')");
+    lines.push('');
+    lines.push('private fun checkBech32(s: String, prefix: String, dataLen: Int = -1): Boolean {');
+    lines.push('    if (!s.startsWith(prefix)) return false');
+    lines.push('    val data = s.substring(prefix.length)');
+    lines.push('    if (data.isEmpty() || !data.all { isBech32Char(it) }) return false');
+    lines.push('    if (dataLen >= 0) return data.length == dataLen');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
   // Note: regex helper is not needed as a standalone function in Kotlin;
   // we inline Regex(pattern).matches(s) directly.
 

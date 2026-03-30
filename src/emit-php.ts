@@ -539,5 +539,23 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('schemata_check_bech32')) {
+    lines.push('function schemata_is_bech32_char(string $c): bool {');
+    lines.push("    return ($c >= '0' && $c <= '9' && $c !== '1') || ($c >= 'a' && $c <= 'z' && $c !== 'b' && $c !== 'i' && $c !== 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_bech32(string $s, string $prefix, ?int $dataLen = null): bool {');
+    lines.push('    if (!str_starts_with($s, $prefix)) { return false; }');
+    lines.push('    $data = substr($s, strlen($prefix));');
+    lines.push("    if ($data === '' || $data === false) { return false; }");
+    lines.push('    for ($i = 0; $i < strlen($data); $i++) {');
+    lines.push('        if (!schemata_is_bech32_char($data[$i])) { return false; }');
+    lines.push('    }');
+    lines.push('    if ($dataLen !== null) { return strlen($data) === $dataLen; }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
   return lines.join('\n');
 }

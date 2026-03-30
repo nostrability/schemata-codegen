@@ -477,5 +477,20 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkBech32')) {
+    lines.push('    private static boolean isBech32Char(char c) {');
+    lines.push("        return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('    }');
+    lines.push('');
+    lines.push('    private static boolean checkBech32(String s, String prefix, int dataLen) {');
+    lines.push('        if (s == null || !s.startsWith(prefix)) return false;');
+    lines.push('        String data = s.substring(prefix.length());');
+    lines.push('        if (data.isEmpty() || !data.chars().allMatch(c -> isBech32Char((char) c))) return false;');
+    lines.push('        if (dataLen >= 0) return data.length() == dataLen;');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
   return lines.join('\n');
 }

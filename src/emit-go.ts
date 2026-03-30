@@ -67,6 +67,7 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     }
     case 'bech32': {
       helpers.add('checkBech32');
+      helpers.add('strings');
       if (check.dataLen !== undefined) {
         return { expr: `checkBech32(${varExpr}, ${JSON.stringify(check.hrp + '1')}, ${check.dataLen})`, helpers };
       }
@@ -606,6 +607,32 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\tif !found {');
     lines.push('\t\t\treturn false');
     lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBech32')) {
+    lines.push('func isBech32Char(b byte) bool {');
+    lines.push("\treturn (b >= '0' && b <= '9' && b != '1') || (b >= 'a' && b <= 'z' && b != 'b' && b != 'i' && b != 'o')");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkBech32(s string, prefix string, dataLen int) bool {');
+    lines.push('\tif !strings.HasPrefix(s, prefix) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tdata := s[len(prefix):]');
+    lines.push('\tif len(data) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < len(data); i++ {');
+    lines.push('\t\tif !isBech32Char(data[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tif dataLen >= 0 {');
+    lines.push('\t\treturn len(data) == dataLen');
     lines.push('\t}');
     lines.push('\treturn true');
     lines.push('}');

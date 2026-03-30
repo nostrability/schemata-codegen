@@ -416,5 +416,20 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('CheckBech32')) {
+    lines.push('        private static bool IsBech32Char(char c)');
+    lines.push("            => (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('');
+    lines.push('        private static bool CheckBech32(string s, string prefix, int dataLen = -1)');
+    lines.push('        {');
+    lines.push('            if (s == null || !s.StartsWith(prefix, StringComparison.Ordinal)) return false;');
+    lines.push('            var data = s.Substring(prefix.Length);');
+    lines.push('            if (data.Length == 0 || !data.All(IsBech32Char)) return false;');
+    lines.push('            if (dataLen >= 0) return data.Length == dataLen;');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
