@@ -4,10 +4,6 @@
     "reason": "RFC 5322 email validation — too complex for a single native op"
   },
   {
-    "pattern": "^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$",
-    "reason": "Nostr URI with multiple bech32 variants — needs compound bech32+prefix op"
-  },
-  {
     "pattern": "^\\d+x\\d+$",
     "reason": "Image dimensions (WxH) — needs digits_x_digits op"
   },
@@ -30,14 +26,6 @@
   {
     "pattern": "^\\S+( \\S+)*$",
     "reason": "Space-separated non-whitespace tokens — needs token_list op"
-  },
-  {
-    "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$",
-    "reason": "Simple MIME type (mixed-case variant) — needs mime_type variant with uppercase"
-  },
-  {
-    "pattern": "^(02|03)[a-f0-9]{64}$",
-    "reason": "Compressed secp256k1 public key — needs hex_prefixed variant with alternation"
   },
   {
     "pattern": "^[^A-Z]+$",
