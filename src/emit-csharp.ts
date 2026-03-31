@@ -406,6 +406,7 @@ function emitCSharpFile(
     '//',
     '// Runtime validators for Nostr event tag constraints',
     '',
+    'using System;',
     'using System.Collections.Generic;',
     'using System.Linq;',
   ];
