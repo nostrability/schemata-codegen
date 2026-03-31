@@ -29,6 +29,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: schemata-codegen/package-lock.json
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Build schemata dist
         working-directory: schemata
         run: npm install --legacy-peer-deps && npm run build
