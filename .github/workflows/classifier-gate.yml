@@ -1,0 +1,52 @@
+name: Classifier Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  classifier-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout schemata-codegen
+        uses: actions/checkout@v4
+        with:
+          path: schemata-codegen
+
+      - name: Checkout schemata
+        uses: actions/checkout@v4
+        with:
+          repository: nostrability/schemata
+          path: schemata
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: schemata-codegen/package-lock.json
+
+      - name: Build schemata dist
+        working-directory: schemata
+        run: npm ci && npm run build
+
+      - name: Install schemata-codegen deps
+        working-directory: schemata-codegen
+        run: npm ci
+
+      - name: Build schemata-codegen
+        working-directory: schemata-codegen
+        run: npm run build
+
+      - name: Run classifier coverage check
+        working-directory: schemata-codegen
+        run: >
+          node dist-tests/scripts/check-classifier-coverage.js
+          ../schemata/dist
+          --allowlist scripts/classifier-allowlist.json
+
+      - name: Run tests
+        working-directory: schemata-codegen
+        run: npm test
