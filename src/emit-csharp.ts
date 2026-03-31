@@ -79,7 +79,7 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
         const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
         return { expr: `CheckATag(${varExpr}, new string[]{${arr}})`, helpers };
       }
-      return { expr: `CheckATag(${varExpr}, null)`, helpers };
+      return { expr: `CheckATag(${varExpr}, System.Array.Empty<string>())`, helpers };
     }
     case 'date_iso': {
       helpers.add('CheckDateIso');
@@ -963,7 +963,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckImetaDim')) {
     lines.push('        private static bool CheckImetaDim(string s) {');
     lines.push('            if (s == null || s.Length < 7) return false;');
-    lines.push('            if (!s.StartsWith("dim ")) return false;');
+    lines.push('            if (!s.StartsWith("dim ", StringComparison.Ordinal)) return false;');
     lines.push('            int i = 4;');
     lines.push('            int dc = 0;');
     lines.push('            while (i < s.Length && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
