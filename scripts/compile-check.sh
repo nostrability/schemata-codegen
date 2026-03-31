@@ -185,20 +185,8 @@ else
   check_result "Kotlin" "skip" "kotlinc not found"
 fi
 
-# --- C# ---
-if command -v mcs >/dev/null 2>&1; then
-  if mcs -target:library -out:"$TMPDIR_GEN/Validators.dll" "$TMPDIR_GEN/Validators.cs" 2>"$TMPDIR_GEN/csharp.err"; then
-    check_result "C#" "pass"
-  else
-    check_result "C#" "fail" "$(cat "$TMPDIR_GEN/csharp.err")"
-  fi
-elif command -v csc >/dev/null 2>&1; then
-  if csc -target:library -out:"$TMPDIR_GEN/Validators.dll" "$TMPDIR_GEN/Validators.cs" 2>"$TMPDIR_GEN/csharp.err"; then
-    check_result "C#" "pass"
-  else
-    check_result "C#" "fail" "$(cat "$TMPDIR_GEN/csharp.err")"
-  fi
-elif command -v dotnet >/dev/null 2>&1; then
+# --- C# (prefer dotnet for C# 9+ record support, fall back to mcs/csc) ---
+if command -v dotnet >/dev/null 2>&1; then
   CSHARP_TMPDIR="$(mktemp -d)"
   cp "$TMPDIR_GEN/Validators.cs" "$CSHARP_TMPDIR/Validators.cs"
   cat > "$CSHARP_TMPDIR/check.csproj" << 'CSPROJ'
@@ -215,8 +203,20 @@ CSPROJ
     check_result "C#" "fail" "$(cat "$TMPDIR_GEN/csharp.err")"
   fi
   rm -rf "$CSHARP_TMPDIR"
+elif command -v mcs >/dev/null 2>&1; then
+  if mcs -target:library -out:"$TMPDIR_GEN/Validators.dll" "$TMPDIR_GEN/Validators.cs" 2>"$TMPDIR_GEN/csharp.err"; then
+    check_result "C#" "pass"
+  else
+    check_result "C#" "fail" "$(cat "$TMPDIR_GEN/csharp.err")"
+  fi
+elif command -v csc >/dev/null 2>&1; then
+  if csc -target:library -out:"$TMPDIR_GEN/Validators.dll" "$TMPDIR_GEN/Validators.cs" 2>"$TMPDIR_GEN/csharp.err"; then
+    check_result "C#" "pass"
+  else
+    check_result "C#" "fail" "$(cat "$TMPDIR_GEN/csharp.err")"
+  fi
 else
-  check_result "C#" "skip" "mcs/csc/dotnet not found"
+  check_result "C#" "skip" "dotnet/mcs/csc not found"
 fi
 
 # --- Swift ---
