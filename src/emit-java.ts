@@ -989,6 +989,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkImetaDim')) {
     lines.push('    private static boolean checkImetaDim(String s) {');
+    lines.push('        if (s == null) return false;');
     lines.push('        if (s.length() < 7) return false;');
     lines.push('        if (!s.startsWith("dim ")) return false;');
     lines.push('        int i = 4;');

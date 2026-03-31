@@ -409,7 +409,7 @@ function emitRubyFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
 ): string {
-  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws');
+  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws') || helpers.has('check_package_id');
   const lines: string[] = [
     '# frozen_string_literal: true',
     '',
