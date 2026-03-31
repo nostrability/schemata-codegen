@@ -169,7 +169,7 @@ export function classifyRegex(pattern: string): PatternCheck {
 
   // Nostr event coordinates: ^\d+:[a-f0-9]{64}:.+$
   {
-    const m = pattern.match(/^\^\\?d\+:\[a-f0-9\]\{64\}:\.\+\$$/);
+    const m = pattern.match(/^\^\\d\+:\[a-f0-9\]\{64\}:\.\+\$$/);
     if (m) {
       return { op: 'a_tag' };
     }

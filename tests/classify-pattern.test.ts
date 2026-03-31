@@ -1085,6 +1085,22 @@ describe('check_email_like behavioral correctness', () => {
       assert.strictEqual(checkEmailLike(input), regex.test(input), `Mismatch for "${input}"`);
     }
   });
+
+  it('diverges from regex on Unicode whitespace (known limitation)', () => {
+    // isAsciiWs only checks ASCII whitespace; JS \s includes NBSP, BOM, LS, PS
+    const regex = /^[^\s@]+@[^\s@]+$/;
+    const unicodeWsInputs = [
+      'user\u00A0@domain',   // NBSP in local part
+      'user\uFEFF@domain',   // BOM/ZWNBSP in local part
+      'user\u2028@domain',   // Line Separator in local part
+      'user\u2029@domain',   // Paragraph Separator in local part
+    ];
+    for (const input of unicodeWsInputs) {
+      // Native checker accepts (doesn't know about Unicode ws), regex rejects
+      assert.strictEqual(checkEmailLike(input), true, `native should accept "${input}"`);
+      assert.strictEqual(regex.test(input), false, `regex should reject "${input}"`);
+    }
+  });
 });
 
 describe('check_doi behavioral correctness', () => {
@@ -1601,6 +1617,35 @@ describe('check_imeta_dim behavioral correctness', () => {
       'dim 100x200', 'dim 1x1', 'dim 99999x99999', '',
       '100x200', 'dim 100200', 'dim x200', 'dim 123456x200',
       'dim 100x200px', 'dim 0x0',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkImetaDim(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+
+  it('classifies pattern as imeta_dim', () => {
+    const r = classifyRegex('^dim [0-9]{1,5}x[0-9]{1,5}$');
+    assert.deepStrictEqual(r, { op: 'imeta_dim' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('regex-vs-native equivalence with adversarial inputs', () => {
+    const regex = /^dim [0-9]{1,5}x[0-9]{1,5}$/;
+    const inputs = [
+      '', 'x', 'dim', 'dim ', 'dim 1', 'dim 1x', 'dim 1x1',
+      'dim 100x200', 'dim 99999x99999',
+      'dim 0x0', 'dim 00000x00000',
+      'dim 123456x200', 'dim 200x123456', // 6 digits
+      'dim 100x200px', 'dim 100x200\n', 'dim 100x200\r',
+      'dim \n100x200', 'dim 100\nx200',
+      '100x200', 'DIM 100x200', 'Dim 100x200',
+      'dim 100X200', // uppercase X
+      'dim  100x200', // double space
+      'dim 100x200 ', // trailing space
+      ' dim 100x200', // leading space
+      'dim -1x200', 'dim 1x-200',
+      'dim 1.5x200',
     ];
     for (const input of inputs) {
       assert.strictEqual(checkImetaDim(input), regex.test(input),
