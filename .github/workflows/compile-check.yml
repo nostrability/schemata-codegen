@@ -1,0 +1,87 @@
+name: Cross-language compile check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  compile-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build codegen
+        run: npm run build
+
+      - name: Download schemata schemas
+        run: |
+          gh release download v0.3.0 -R nostrability/schemata -p '*.zip' -D /tmp
+          mkdir -p /tmp/schemata-dist
+          unzip -q /tmp/schemata-v0.3.0.zip -d /tmp/schemata-dist
+          echo "SCHEMAS_DIR=/tmp/schemata-dist" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10"
+
+      - name: Install additional compilers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc g++ php-cli ruby mono-mcs 2>/dev/null || true
+          # Try to install kotlinc
+          if ! command -v kotlinc >/dev/null 2>&1; then
+            sudo snap install kotlin --classic 2>/dev/null || true
+          fi
+
+      - name: Run compile checks
+        run: ./scripts/compile-check.sh --schemas "$SCHEMAS_DIR"
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test

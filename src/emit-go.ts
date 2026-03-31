@@ -345,6 +345,7 @@ function emitKindFunctionGo(
 ): { code: string; helpers: Set<string> } {
   const helpers = new Set<string>();
   const lines: string[] = [];
+  let foundDeclared = false;
 
   lines.push(`// ValidateKind${kindNumber} validates tags for kind ${kindNumber} (${nip}).`);
   lines.push(`func ValidateKind${kindNumber}(tags [][]string) []ValidationError {`);
@@ -361,7 +362,12 @@ function emitKindFunctionGo(
 
       case 'require_tag': {
         const cond = renderTagMatcherCondition(action.matcher, 't', helpers);
-        lines.push('\tfound := false');
+        if (!foundDeclared) {
+          lines.push('\tfound := false');
+          foundDeclared = true;
+        } else {
+          lines.push('\tfound = false');
+        }
         lines.push('\tfor _, t := range tags {');
         lines.push(`\t\tif ${cond} {`);
         lines.push('\t\t\tfound = true');
