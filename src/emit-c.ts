@@ -748,7 +748,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("    if (len >= 6 && s[0] == 'w' && s[1] == 's' && s[2] == 's' && s[3] == ':' && s[4] == '/' && s[5] == '/') { pos = 6; }");
     lines.push("    else if (len >= 5 && s[0] == 'w' && s[1] == 's' && s[2] == ':' && s[3] == '/' && s[4] == '/') { pos = 5; }");
     lines.push('    else { return 0; }');
-    lines.push('    int host_start = pos;');
+    lines.push('    size_t host_start = pos;');
     lines.push('    while (s[pos]) {');
     lines.push("        char c = s[pos];");
     lines.push("        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') { pos++; }");
@@ -757,7 +757,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (pos == host_start) return 0;');
     lines.push("    if (s[pos] == ':') {");
     lines.push('        pos++;');
-    lines.push('        int port_start = pos;');
+    lines.push('        size_t port_start = pos;');
     lines.push("        while (s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('        if (pos == port_start) return 0;');
     lines.push('    }');
