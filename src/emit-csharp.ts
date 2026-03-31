@@ -69,6 +69,14 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('regex');
       return { expr: `Regex.IsMatch(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('CheckDateIso');
+      return { expr: `CheckDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('CheckDecimal');
+      return { expr: `CheckDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -78,6 +86,10 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -413,6 +425,38 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckCharsIn')) {
     lines.push('        private static bool CheckCharsIn(string s, string charset, int min, int max)');
     lines.push('            => s != null && s.Length >= min && s.Length <= max && s.All(c => charset.Contains(c));');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckDateIso')) {
+    lines.push('        private static bool CheckDateIso(string s)');
+    lines.push('        {');
+    lines.push("            if (s == null || s.Length != 10 || s[4] != '-' || s[7] != '-') return false;");
+    lines.push('            for (int i = 0; i < 10; i++)');
+    lines.push('            {');
+    lines.push('                if (i == 4 || i == 7) continue;');
+    lines.push("                if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('            }');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckDecimal')) {
+    lines.push('        private static bool CheckDecimal(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("            if (i == 0) return false;");
+    lines.push("            if (i < s.Length && s[i] == '.')");
+    lines.push('            {');
+    lines.push('                i++;');
+    lines.push("                if (i >= s.Length || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
     lines.push('');
   }
 

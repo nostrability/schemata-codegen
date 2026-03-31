@@ -23,6 +23,8 @@ export type PatternCheck =
   | { op: 'starts_with_any'; prefixes: string[] }
   | { op: 'chars_in'; charset: string; min?: number; max?: number }
   | { op: 'bech32'; hrp: string; dataLen?: number }
+  | { op: 'date_iso' }
+  | { op: 'decimal' }
   | { op: 'compound'; checks: PatternCheck[] }
   | { op: 'regex'; pattern: string };
 
@@ -166,9 +168,14 @@ export function classifyRegex(pattern: string): PatternCheck {
     }
   }
 
+  // ISO date: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+  if (pattern === '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') {
+    return { op: 'date_iso' };
+  }
+
   // Decimal number: ^\d+(?:\.\d+)?$
   if (pattern === '^\\d+(?:\\.\\d+)?$') {
-    return { op: 'regex', pattern };
+    return { op: 'decimal' };
   }
 
   // Fallback: preserve original regex
@@ -228,6 +235,8 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'starts_with_any':
     case 'chars_in':
     case 'bech32':
+    case 'date_iso':
+    case 'decimal':
       return true;
     case 'compound':
       return check.checks.every(isNativeCheck);

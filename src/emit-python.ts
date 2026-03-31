@@ -72,6 +72,14 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       helpers.add('_regex');
       return { expr: `bool(re.match(${JSON.stringify(check.pattern)}, ${varExpr}))`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('_check_date_iso');
+      return { expr: `_check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('_check_decimal');
+      return { expr: `_check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -81,6 +89,10 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' and ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -423,6 +435,40 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    if max_len >= 0 and n > max_len:');
     lines.push('        return False');
     lines.push('    return all(c in charset for c in s)');
+  }
+
+  if (helpers.has('_check_date_iso')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_date_iso(s: str) -> bool:');
+    lines.push("    if len(s) != 10 or s[4] != '-' or s[7] != '-':");
+    lines.push('        return False');
+    lines.push('    for i in range(10):');
+    lines.push('        if i == 4 or i == 7:');
+    lines.push('            continue');
+    lines.push("        if not s[i].isdigit():");
+    lines.push('            return False');
+    lines.push('    return True');
+  }
+
+  if (helpers.has('_check_decimal')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_decimal(s: str) -> bool:');
+    lines.push('    if not s:');
+    lines.push('        return False');
+    lines.push('    i = 0');
+    lines.push("    while i < len(s) and s[i].isdigit():");
+    lines.push('        i += 1');
+    lines.push('    if i == 0:');
+    lines.push('        return False');
+    lines.push("    if i < len(s) and s[i] == '.':");
+    lines.push('        i += 1');
+    lines.push('        if i >= len(s) or not s[i].isdigit():');
+    lines.push('            return False');
+    lines.push("        while i < len(s) and s[i].isdigit():");
+    lines.push('            i += 1');
+    lines.push('    return i == len(s)');
   }
 
   if (helpers.has('_check_bech32')) {

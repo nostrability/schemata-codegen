@@ -77,6 +77,14 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('regexp');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('checkDateIso');
+      return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('checkDecimal');
+      return { expr: `checkDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -86,6 +94,10 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -635,6 +647,53 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\treturn len(data) == dataLen');
     lines.push('\t}');
     lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDateIso')) {
+    lines.push('func checkDateIso(s string) bool {');
+    lines.push('\tif len(s) != 10 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif s[4] != '-' || s[7] != '-' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < 10; i++ {');
+    lines.push('\t\tif i == 4 || i == 7 {');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push("\t\tif s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDecimal')) {
+    lines.push('func checkDecimal(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i < len(s) && s[i] == '.' {");
+    lines.push('\t\ti++');
+    lines.push("\t\tif i >= len(s) || s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
     lines.push('}');
     lines.push('');
   }

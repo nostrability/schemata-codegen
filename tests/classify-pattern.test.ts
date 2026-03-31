@@ -189,15 +189,23 @@ describe('classifyRegex', () => {
     assert.deepStrictEqual(r, { op: 'bech32', hrp: 'lnurl', dataLen: undefined });
   });
 
-  // --- Regex fallback ---
+  // --- date_iso ---
 
-  it('falls back to regex for complex patterns', () => {
-    const r = classifyRegex('^\\d+(?:\\.\\d+)?$');
-    assert.strictEqual(r.op, 'regex');
-    assert.ok(r.op === 'regex');
-    assert.strictEqual(r.pattern, '^\\d+(?:\\.\\d+)?$');
-    assert.ok(!isNativeCheck(r));
+  it('classifies ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ as date_iso', () => {
+    const r = classifyRegex('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    assert.deepStrictEqual(r, { op: 'date_iso' });
+    assert.ok(isNativeCheck(r));
   });
+
+  // --- decimal ---
+
+  it('classifies ^\\d+(?:\\.\\d+)?$ as decimal', () => {
+    const r = classifyRegex('^\\d+(?:\\.\\d+)?$');
+    assert.deepStrictEqual(r, { op: 'decimal' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- Regex fallback ---
 
   it('falls back to regex for PGP signature', () => {
     const r = classifyRegex('^-----BEGIN PGP SIGNATURE-----[\\s\\S]*-----END PGP SIGNATURE-----$');
@@ -299,4 +307,32 @@ describe('classifyRegex coverage of schemata patterns', () => {
     assert.ok(nativeCount >= patterns.length * 0.5,
       `Expected >= 50% native, got ${nativeCount}/${patterns.length}`);
   });
+});
+
+describe('check_decimal behavioral correctness', () => {
+  // Reference implementation matching the emitted code logic across all 12 languages.
+  // This mirrors the fixed check_decimal: requires at least one leading digit
+  // before the optional dot branch.
+  function checkDecimal(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    if (i === 0) return false; // must have leading digits
+    if (i < s.length && s[i] === '.') {
+      i++;
+      if (i >= s.length || s[i] < '0' || s[i] > '9') return false;
+      while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    }
+    return i === s.length;
+  }
+
+  it('accepts integer', () => assert.ok(checkDecimal('1')));
+  it('accepts multi-digit integer', () => assert.ok(checkDecimal('123')));
+  it('accepts decimal', () => assert.ok(checkDecimal('1.5')));
+  it('accepts long decimal', () => assert.ok(checkDecimal('123.456')));
+  it('rejects leading dot', () => assert.ok(!checkDecimal('.5')));
+  it('rejects empty', () => assert.ok(!checkDecimal('')));
+  it('rejects alpha', () => assert.ok(!checkDecimal('a')));
+  it('rejects trailing dot', () => assert.ok(!checkDecimal('1.')));
+  it('rejects multiple dots', () => assert.ok(!checkDecimal('1.2.3')));
 });

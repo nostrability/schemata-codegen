@@ -75,6 +75,14 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('regex');
       return { expr: `Pattern.matches(${JSON.stringify(check.pattern)}, ${varExpr})`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('checkDateIso');
+      return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('checkDecimal');
+      return { expr: `checkDecimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -84,6 +92,10 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -473,6 +485,35 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (s == null) return false;');
     lines.push('        int len = s.length();');
     lines.push('        return len >= min && len <= max && s.chars().allMatch(c -> charset.indexOf(c) >= 0);');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDateIso')) {
+    lines.push('    private static boolean checkDateIso(String s) {');
+    lines.push("        if (s == null || s.length() != 10 || s.charAt(4) != '-' || s.charAt(7) != '-') return false;");
+    lines.push('        for (int i = 0; i < 10; i++) {');
+    lines.push('            if (i == 4 || i == 7) continue;');
+    lines.push("            char c = s.charAt(i);");
+    lines.push("            if (c < '0' || c > '9') return false;");
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDecimal')) {
+    lines.push('    private static boolean checkDecimal(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push("        while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
+    lines.push("        if (i == 0) return false;");
+    lines.push("        if (i < s.length() && s.charAt(i) == '.') {");
+    lines.push('            i++;');
+    lines.push("            if (i >= s.length() || s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("            while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
+    lines.push('        }');
+    lines.push('        return i == s.length();');
     lines.push('    }');
     lines.push('');
   }

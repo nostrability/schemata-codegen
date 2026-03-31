@@ -75,6 +75,14 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       const escaped = check.pattern.replace(/#/g, '\\#');
       return { expr: `preg_match(${phpString('#' + escaped + '#')}, ${varExpr}) === 1`, helpers };
     }
+    case 'date_iso': {
+      helpers.add('schemata_check_date_iso');
+      return { expr: `schemata_check_date_iso(${varExpr})`, helpers };
+    }
+    case 'decimal': {
+      helpers.add('schemata_check_decimal');
+      return { expr: `schemata_check_decimal(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -84,6 +92,10 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
         for (const h of r.helpers) allHelpers.add(h);
       }
       return { expr: `(${parts.join(' && ')})`, helpers: allHelpers };
+    }
+    default: {
+      const _exhaustive: never = check;
+      throw new Error(`Unhandled PatternCheck op: ${(_exhaustive as any).op}`);
     }
   }
 }
@@ -535,6 +547,34 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('        if (strpos($charset, $s[$i]) === false) { return false; }');
     lines.push('    }');
     lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_date_iso')) {
+    lines.push('function schemata_check_date_iso(string $s): bool {');
+    lines.push("    if (strlen($s) !== 10 || $s[4] !== '-' || $s[7] !== '-') { return false; }");
+    lines.push('    for ($i = 0; $i < 10; $i++) {');
+    lines.push('        if ($i === 4 || $i === 7) { continue; }');
+    lines.push("        if ($s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_decimal')) {
+    lines.push('function schemata_check_decimal(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push("    while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push("    if ($i === 0) { return false; }");
+    lines.push("    if ($i < strlen($s) && $s[$i] === '.') {");
+    lines.push('        $i++;');
+    lines.push("        if ($i >= strlen($s) || $s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push("        while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push('    }');
+    lines.push('    return $i === strlen($s);');
     lines.push('}');
     lines.push('');
   }
