@@ -154,6 +154,76 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_decimal');
       return { expr: `check_decimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      return {
+        expr: `(${varExpr}.starts_with(${JSON.stringify(check.prefix)}) && ${varExpr}.len() > ${check.prefix.length})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('check_wrapped');
+      return { expr: `check_wrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('check_csv_list');
+      return { expr: `check_csv_list(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('check_ln_invoice');
+      helpers.add('check_bech32');
+      return { expr: `check_ln_invoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('check_mime_type');
+      return { expr: `check_mime_type(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('check_http_origin');
+      return { expr: `check_http_origin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('check_email_like');
+      return { expr: `check_email_like(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('check_git_clone_url');
+      return { expr: `check_git_clone_url(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('check_content_type');
+      return { expr: `check_content_type(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('check_doi');
+      return { expr: `check_doi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('check_annotate_user');
+      return { expr: `check_annotate_user(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('check_no_ws_tail');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr}.starts_with(${JSON.stringify(p)}) && check_no_ws_tail(${varExpr}.as_bytes(), ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('check_external_identity');
+      return { expr: `check_external_identity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('check_package_id');
+      return { expr: `check_package_id(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('check_imeta_dim');
+      return { expr: `check_imeta_dim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -547,7 +617,7 @@ function emitRustHelpers(helpers: Set<string>): string {
   }
 
   // Shared dot-tail helper: checks remaining bytes have >=1 byte and no \n (Rust regex . excludes \n only)
-  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag') || helpers.has('check_doi')) {
     lines.push('fn check_dot_tail(b: &[u8], pos: usize) -> bool {');
     lines.push("    pos < b.len() && b[pos..].iter().all(|&c| c != b'\\n')");
     lines.push('}');
@@ -645,6 +715,276 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    // NOTE: This requires the `regex` crate dependency.');
     lines.push('    // Consider pre-compiling patterns with `lazy_static!` or `once_cell`.');
     lines.push('    regex::Regex::new(pattern).map_or(false, |re| re.is_match(s))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_wrapped')) {
+    lines.push('fn check_wrapped(s: &str, prefix: &str, suffix: &str) -> bool {');
+    lines.push('    s.len() >= prefix.len() + suffix.len() && s.starts_with(prefix) && s.ends_with(suffix)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_csv_list')) {
+    lines.push('fn check_csv_list(s: &str, charset: &str) -> bool {');
+    lines.push('    if s.is_empty() { return false; }');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let mut i = 0;');
+    lines.push('    loop {');
+    lines.push('        let start = i;');
+    lines.push('        while i < b.len() && charset.as_bytes().contains(&b[i]) { i += 1; }');
+    lines.push('        if i == start { return false; }');
+    lines.push('        if i == b.len() { return true; }');
+    lines.push("        if b[i] != b',' { return false; }");
+    lines.push('        i += 1;');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_ln_invoice')) {
+    lines.push('fn check_ln_invoice(s: &str, prefix: &str, min_hrp_len: usize) -> bool {');
+    lines.push('    if !s.starts_with(prefix) { return false; }');
+    lines.push('    let b = s.as_bytes();');
+    lines.push("    let sep = match b.iter().rposition(|&c| c == b'1') {");
+    lines.push('        Some(pos) => pos,');
+    lines.push('        None => return false,');
+    lines.push('    };');
+    lines.push('    if sep < min_hrp_len { return false; }');
+    lines.push("    if !b[..sep].iter().all(|&c| matches!(c, b'a'..=b'z' | b'0'..=b'9')) { return false; }");
+    lines.push('    let data = &b[sep + 1..];');
+    lines.push('    if data.is_empty() { return false; }');
+    lines.push('    data.iter().all(|&c| is_bech32_char(c))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_mime_type')) {
+    lines.push('fn check_mime_type(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push("    while i < b.len() && matches!(b[i], b'a'..=b'z') { i += 1; }");
+    lines.push('    if i == 0 { return false; }');
+    lines.push("    if i >= b.len() || b[i] != b'/' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    let start = i;');
+    lines.push("    while i < b.len() && matches!(b[i], b'a'..=b'z' | b'0'..=b'9' | b'.' | b'+' | b'-') { i += 1; }");
+    lines.push('    if i == start { return false; }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_http_origin')) {
+    lines.push('fn check_http_origin(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let mut i;');
+    lines.push('    if b.starts_with(b"https://") { i = 8; }');
+    lines.push('    else if b.starts_with(b"http://") { i = 7; }');
+    lines.push('    else { return false; }');
+    lines.push('    let start = i;');
+    lines.push("    while i < b.len() && b[i] != b'/' { i += 1; }");
+    lines.push('    if i == start { return false; }');
+    lines.push("    if i < b.len() && b[i] == b'/' { i += 1; }");
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // Shared is_ascii_ws helper
+  if (helpers.has('check_email_like') || helpers.has('check_git_clone_url') || helpers.has('check_no_ws_tail')) {
+    lines.push('fn is_ascii_ws(c: u8) -> bool {');
+    lines.push("    matches!(c, b' ' | b'\\t' | b'\\n' | b'\\r' | 0x0B | 0x0C)");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_email_like')) {
+    lines.push('fn check_email_like(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push("    while i < b.len() && !is_ascii_ws(b[i]) && b[i] != b'@' { i += 1; }");
+    lines.push('    if i == 0 { return false; }');
+    lines.push("    if i >= b.len() || b[i] != b'@' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    let start = i;');
+    lines.push("    while i < b.len() && !is_ascii_ws(b[i]) && b[i] != b'@' { i += 1; }");
+    lines.push('    if i == start { return false; }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_git_clone_url')) {
+    lines.push('fn check_git_clone_url(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i;');
+    lines.push('    if b.starts_with(b"git@") {');
+    lines.push('        i = 4;');
+    lines.push('    } else {');
+    lines.push("        if !matches!(b[0], b'a'..=b'z') { return false; }");
+    lines.push('        i = 1;');
+    lines.push("        while i < b.len() && matches!(b[i], b'a'..=b'z' | b'0'..=b'9' | b'+' | b'.' | b'-') { i += 1; }");
+    lines.push("        if i + 3 > b.len() || b[i] != b':' || b[i + 1] != b'/' || b[i + 2] != b'/' { return false; }");
+    lines.push('        i += 3;');
+    lines.push('    }');
+    lines.push('    if i >= b.len() { return false; }');
+    lines.push('    !b[i..].iter().any(|&c| is_ascii_ws(c))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_content_type')) {
+    lines.push('fn is_type_char(c: u8) -> bool {');
+    lines.push("    matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'!' | b'#' | b'$' | b'&' | b'^' | b'_' | b'-')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn is_subtype_char(c: u8) -> bool {');
+    lines.push("    is_type_char(c) || matches!(c, b'.' | b'+')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_content_type(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push("    if !matches!(b[i], b'a'..=b'z' | b'A'..=b'Z') { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    while i < b.len() && is_type_char(b[i]) { i += 1; }');
+    lines.push("    if i >= b.len() || b[i] != b'/' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    if i >= b.len() { return false; }');
+    lines.push("    if !matches!(b[i], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*') { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
+    lines.push('    while i < b.len() {');
+    lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
+    lines.push('        if i >= b.len() { break; }');
+    lines.push("        if b[i] != b';' { return false; }");
+    lines.push('        i += 1;');
+    lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
+    lines.push('        let start = i;');
+    lines.push('        while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
+    lines.push('        if i == start { return false; }');
+    lines.push("        if i >= b.len() || b[i] != b'=' { return false; }");
+    lines.push('        i += 1;');
+    lines.push('        let vstart = i;');
+    lines.push('        while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
+    lines.push('        if i == vstart { return false; }');
+    lines.push('    }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_doi')) {
+    lines.push('fn check_doi(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push("    if b.len() < 8 { return false; }");
+    lines.push("    if b[0] != b'1' || b[1] != b'0' || b[2] != b'.' { return false; }");
+    lines.push('    let mut i = 3;');
+    lines.push('    let start = i;');
+    lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('    let digit_count = i - start;');
+    lines.push('    if digit_count < 4 || digit_count > 9 { return false; }');
+    lines.push("    if i >= b.len() || b[i] != b'/' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    check_dot_tail(b, i)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_annotate_user')) {
+    lines.push('fn check_annotate_user(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.len() < 82 { return false; }');
+    lines.push('    if !s.starts_with("annotate-user ") { return false; }');
+    lines.push('    let mut i = 14;');
+    lines.push('    if i + 64 > b.len() { return false; }');
+    lines.push("    if !b[i..i+64].iter().all(|&c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) { return false; }");
+    lines.push('    i += 64;');
+    lines.push('    for _ in 0..2 {');
+    lines.push("        if i >= b.len() || b[i] != b':' { return false; }");
+    lines.push('        i += 1;');
+    lines.push('        let start = i;');
+    lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('        if i == start { return false; }');
+    lines.push("        if i < b.len() && b[i] == b'.' {");
+    lines.push('            i += 1;');
+    lines.push('            let dstart = i;');
+    lines.push('            while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('            if i == dstart { return false; }');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_no_ws_tail')) {
+    lines.push('fn check_no_ws_tail(b: &[u8], offset: usize) -> bool {');
+    lines.push('    if offset >= b.len() { return false; }');
+    lines.push('    !b[offset..].iter().any(|&c| is_ascii_ws(c))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_external_identity')) {
+    lines.push('fn check_external_identity(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push("    while i < b.len() && matches!(b[i], b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' | b'/') { i += 1; }");
+    lines.push('    if i == 0 { return false; }');
+    lines.push("    if i >= b.len() || b[i] != b':' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    i < b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_package_id')) {
+    lines.push('fn is_pkg_char(c: u8) -> bool {');
+    lines.push("    matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'+' | b'-')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_package_id(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push("    if b.len() == 1 && b[0] == b'#' { return true; }");
+    lines.push('    let mut i = 0;');
+    lines.push("    if !matches!(b[i], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9') { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    while i < b.len() && is_pkg_char(b[i]) { i += 1; }');
+    lines.push("    while i < b.len() && b[i] == b':' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= b.len() { return false; }');
+    lines.push("        if !matches!(b[i], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9') { return false; }");
+    lines.push('        i += 1;');
+    lines.push('        while i < b.len() && is_pkg_char(b[i]) { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_imeta_dim')) {
+    lines.push('fn check_imeta_dim(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.len() < 7 { return false; }');
+    lines.push('    if &b[..4] != b"dim " { return false; }');
+    lines.push('    let mut i = 4;');
+    lines.push('    let mut dc = 0;');
+    lines.push('    while i < b.len() && b[i] >= b\'0\' && b[i] <= b\'9\' { i += 1; dc += 1; }');
+    lines.push('    if dc < 1 || dc > 5 { return false; }');
+    lines.push('    if i >= b.len() || b[i] != b\'x\' { return false; }');
+    lines.push('    i += 1; dc = 0;');
+    lines.push('    while i < b.len() && b[i] >= b\'0\' && b[i] <= b\'9\' { i += 1; dc += 1; }');
+    lines.push('    if dc < 1 || dc > 5 { return false; }');
+    lines.push('    i == b.len()');
     lines.push('}');
     lines.push('');
   }

@@ -92,6 +92,80 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('CheckDecimal');
       return { expr: `CheckDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      return {
+        expr: `${varExpr} != null && ${varExpr}.StartsWith(${JSON.stringify(check.prefix)}, StringComparison.Ordinal) && ${varExpr}.Length > ${check.prefix.length}`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('CheckWrapped');
+      return { expr: `CheckWrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('CheckCsvList');
+      return { expr: `CheckCsvList(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('CheckLnInvoice');
+      helpers.add('IsBech32Char');
+      return { expr: `CheckLnInvoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('CheckMimeType');
+      return { expr: `CheckMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('CheckHttpOrigin');
+      return { expr: `CheckHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('CheckEmailLike');
+      helpers.add('IsAsciiWs');
+      return { expr: `CheckEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('CheckGitCloneUrl');
+      helpers.add('IsAsciiWs');
+      return { expr: `CheckGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('CheckContentType');
+      return { expr: `CheckContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('CheckDoi');
+      helpers.add('CheckDotTail');
+      return { expr: `CheckDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('CheckAnnotateUser');
+      return { expr: `CheckAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('CheckNoWsTail');
+      helpers.add('IsAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr} != null && ${varExpr}.StartsWith(${JSON.stringify(p)}, StringComparison.Ordinal) && CheckNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('CheckExternalIdentity');
+      return { expr: `CheckExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('CheckPackageId');
+      return { expr: `CheckPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('CheckImetaDim');
+      return { expr: `CheckImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -515,7 +589,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('CheckRelayUrl') || helpers.has('CheckATag')) {
+  if (helpers.has('CheckRelayUrl') || helpers.has('CheckATag') || helpers.has('CheckDotTail')) {
     lines.push('        private static bool CheckDotTail(string s, int pos)');
     lines.push('        {');
     lines.push('            if (pos >= s.Length) return false;');
@@ -585,10 +659,13 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('CheckBech32')) {
+  if (helpers.has('CheckBech32') || helpers.has('IsBech32Char')) {
     lines.push('        private static bool IsBech32Char(char c)');
     lines.push("            => (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
     lines.push('');
+  }
+
+  if (helpers.has('CheckBech32')) {
     lines.push('        private static bool CheckBech32(string s, string prefix, int dataLen = -1)');
     lines.push('        {');
     lines.push('            if (s == null || !s.StartsWith(prefix, StringComparison.Ordinal)) return false;');
@@ -596,6 +673,299 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            if (data.Length == 0 || !data.All(IsBech32Char)) return false;');
     lines.push('            if (dataLen >= 0) return data.Length == dataLen;');
     lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckWrapped')) {
+    lines.push('        private static bool CheckWrapped(string s, string prefix, string suffix)');
+    lines.push('        {');
+    lines.push('            if (s == null) return false;');
+    lines.push('            return s.Length >= prefix.Length + suffix.Length && s.StartsWith(prefix, StringComparison.Ordinal) && s.EndsWith(suffix, StringComparison.Ordinal);');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckCsvList')) {
+    lines.push('        private static bool CheckCsvList(string s, string charset)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            while (true)');
+    lines.push('            {');
+    lines.push('                int start = i;');
+    lines.push('                while (i < s.Length && charset.Contains(s[i])) i++;');
+    lines.push('                if (i == start) return false;');
+    lines.push('                if (i == s.Length) return true;');
+    lines.push("                if (s[i] != ',') return false;");
+    lines.push('                i++;');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckLnInvoice')) {
+    lines.push('        private static bool CheckLnInvoice(string s, string prefix, int minHrpLen)');
+    lines.push('        {');
+    lines.push('            if (s == null || !s.StartsWith(prefix, StringComparison.Ordinal)) return false;');
+    lines.push("            int sep = s.LastIndexOf('1');");
+    lines.push('            if (sep < 0) return false;');
+    lines.push('            var hrp = s.Substring(0, sep);');
+    lines.push('            if (hrp.Length < minHrpLen) return false;');
+    lines.push("            if (!hrp.All(c => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return false;");
+    lines.push('            var data = s.Substring(sep + 1);');
+    lines.push('            if (data.Length == 0) return false;');
+    lines.push('            return data.All(IsBech32Char);');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckMimeType')) {
+    lines.push('        private static bool CheckMimeType(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            int start = i;');
+    lines.push("            while (i < s.Length && s[i] >= 'a' && s[i] <= 'z') i++;");
+    lines.push('            if (i == start) return false;');
+    lines.push("            if (i >= s.Length || s[i] != '/') return false;");
+    lines.push('            i++;');
+    lines.push('            int subStart = i;');
+    lines.push('            while (i < s.Length) {');
+    lines.push('                char c = s[i];');
+    lines.push("                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-') i++;");
+    lines.push('                else break;');
+    lines.push('            }');
+    lines.push('            if (i == subStart) return false;');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckHttpOrigin')) {
+    lines.push('        private static bool CheckHttpOrigin(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null) return false;');
+    lines.push('            int i;');
+    lines.push('            if (s.StartsWith("https://", StringComparison.Ordinal)) { i = 8; }');
+    lines.push('            else if (s.StartsWith("http://", StringComparison.Ordinal)) { i = 7; }');
+    lines.push('            else { return false; }');
+    lines.push('            int start = i;');
+    lines.push("            while (i < s.Length && s[i] != '/') i++;");
+    lines.push('            if (i == start) return false;');
+    lines.push("            if (i < s.Length && s[i] == '/') i++;");
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('IsAsciiWs')) {
+    lines.push('        private static bool IsAsciiWs(char c)');
+    lines.push("            => c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\x0B' || c == '\\x0C';");
+    lines.push('');
+  }
+
+  if (helpers.has('CheckEmailLike')) {
+    lines.push('        private static bool CheckEmailLike(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            int start = i;');
+    lines.push("            while (i < s.Length && !IsAsciiWs(s[i]) && s[i] != '@') i++;");
+    lines.push('            if (i == start) return false;');
+    lines.push("            if (i >= s.Length || s[i] != '@') return false;");
+    lines.push('            i++;');
+    lines.push('            int domStart = i;');
+    lines.push("            while (i < s.Length && !IsAsciiWs(s[i]) && s[i] != '@') i++;");
+    lines.push('            if (i == domStart) return false;');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckGitCloneUrl')) {
+    lines.push('        private static bool CheckGitCloneUrl(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i;');
+    lines.push('            if (s.StartsWith("git@", StringComparison.Ordinal)) {');
+    lines.push('                i = 4;');
+    lines.push('            } else {');
+    lines.push("                if (!(s[0] >= 'a' && s[0] <= 'z')) return false;");
+    lines.push('                i = 1;');
+    lines.push('                while (i < s.Length) {');
+    lines.push('                    char c = s[i];');
+    lines.push("                    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') i++;");
+    lines.push('                    else break;');
+    lines.push('                }');
+    lines.push("                if (i + 3 > s.Length || s[i] != ':' || s[i+1] != '/' || s[i+2] != '/') return false;");
+    lines.push('                i += 3;');
+    lines.push('            }');
+    lines.push('            if (i >= s.Length) return false;');
+    lines.push('            while (i < s.Length) {');
+    lines.push('                if (IsAsciiWs(s[i])) return false;');
+    lines.push('                i++;');
+    lines.push('            }');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckContentType')) {
+    lines.push('        private static bool IsTypeChar(char c)');
+    lines.push("            => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
+    lines.push('');
+    lines.push('        private static bool IsSubtypeChar(char c)');
+    lines.push("            => IsTypeChar(c) || c == '.' || c == '+';");
+    lines.push('');
+    lines.push('        private static bool CheckContentType(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return false;");
+    lines.push('            i++;');
+    lines.push('            while (i < s.Length && IsTypeChar(s[i])) i++;');
+    lines.push("            if (i >= s.Length || s[i] != '/') return false;");
+    lines.push('            i++;');
+    lines.push('            if (i >= s.Length) return false;');
+    lines.push('            char sc = s[i];');
+    lines.push("            if (!((sc >= 'a' && sc <= 'z') || (sc >= 'A' && sc <= 'Z') || (sc >= '0' && sc <= '9') || sc == '*')) return false;");
+    lines.push('            i++;');
+    lines.push('            while (i < s.Length && IsSubtypeChar(s[i])) i++;');
+    lines.push('            while (i < s.Length) {');
+    lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push('                if (i >= s.Length) break;');
+    lines.push("                if (s[i] != ';') return false;");
+    lines.push('                i++;');
+    lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push('                int nameStart = i;');
+    lines.push('                while (i < s.Length && IsSubtypeChar(s[i])) i++;');
+    lines.push('                if (i == nameStart) return false;');
+    lines.push("                if (i >= s.Length || s[i] != '=') return false;");
+    lines.push('                i++;');
+    lines.push('                int valStart = i;');
+    lines.push('                while (i < s.Length && IsSubtypeChar(s[i])) i++;');
+    lines.push('                if (i == valStart) return false;');
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckDoi')) {
+    lines.push('        private static bool CheckDoi(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null || s.Length < 8) return false;');
+    lines.push('            if (!s.StartsWith("10.", StringComparison.Ordinal)) return false;');
+    lines.push('            int i = 3;');
+    lines.push('            int dStart = i;');
+    lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('            int dCount = i - dStart;');
+    lines.push('            if (dCount < 4 || dCount > 9) return false;');
+    lines.push("            if (i >= s.Length || s[i] != '/') return false;");
+    lines.push('            i++;');
+    lines.push('            return CheckDotTail(s, i);');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckAnnotateUser')) {
+    lines.push('        private static bool CheckAnnotateUser(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null || s.Length < 83) return false;');
+    lines.push('            if (!s.StartsWith("annotate-user ", StringComparison.Ordinal)) return false;');
+    lines.push('            int i = 15;');
+    lines.push('            if (i + 64 > s.Length) return false;');
+    lines.push('            for (int j = 0; j < 64; j++) {');
+    lines.push('                char c = s[i + j];');
+    lines.push("                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('            }');
+    lines.push('            i += 64;');
+    lines.push('            for (int round = 0; round < 2; round++) {');
+    lines.push("                if (i >= s.Length || s[i] != ':') return false;");
+    lines.push('                i++;');
+    lines.push('                int start = i;');
+    lines.push("                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('                if (i == start) return false;');
+    lines.push("                if (i < s.Length && s[i] == '.') {");
+    lines.push('                    i++;');
+    lines.push('                    int fStart = i;');
+    lines.push("                    while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('                    if (i == fStart) return false;');
+    lines.push('                }');
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckNoWsTail')) {
+    lines.push('        private static bool CheckNoWsTail(string s, int offset)');
+    lines.push('        {');
+    lines.push('            if (s == null || offset >= s.Length) return false;');
+    lines.push('            for (int i = offset; i < s.Length; i++) {');
+    lines.push('                if (IsAsciiWs(s[i])) return false;');
+    lines.push('            }');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckExternalIdentity')) {
+    lines.push('        private static bool CheckExternalIdentity(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            while (i < s.Length) {');
+    lines.push('                char c = s[i];');
+    lines.push("                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/') i++;");
+    lines.push('                else break;');
+    lines.push('            }');
+    lines.push('            if (i == 0) return false;');
+    lines.push("            if (i >= s.Length || s[i] != ':') return false;");
+    lines.push('            i++;');
+    lines.push('            return i < s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckPackageId')) {
+    lines.push('        private static bool IsPkgChar(char c)');
+    lines.push("            => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-';");
+    lines.push('');
+    lines.push('        private static bool CheckPackageId(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push("            if (s.Length == 1 && s[0] == '#') return true;");
+    lines.push('            int i = 0;');
+    lines.push("            if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('            i++;');
+    lines.push('            while (i < s.Length && IsPkgChar(s[i])) i++;');
+    lines.push("            while (i < s.Length && s[i] == ':') {");
+    lines.push('                i++;');
+    lines.push('                if (i >= s.Length) return false;');
+    lines.push("                if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('                i++;');
+    lines.push('                while (i < s.Length && IsPkgChar(s[i])) i++;');
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckImetaDim')) {
+    lines.push('        private static bool CheckImetaDim(string s) {');
+    lines.push('            if (s.Length < 7) return false;');
+    lines.push('            if (!s.StartsWith("dim ")) return false;');
+    lines.push('            int i = 4;');
+    lines.push('            int dc = 0;');
+    lines.push('            while (i < s.Length && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
+    lines.push('            if (dc < 1 || dc > 5) return false;');
+    lines.push('            if (i >= s.Length || s[i] != \'x\') return false;');
+    lines.push('            i++; dc = 0;');
+    lines.push('            while (i < s.Length && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
+    lines.push('            if (dc < 1 || dc > 5) return false;');
+    lines.push('            return i == s.Length;');
     lines.push('        }');
     lines.push('');
   }

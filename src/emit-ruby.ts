@@ -95,6 +95,80 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_decimal');
       return { expr: `check_decimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const vals = check.values.map(v => rubyString(v));
+      return { expr: `[${vals.join(', ')}].include?(${varExpr})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      return {
+        expr: `${varExpr}.is_a?(String) && ${varExpr}.start_with?(${rubyString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length}`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('check_wrapped');
+      return { expr: `check_wrapped(${varExpr}, ${rubyString(check.prefix)}, ${rubyString(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('check_csv_list');
+      return { expr: `check_csv_list(${varExpr}, ${rubyString(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('check_ln_invoice');
+      helpers.add('check_bech32'); // triggers BECH32_CHARS
+      return { expr: `check_ln_invoice(${varExpr}, ${rubyString(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('check_mime_type');
+      return { expr: `check_mime_type(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('check_http_origin');
+      return { expr: `check_http_origin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('check_email_like');
+      helpers.add('ascii_ws');
+      return { expr: `check_email_like(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('check_git_clone_url');
+      helpers.add('ascii_ws');
+      return { expr: `check_git_clone_url(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('check_content_type');
+      return { expr: `check_content_type(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('check_doi');
+      helpers.add('check_dot_tail');
+      return { expr: `check_doi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('check_annotate_user');
+      return { expr: `check_annotate_user(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('check_no_ws_tail');
+      helpers.add('ascii_ws');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr}.is_a?(String) && ${varExpr}.start_with?(${rubyString(p)}) && check_no_ws_tail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('check_external_identity');
+      return { expr: `check_external_identity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('check_package_id');
+      return { expr: `check_package_id(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('check_imeta_dim');
+      return { expr: `check_imeta_dim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -331,7 +405,7 @@ function emitRubyFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
 ): string {
-  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag');
+  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws');
   const lines: string[] = [
     '# frozen_string_literal: true',
     '',
@@ -516,7 +590,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag') || helpers.has('check_dot_tail')) {
     lines.push('  def self.check_dot_tail(s, pos)');
     lines.push('    return false if pos >= s.length');
     lines.push('    (pos...s.length).each { |j| return false if s[j] == "\\n" }');
@@ -579,15 +653,304 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('check_bech32')) {
+  if (helpers.has('check_bech32') || helpers.has('check_ln_invoice')) {
     lines.push('  BECH32_CHARS = Set.new("023456789acdefghjklmnpqrstuvwxyz".chars).freeze');
     lines.push('');
+  }
+
+  if (helpers.has('check_bech32')) {
     lines.push('  def self.check_bech32(s, prefix, data_len = nil)');
     lines.push('    return false unless s.is_a?(String) && s.start_with?(prefix)');
     lines.push('    data = s[prefix.length..]');
     lines.push('    return false if data.nil? || data.empty? || !data.chars.all? { |c| BECH32_CHARS.include?(c) }');
     lines.push('    return data.length == data_len unless data_len.nil?');
     lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_wrapped')) {
+    lines.push('  def self.check_wrapped(s, prefix, suffix)');
+    lines.push('    s.is_a?(String) && s.length >= prefix.length + suffix.length && s.start_with?(prefix) && s.end_with?(suffix)');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_csv_list')) {
+    lines.push('  def self.check_csv_list(s, charset)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    loop do');
+    lines.push('      start = i');
+    lines.push('      i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push('      return false if i == start');
+    lines.push('      return true if i == s.length');
+    lines.push("      return false unless s[i] == ','");
+    lines.push('      i += 1');
+    lines.push('    end');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_ln_invoice')) {
+    lines.push('  def self.check_ln_invoice(s, prefix, min_hrp_len)');
+    lines.push('    return false unless s.is_a?(String) && s.start_with?(prefix)');
+    lines.push("    sep = s.rindex('1')");
+    lines.push('    return false if sep.nil?');
+    lines.push('    hrp = s[0...sep]');
+    lines.push('    return false if hrp.length < min_hrp_len');
+    lines.push("    return false unless hrp.chars.all? { |c| (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') }");
+    lines.push('    data = s[(sep + 1)..]');
+    lines.push('    return false if data.nil? || data.empty?');
+    lines.push('    data.chars.all? { |c| BECH32_CHARS.include?(c) }');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_mime_type')) {
+    lines.push('  def self.check_mime_type(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    start = i');
+    lines.push("    i += 1 while i < s.length && s[i] >= 'a' && s[i] <= 'z'");
+    lines.push('    return false if i == start');
+    lines.push("    return false unless i < s.length && s[i] == '/'");
+    lines.push('    i += 1');
+    lines.push('    sub_start = i');
+    lines.push('    while i < s.length');
+    lines.push('      c = s[i]');
+    lines.push("      if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-'");
+    lines.push('        i += 1');
+    lines.push('      else');
+    lines.push('        break');
+    lines.push('      end');
+    lines.push('    end');
+    lines.push('    return false if i == sub_start');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_http_origin')) {
+    lines.push('  def self.check_http_origin(s)');
+    lines.push('    return false unless s.is_a?(String)');
+    lines.push("    if s.start_with?('https://')");
+    lines.push('      i = 8');
+    lines.push("    elsif s.start_with?('http://')");
+    lines.push('      i = 7');
+    lines.push('    else');
+    lines.push('      return false');
+    lines.push('    end');
+    lines.push('    start = i');
+    lines.push("    i += 1 while i < s.length && s[i] != '/'");
+    lines.push('    return false if i == start');
+    lines.push("    i += 1 if i < s.length && s[i] == '/'");
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('ascii_ws')) {
+    lines.push("  ASCII_WS = Set.new([' ', \"\\t\", \"\\n\", \"\\r\", \"\\x0B\", \"\\x0C\"]).freeze");
+    lines.push('');
+  }
+
+  if (helpers.has('check_email_like')) {
+    lines.push('  def self.check_email_like(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    start = i');
+    lines.push("    i += 1 while i < s.length && !ASCII_WS.include?(s[i]) && s[i] != '@'");
+    lines.push('    return false if i == start');
+    lines.push("    return false unless i < s.length && s[i] == '@'");
+    lines.push('    i += 1');
+    lines.push('    dom_start = i');
+    lines.push("    i += 1 while i < s.length && !ASCII_WS.include?(s[i]) && s[i] != '@'");
+    lines.push('    return false if i == dom_start');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_git_clone_url')) {
+    lines.push('  def self.check_git_clone_url(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push("    if s.start_with?('git@')");
+    lines.push('      i = 4');
+    lines.push('    else');
+    lines.push("      return false unless s[0] >= 'a' && s[0] <= 'z'");
+    lines.push('      i = 1');
+    lines.push('      while i < s.length');
+    lines.push('        c = s[i]');
+    lines.push("        if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-'");
+    lines.push('          i += 1');
+    lines.push('        else');
+    lines.push('          break');
+    lines.push('        end');
+    lines.push('      end');
+    lines.push("      return false unless i + 3 <= s.length && s[i] == ':' && s[i + 1] == '/' && s[i + 2] == '/'");
+    lines.push('      i += 3');
+    lines.push('    end');
+    lines.push('    return false if i >= s.length');
+    lines.push('    (i...s.length).each { |j| return false if ASCII_WS.include?(s[j]) }');
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_content_type')) {
+    lines.push('  TYPE_CHARS = Set.new(("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" + \'!#$&^_-\').chars).freeze');
+    lines.push('  SUBTYPE_CHARS = Set.new(("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" + \'!#$&^_.+-\').chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_content_type(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push("    return false unless (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z')");
+    lines.push('    i += 1');
+    lines.push('    i += 1 while i < s.length && TYPE_CHARS.include?(s[i])');
+    lines.push("    return false unless i < s.length && s[i] == '/'");
+    lines.push('    i += 1');
+    lines.push('    return false if i >= s.length');
+    lines.push('    sc = s[i]');
+    lines.push("    return false unless (sc >= 'a' && sc <= 'z') || (sc >= 'A' && sc <= 'Z') || (sc >= '0' && sc <= '9') || sc == '*'");
+    lines.push('    i += 1');
+    lines.push('    i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
+    lines.push('    while i < s.length');
+    lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
+    lines.push('      break if i >= s.length');
+    lines.push("      return false unless s[i] == ';'");
+    lines.push('      i += 1');
+    lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
+    lines.push('      name_start = i');
+    lines.push('      i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
+    lines.push('      return false if i == name_start');
+    lines.push("      return false unless i < s.length && s[i] == '='");
+    lines.push('      i += 1');
+    lines.push('      val_start = i');
+    lines.push('      i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
+    lines.push('      return false if i == val_start');
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_doi')) {
+    lines.push('  def self.check_doi(s)');
+    lines.push('    return false unless s.is_a?(String) && s.length >= 8');
+    lines.push("    return false unless s.start_with?('10.')");
+    lines.push('    i = 3');
+    lines.push('    d_start = i');
+    lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('    d_count = i - d_start');
+    lines.push('    return false if d_count < 4 || d_count > 9');
+    lines.push("    return false unless i < s.length && s[i] == '/'");
+    lines.push('    i += 1');
+    lines.push('    check_dot_tail(s, i)');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_annotate_user')) {
+    lines.push('  def self.check_annotate_user(s)');
+    lines.push('    return false unless s.is_a?(String) && s.length >= 83');
+    lines.push("    return false unless s.start_with?('annotate-user ')");
+    lines.push('    i = 15');
+    lines.push('    return false if i + 64 > s.length');
+    lines.push('    (0...64).each do |j|');
+    lines.push('      c = s[i + j]');
+    lines.push("      return false unless (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')");
+    lines.push('    end');
+    lines.push('    i += 64');
+    lines.push('    2.times do');
+    lines.push("      return false unless i < s.length && s[i] == ':'");
+    lines.push('      i += 1');
+    lines.push('      start = i');
+    lines.push("      i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('      return false if i == start');
+    lines.push("      if i < s.length && s[i] == '.'");
+    lines.push('        i += 1');
+    lines.push('        f_start = i');
+    lines.push("        i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('        return false if i == f_start');
+    lines.push('      end');
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_no_ws_tail')) {
+    lines.push('  def self.check_no_ws_tail(s, offset)');
+    lines.push('    return false unless s.is_a?(String) && offset < s.length');
+    lines.push('    (offset...s.length).each { |j| return false if ASCII_WS.include?(s[j]) }');
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_external_identity')) {
+    lines.push('  def self.check_external_identity(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    while i < s.length');
+    lines.push('      c = s[i]');
+    lines.push("      if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/'");
+    lines.push('        i += 1');
+    lines.push('      else');
+    lines.push('        break');
+    lines.push('      end');
+    lines.push('    end');
+    lines.push('    return false if i == 0');
+    lines.push("    return false unless i < s.length && s[i] == ':'");
+    lines.push('    i += 1');
+    lines.push('    i < s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_package_id')) {
+    lines.push('  PKG_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-".chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_package_id(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push("    return true if s == '#'");
+    lines.push('    i = 0');
+    lines.push("    return false unless (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')");
+    lines.push('    i += 1');
+    lines.push('    i += 1 while i < s.length && PKG_CHARS.include?(s[i])');
+    lines.push("    while i < s.length && s[i] == ':'");
+    lines.push('      i += 1');
+    lines.push('      return false if i >= s.length');
+    lines.push("      return false unless (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')");
+    lines.push('      i += 1');
+    lines.push('      i += 1 while i < s.length && PKG_CHARS.include?(s[i])');
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_imeta_dim')) {
+    lines.push('  def self.check_imeta_dim(s)');
+    lines.push('    return false if s.length < 7');
+    lines.push('    return false unless s.start_with?("dim ")');
+    lines.push('    i = 4');
+    lines.push('    dc = 0');
+    lines.push('    while i < s.length && s[i] >= \'0\' && s[i] <= \'9\'');
+    lines.push('      i += 1');
+    lines.push('      dc += 1');
+    lines.push('    end');
+    lines.push('    return false if dc < 1 || dc > 5');
+    lines.push('    return false if i >= s.length || s[i] != \'x\'');
+    lines.push('    i += 1');
+    lines.push('    dc = 0');
+    lines.push('    while i < s.length && s[i] >= \'0\' && s[i] <= \'9\'');
+    lines.push('      i += 1');
+    lines.push('      dc += 1');
+    lines.push('    end');
+    lines.push('    return false if dc < 1 || dc > 5');
+    lines.push('    i == s.length');
     lines.push('  end');
     lines.push('');
   }

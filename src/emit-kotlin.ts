@@ -90,6 +90,81 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('checkDecimal');
       return { expr: `checkDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      const len = check.prefix.length;
+      return {
+        expr: `(${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && ${varExpr}.length > ${len})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('checkWrapped');
+      return { expr: `checkWrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('checkCsvList');
+      return { expr: `checkCsvList(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('checkLnInvoice');
+      helpers.add('checkBech32'); // triggers isBech32Char
+      return { expr: `checkLnInvoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('checkMimeType');
+      return { expr: `checkMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('checkHttpOrigin');
+      return { expr: `checkHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('checkEmailLike');
+      helpers.add('isAsciiWs');
+      return { expr: `checkEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('checkGitCloneUrl');
+      helpers.add('isAsciiWs');
+      return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('checkContentType');
+      return { expr: `checkContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('checkDoi');
+      helpers.add('checkRelayUrl'); // triggers checkDotTail
+      return { expr: `checkDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('checkAnnotateUser');
+      return { expr: `checkAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('checkNoWsTail');
+      helpers.add('isAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr}.startsWith(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('checkExternalIdentity');
+      return { expr: `checkExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('checkPackageId');
+      return { expr: `checkPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('checkImetaDim');
+      return { expr: `checkImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -565,6 +640,270 @@ function emitKotlinHelpers(helpers: Set<string>): string {
 
   // Note: regex helper is not needed as a standalone function in Kotlin;
   // we inline Regex(pattern).matches(s) directly.
+
+  if (helpers.has('isAsciiWs')) {
+    lines.push('private fun isAsciiWs(c: Char): Boolean =');
+    lines.push("    c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\u000B' || c == '\\u000C'");
+    lines.push('');
+  }
+
+  if (helpers.has('checkWrapped')) {
+    lines.push('private fun checkWrapped(s: String, prefix: String, suffix: String): Boolean =');
+    lines.push('    s.length >= prefix.length + suffix.length && s.startsWith(prefix) && s.endsWith(suffix)');
+    lines.push('');
+  }
+
+  if (helpers.has('checkCsvList')) {
+    lines.push('private fun checkCsvList(s: String, charset: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push('    while (true) {');
+    lines.push('        val start = i');
+    lines.push('        while (i < s.length && s[i] in charset) i++');
+    lines.push('        if (i == start) return false');
+    lines.push('        if (i == s.length) return true');
+    lines.push("        if (s[i] != ',') return false");
+    lines.push('        i++');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkLnInvoice')) {
+    lines.push('private fun checkLnInvoice(s: String, prefix: String, minHrpLen: Int): Boolean {');
+    lines.push('    if (!s.startsWith(prefix)) return false');
+    lines.push("    val sep = s.lastIndexOf('1')");
+    lines.push('    if (sep < 0) return false');
+    lines.push('    if (sep < minHrpLen) return false');
+    lines.push('    for (j in 0 until sep) {');
+    lines.push('        val c = s[j]');
+    lines.push("        if (!((c in 'a'..'z') || (c in '0'..'9'))) return false");
+    lines.push('    }');
+    lines.push('    if (sep + 1 >= s.length) return false');
+    lines.push('    for (j in (sep + 1) until s.length) {');
+    lines.push('        if (!isBech32Char(s[j])) return false');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeType')) {
+    lines.push('private fun checkMimeType(s: String): Boolean {');
+    lines.push('    var i = 0');
+    lines.push("    if (i >= s.length || s[i] !in 'a'..'z') return false");
+    lines.push("    while (i < s.length && s[i] in 'a'..'z') i++");
+    lines.push("    if (i >= s.length || s[i] != '/') return false");
+    lines.push('    i++');
+    lines.push('    val subStart = i');
+    lines.push('    while (i < s.length) {');
+    lines.push('        val c = s[i]');
+    lines.push("        if (c in 'a'..'z' || c in '0'..'9' || c == '.' || c == '+' || c == '-') i++");
+    lines.push('        else break');
+    lines.push('    }');
+    lines.push('    if (i == subStart) return false');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkHttpOrigin')) {
+    lines.push('private fun checkHttpOrigin(s: String): Boolean {');
+    lines.push('    val pos: Int');
+    lines.push('    if (s.startsWith("https://")) { pos = 8 }');
+    lines.push('    else if (s.startsWith("http://")) { pos = 7 }');
+    lines.push('    else { return false }');
+    lines.push('    var i = pos');
+    lines.push("    while (i < s.length && s[i] != '/') i++");
+    lines.push('    if (i == pos) return false');
+    lines.push("    if (i < s.length && s[i] == '/') i++");
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkEmailLike')) {
+    lines.push('private fun checkEmailLike(s: String): Boolean {');
+    lines.push('    var i = 0');
+    lines.push("    while (i < s.length && !isAsciiWs(s[i]) && s[i] != '@') i++");
+    lines.push('    if (i == 0) return false');
+    lines.push("    if (i >= s.length || s[i] != '@') return false");
+    lines.push('    i++');
+    lines.push('    val afterAt = i');
+    lines.push("    while (i < s.length && !isAsciiWs(s[i]) && s[i] != '@') i++");
+    lines.push('    if (i == afterAt) return false');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkGitCloneUrl')) {
+    lines.push('private fun checkGitCloneUrl(s: String): Boolean {');
+    lines.push('    var pos = 0');
+    lines.push('    if (s.startsWith("git@")) { pos = 4 }');
+    lines.push('    else {');
+    lines.push("        if (s.isEmpty() || s[0] !in 'a'..'z') return false");
+    lines.push('        pos = 1');
+    lines.push('        while (pos < s.length) {');
+    lines.push('            val c = s[pos]');
+    lines.push("            if (c in 'a'..'z' || c in '0'..'9' || c == '+' || c == '.' || c == '-') pos++");
+    lines.push('            else break');
+    lines.push('        }');
+    lines.push('        if (pos + 3 > s.length || s.substring(pos, pos + 3) != "://") return false');
+    lines.push('        pos += 3');
+    lines.push('    }');
+    lines.push('    if (pos >= s.length) return false');
+    lines.push('    for (j in pos until s.length) {');
+    lines.push('        if (isAsciiWs(s[j])) return false');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkContentType')) {
+    lines.push('private fun isTypeChar(c: Char): Boolean =');
+    lines.push("    c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-'");
+    lines.push('');
+    lines.push('private fun isSubtypeChar(c: Char): Boolean =');
+    lines.push("    isTypeChar(c) || c == '.' || c == '+'");
+    lines.push('');
+    lines.push('private fun checkContentType(s: String): Boolean {');
+    lines.push('    var i = 0');
+    lines.push("    if (i >= s.length || !(s[i] in 'a'..'z' || s[i] in 'A'..'Z')) return false");
+    lines.push('    i++');
+    lines.push('    while (i < s.length && isTypeChar(s[i])) i++');
+    lines.push("    if (i >= s.length || s[i] != '/') return false");
+    lines.push('    i++');
+    lines.push("    if (i >= s.length || !(s[i] in 'a'..'z' || s[i] in 'A'..'Z' || s[i] in '0'..'9' || s[i] == '*')) return false");
+    lines.push('    i++');
+    lines.push('    while (i < s.length && isSubtypeChar(s[i])) i++');
+    lines.push("    while (i < s.length && (s[i] == ' ' || s[i] == '\\t' || s[i] == ';')) {");
+    lines.push("        while (i < s.length && (s[i] == ' ' || s[i] == '\\t')) i++");
+    lines.push("        if (i >= s.length || s[i] != ';') return false");
+    lines.push('        i++');
+    lines.push("        while (i < s.length && (s[i] == ' ' || s[i] == '\\t')) i++");
+    lines.push('        val paramStart = i');
+    lines.push('        while (i < s.length && isSubtypeChar(s[i])) i++');
+    lines.push('        if (i == paramStart) return false');
+    lines.push("        if (i >= s.length || s[i] != '=') return false");
+    lines.push('        i++');
+    lines.push('        val valStart = i');
+    lines.push('        while (i < s.length && isSubtypeChar(s[i])) i++');
+    lines.push('        if (i == valStart) return false');
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDoi')) {
+    lines.push('private fun checkDoi(s: String): Boolean {');
+    lines.push('    if (s.length < 8 || !s.startsWith("10.")) return false');
+    lines.push('    var i = 3');
+    lines.push('    val digitStart = i');
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    val digitCount = i - digitStart');
+    lines.push('    if (digitCount < 4 || digitCount > 9) return false');
+    lines.push("    if (i >= s.length || s[i] != '/') return false");
+    lines.push('    i++');
+    lines.push('    return checkDotTail(s, i)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkAnnotateUser')) {
+    lines.push('private fun checkAnnotateUser(s: String): Boolean {');
+    lines.push('    // "annotate-user " (15 chars) + 64 hex + ":" + digit + ":" + digit = min 83');
+    lines.push('    if (s.length < 83 || !s.startsWith("annotate-user ")) return false');
+    lines.push('    for (j in 15 until 79) {');
+    lines.push('        val c = s[j]');
+    lines.push("        if (!((c in '0'..'9') || (c in 'a'..'f'))) return false");
+    lines.push('    }');
+    lines.push('    var pos = 79');
+    lines.push('    for (coord in 0 until 2) {');
+    lines.push("        if (pos >= s.length || s[pos] != ':') return false");
+    lines.push('        pos++');
+    lines.push('        val dstart = pos');
+    lines.push("        while (pos < s.length && s[pos] in '0'..'9') pos++");
+    lines.push('        if (pos == dstart) return false');
+    lines.push("        if (pos < s.length && s[pos] == '.') {");
+    lines.push('            pos++');
+    lines.push("            while (pos < s.length && s[pos] in '0'..'9') pos++");
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    return pos == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoWsTail')) {
+    lines.push('private fun checkNoWsTail(s: String, offset: Int): Boolean {');
+    lines.push('    if (offset >= s.length) return false');
+    lines.push('    for (j in offset until s.length) {');
+    lines.push('        if (isAsciiWs(s[j])) return false');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkExternalIdentity')) {
+    lines.push('private fun checkExternalIdentity(s: String): Boolean {');
+    lines.push('    var i = 0');
+    lines.push('    while (i < s.length) {');
+    lines.push('        val c = s[i]');
+    lines.push("        if (c in 'a'..'z' || c in '0'..'9' || c == '.' || c == '_' || c == '-' || c == '/') i++");
+    lines.push('        else break');
+    lines.push('    }');
+    lines.push('    if (i == 0) return false');
+    lines.push("    if (i >= s.length || s[i] != ':') return false");
+    lines.push('    return i + 1 < s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkImetaDim')) {
+    lines.push('private fun checkImetaDim(s: String): Boolean {');
+    lines.push('    // "dim " + at least 1 digit + "x" + at least 1 digit = min 7');
+    lines.push('    if (s.length < 7 || !s.startsWith("dim ")) return false');
+    lines.push('    var i = 4');
+    lines.push('    val d1 = i');
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    val d1len = i - d1');
+    lines.push('    if (d1len < 1 || d1len > 5) return false');
+    lines.push("    if (i >= s.length || s[i] != 'x') return false");
+    lines.push('    i++');
+    lines.push('    val d2 = i');
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    val d2len = i - d2');
+    lines.push('    if (d2len < 1 || d2len > 5) return false');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPackageId')) {
+    lines.push('private fun isPkgIdChar(c: Char): Boolean =');
+    lines.push("    c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '.' || c == '_' || c == '+' || c == '-'");
+    lines.push('');
+    lines.push('private fun checkPackageId(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    if (s == "#") return true');
+    lines.push('    var i = 0');
+    lines.push("    if (!(s[i] in 'A'..'Z' || s[i] in 'a'..'z' || s[i] in '0'..'9')) return false");
+    lines.push('    i++');
+    lines.push('    while (i < s.length && isPkgIdChar(s[i])) i++');
+    lines.push("    while (i < s.length && s[i] == ':') {");
+    lines.push('        i++');
+    lines.push("        if (i >= s.length || !(s[i] in 'A'..'Z' || s[i] in 'a'..'z' || s[i] in '0'..'9')) return false");
+    lines.push('        i++');
+    lines.push('        while (i < s.length && isPkgIdChar(s[i])) i++');
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

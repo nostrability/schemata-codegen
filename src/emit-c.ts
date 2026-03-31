@@ -201,6 +201,81 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_decimal');
       return { expr: `schemata_check_decimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `strcmp(${varExpr}, ${JSON.stringify(v)}) == 0`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      helpers.add('schemata_starts_with');
+      return {
+        expr: `(schemata_starts_with(${varExpr}, ${JSON.stringify(check.prefix)}) && strlen(${varExpr}) > ${check.prefix.length})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('schemata_check_wrapped');
+      return { expr: `schemata_check_wrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('schemata_check_csv_list');
+      return { expr: `schemata_check_csv_list(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('schemata_check_ln_invoice');
+      helpers.add('schemata_check_bech32');
+      return { expr: `schemata_check_ln_invoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('schemata_check_mime_type');
+      return { expr: `schemata_check_mime_type(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('schemata_check_http_origin');
+      return { expr: `schemata_check_http_origin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('schemata_check_email_like');
+      helpers.add('schemata_is_ascii_ws');
+      return { expr: `schemata_check_email_like(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('schemata_check_git_clone_url');
+      helpers.add('schemata_is_ascii_ws');
+      return { expr: `schemata_check_git_clone_url(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('schemata_check_content_type');
+      return { expr: `schemata_check_content_type(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('schemata_check_doi');
+      return { expr: `schemata_check_doi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('schemata_check_annotate_user');
+      return { expr: `schemata_check_annotate_user(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('schemata_starts_with');
+      helpers.add('schemata_check_no_ws_tail');
+      helpers.add('schemata_is_ascii_ws');
+      const checks = check.prefixes.map(p =>
+        `(schemata_starts_with(${varExpr}, ${JSON.stringify(p)}) && schemata_check_no_ws_tail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('schemata_check_external_identity');
+      return { expr: `schemata_check_external_identity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('schemata_check_package_id');
+      return { expr: `schemata_check_package_id(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('schemata_check_imeta_dim');
+      return { expr: `schemata_check_imeta_dim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -753,7 +828,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
   }
 
   // Shared dot-tail helper: checks remaining string has >=1 char and no C/POSIX line terminators
-  if (helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag')) {
+  if (helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag') || helpers.has('schemata_check_doi')) {
     lines.push('static int schemata_check_dot_tail(const char *s, size_t pos, size_t len) {');
     lines.push('    if (pos >= len) return 0;');
     lines.push('    for (size_t i = pos; i < len; i++) {');
@@ -879,6 +954,342 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    int result = regexec(&re, s, 0, NULL, 0) == 0;');
     lines.push('    regfree(&re);');
     lines.push('    return result;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_wrapped')) {
+    lines.push('static int schemata_check_wrapped(const char *s, const char *prefix, const char *suffix) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t slen = strlen(s);');
+    lines.push('    size_t plen = strlen(prefix);');
+    lines.push('    size_t xlen = strlen(suffix);');
+    lines.push('    if (slen < plen + xlen) return 0;');
+    lines.push('    if (strncmp(s, prefix, plen) != 0) return 0;');
+    lines.push('    if (strcmp(s + slen - xlen, suffix) != 0) return 0;');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_csv_list')) {
+    lines.push('static int schemata_check_csv_list(const char *s, const char *charset) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    const char *p = s;');
+    lines.push('    while (1) {');
+    lines.push('        const char *start = p;');
+    lines.push('        while (*p && strchr(charset, *p)) p++;');
+    lines.push('        if (p == start) return 0;');
+    lines.push('        if (!*p) return 1;');
+    lines.push("        if (*p != ',') return 0;");
+    lines.push('        p++;');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_ln_invoice')) {
+    lines.push('static int schemata_check_ln_invoice(const char *s, const char *prefix, int min_hrp_len) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t slen = strlen(s);');
+    lines.push('    size_t plen = strlen(prefix);');
+    lines.push('    if (strncmp(s, prefix, plen) != 0) return 0;');
+    lines.push("    /* Find last '1' (bech32 separator) */");
+    lines.push('    const char *sep = NULL;');
+    lines.push('    for (size_t i = slen; i > 0; i--) {');
+    lines.push("        if (s[i - 1] == '1') { sep = s + i - 1; break; }");
+    lines.push('    }');
+    lines.push('    if (!sep) return 0;');
+    lines.push('    size_t hrp_len = (size_t)(sep - s);');
+    lines.push('    if ((int)hrp_len < min_hrp_len) return 0;');
+    lines.push('    /* Verify HRP chars [a-z0-9] */');
+    lines.push('    for (size_t i = 0; i < hrp_len; i++) {');
+    lines.push('        char c = s[i];');
+    lines.push("        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return 0;");
+    lines.push('    }');
+    lines.push('    /* Verify data part */');
+    lines.push('    const char *data = sep + 1;');
+    lines.push('    if (!*data) return 0;');
+    lines.push('    for (const char *p = data; *p; p++) {');
+    lines.push('        if (!schemata_is_bech32_char(*p)) return 0;');
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_mime_type')) {
+    lines.push('static int schemata_check_mime_type(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    /* type: [a-z]+ */');
+    lines.push('    size_t start = i;');
+    lines.push("    while (i < len && s[i] >= 'a' && s[i] <= 'z') i++;");
+    lines.push('    if (i == start) return 0;');
+    lines.push("    if (i >= len || s[i] != '/') return 0;");
+    lines.push('    i++;');
+    lines.push('    /* subtype: [a-z0-9.+-]+ */');
+    lines.push('    start = i;');
+    lines.push('    while (i < len) {');
+    lines.push('        char c = s[i];');
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i == start) return 0;');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_http_origin')) {
+    lines.push('static int schemata_check_http_origin(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (len >= 8 && strncmp(s, "https://", 8) == 0) i = 8;');
+    lines.push('    else if (len >= 7 && strncmp(s, "http://", 7) == 0) i = 7;');
+    lines.push('    else return 0;');
+    lines.push('    /* [^/]+ */');
+    lines.push('    size_t start = i;');
+    lines.push("    while (i < len && s[i] != '/') i++;");
+    lines.push('    if (i == start) return 0;');
+    lines.push('    /* optional trailing / */');
+    lines.push("    if (i < len && s[i] == '/') i++;");
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_is_ascii_ws')) {
+    lines.push('static int schemata_is_ascii_ws(char c) {');
+    lines.push("    return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\x0B' || c == '\\x0C';");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_email_like')) {
+    lines.push('static int schemata_check_email_like(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    /* local part: [^\\s@]+ */');
+    lines.push('    size_t start = i;');
+    lines.push("    while (i < len && !schemata_is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push('    if (i == start) return 0;');
+    lines.push("    if (i >= len || s[i] != '@') return 0;");
+    lines.push('    i++;');
+    lines.push('    /* domain: [^\\s@]+ */');
+    lines.push('    start = i;');
+    lines.push("    while (i < len && !schemata_is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push('    if (i == start) return 0;');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_git_clone_url')) {
+    lines.push('static int schemata_check_git_clone_url(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (len >= 4 && strncmp(s, "git@", 4) == 0) {');
+    lines.push('        i = 4;');
+    lines.push('    } else {');
+    lines.push('        /* scheme: [a-z][a-z0-9+.-]*:// */');
+    lines.push("        if (!(s[0] >= 'a' && s[0] <= 'z')) return 0;");
+    lines.push('        i = 1;');
+    lines.push('        while (i < len) {');
+    lines.push('            char c = s[i];');
+    lines.push("            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') i++;");
+    lines.push('            else break;');
+    lines.push('        }');
+    lines.push("        if (i + 3 > len || s[i] != ':' || s[i+1] != '/' || s[i+2] != '/') return 0;");
+    lines.push('        i += 3;');
+    lines.push('    }');
+    lines.push('    /* [^\\s]+ */');
+    lines.push('    if (i >= len) return 0;');
+    lines.push('    while (i < len) {');
+    lines.push('        if (schemata_is_ascii_ws(s[i])) return 0;');
+    lines.push('        i++;');
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_content_type')) {
+    lines.push('static int schemata_is_type_char(char c) {');
+    lines.push("    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('static int schemata_is_subtype_char(char c) {');
+    lines.push("    return schemata_is_type_char(c) || c == '.' || c == '+';");
+    lines.push('}');
+    lines.push('');
+    lines.push('static int schemata_check_content_type(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    /* type: [a-zA-Z][a-zA-Z0-9!#$&^_-]* */');
+    lines.push("    if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return 0;");
+    lines.push('    i++;');
+    lines.push('    while (i < len && schemata_is_type_char(s[i])) i++;');
+    lines.push("    if (i >= len || s[i] != '/') return 0;");
+    lines.push('    i++;');
+    lines.push('    /* subtype: [a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]* */');
+    lines.push('    if (i >= len) return 0;');
+    lines.push('    char c = s[i];');
+    lines.push("    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '*')) return 0;");
+    lines.push('    i++;');
+    lines.push('    while (i < len && schemata_is_subtype_char(s[i])) i++;');
+    lines.push('    /* params: (\\s*;\\s*token=token)* */');
+    lines.push('    while (i < len) {');
+    lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push('        if (i >= len) break;');
+    lines.push("        if (s[i] != ';') return 0;");
+    lines.push('        i++;');
+    lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push('        /* param name */');
+    lines.push('        size_t start = i;');
+    lines.push('        while (i < len && schemata_is_subtype_char(s[i])) i++;');
+    lines.push('        if (i == start) return 0;');
+    lines.push("        if (i >= len || s[i] != '=') return 0;");
+    lines.push('        i++;');
+    lines.push('        /* param value */');
+    lines.push('        start = i;');
+    lines.push('        while (i < len && schemata_is_subtype_char(s[i])) i++;');
+    lines.push('        if (i == start) return 0;');
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_doi')) {
+    lines.push('static int schemata_check_doi(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 8) return 0;  /* 10.NNNN/x minimum */');
+    lines.push("    if (s[0] != '1' || s[1] != '0' || s[2] != '.') return 0;");
+    lines.push('    size_t i = 3;');
+    lines.push('    size_t start = i;');
+    lines.push("    while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    size_t digit_count = i - start;');
+    lines.push('    if (digit_count < 4 || digit_count > 9) return 0;');
+    lines.push("    if (i >= len || s[i] != '/') return 0;");
+    lines.push('    i++;');
+    lines.push('    return schemata_check_dot_tail(s, i, len);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_annotate_user')) {
+    lines.push('static int schemata_check_annotate_user(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 82) return 0;  /* "annotate-user " (14) + 64 hex + ":0:0" (4) */');
+    lines.push('    if (strncmp(s, "annotate-user ", 14) != 0) return 0;');
+    lines.push('    size_t i = 14;');
+    lines.push('    /* 64 lowercase hex chars */');
+    lines.push('    if (i + 64 > len) return 0;');
+    lines.push('    for (size_t j = 0; j < 64; j++) {');
+    lines.push('        char c = s[i + j];');
+    lines.push("        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;");
+    lines.push('    }');
+    lines.push('    i += 64;');
+    lines.push('    /* :[0-9]+(?:\\.[0-9]+)? twice */');
+    lines.push('    for (int round = 0; round < 2; round++) {');
+    lines.push("        if (i >= len || s[i] != ':') return 0;");
+    lines.push('        i++;');
+    lines.push('        size_t start = i;');
+    lines.push("        while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('        if (i == start) return 0;');
+    lines.push("        if (i < len && s[i] == '.') {");
+    lines.push('            i++;');
+    lines.push('            start = i;');
+    lines.push("            while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('            if (i == start) return 0;');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_no_ws_tail')) {
+    lines.push('static int schemata_check_no_ws_tail(const char *s, size_t offset) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (offset >= len) return 0;');
+    lines.push('    for (size_t i = offset; i < len; i++) {');
+    lines.push('        if (schemata_is_ascii_ws(s[i])) return 0;');
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_external_identity')) {
+    lines.push('static int schemata_check_external_identity(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    /* [a-z0-9._\\-/]+ */');
+    lines.push('    while (i < len) {');
+    lines.push('        char c = s[i];');
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i == 0) return 0;');
+    lines.push("    if (i >= len || s[i] != ':') return 0;");
+    lines.push('    i++;');
+    lines.push('    return i < len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_package_id')) {
+    lines.push('static int schemata_is_pkg_char(char c) {');
+    lines.push("    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('static int schemata_check_package_id(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push("    if (len == 1 && s[0] == '#') return 1;");
+    lines.push('    size_t i = 0;');
+    lines.push('    /* first segment: [A-Za-z0-9][A-Za-z0-9._+-]* */');
+    lines.push("    if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9'))) return 0;");
+    lines.push('    i++;');
+    lines.push('    while (i < len && schemata_is_pkg_char(s[i])) i++;');
+    lines.push('    /* additional segments: :[A-Za-z0-9][A-Za-z0-9._+-]* */');
+    lines.push("    while (i < len && s[i] == ':') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= len) return 0;');
+    lines.push("        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9'))) return 0;");
+    lines.push('        i++;');
+    lines.push('        while (i < len && schemata_is_pkg_char(s[i])) i++;');
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_imeta_dim')) {
+    lines.push('static int schemata_check_imeta_dim(const char *s) {');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 7) return 0;');
+    lines.push('    if (strncmp(s, "dim ", 4) != 0) return 0;');
+    lines.push('    size_t i = 4;');
+    lines.push('    int dc = 0;');
+    lines.push('    while (i < len && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
+    lines.push('    if (dc < 1 || dc > 5) return 0;');
+    lines.push('    if (i >= len || s[i] != \'x\') return 0;');
+    lines.push('    i++; dc = 0;');
+    lines.push('    while (i < len && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
+    lines.push('    if (dc < 1 || dc > 5) return 0;');
+    lines.push('    return i == len;');
     lines.push('}');
     lines.push('');
   }

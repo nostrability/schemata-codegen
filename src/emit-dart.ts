@@ -89,6 +89,80 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkDecimal');
       return { expr: `_checkDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const vals = check.values.map(v => dartString(v));
+      return { expr: `[${vals.join(', ')}].contains(${varExpr})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      return {
+        expr: `${varExpr}.startsWith(${dartString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length}`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('_checkWrapped');
+      return { expr: `_checkWrapped(${varExpr}, ${dartString(check.prefix)}, ${dartString(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('_checkCsvList');
+      return { expr: `_checkCsvList(${varExpr}, ${dartString(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('_checkLnInvoice');
+      helpers.add('_isBech32Char');
+      return { expr: `_checkLnInvoice(${varExpr}, ${dartString(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('_checkMimeType');
+      return { expr: `_checkMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('_checkHttpOrigin');
+      return { expr: `_checkHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('_checkEmailLike');
+      helpers.add('_isAsciiWs');
+      return { expr: `_checkEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('_checkGitCloneUrl');
+      helpers.add('_isAsciiWs');
+      return { expr: `_checkGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('_checkContentType');
+      return { expr: `_checkContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('_checkDoi');
+      helpers.add('_checkDotTail');
+      return { expr: `_checkDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('_checkAnnotateUser');
+      return { expr: `_checkAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('_checkNoWsTail');
+      helpers.add('_isAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr}.startsWith(${dartString(p)}) && _checkNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('_checkExternalIdentity');
+      return { expr: `_checkExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('_checkPackageId');
+      return { expr: `_checkPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('_checkImetaDim');
+      return { expr: `_checkImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -507,7 +581,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('_checkRelayUrl') || helpers.has('_checkATag')) {
+  if (helpers.has('_checkRelayUrl') || helpers.has('_checkATag') || helpers.has('_checkDotTail')) {
     lines.push('bool _checkDotTail(String s, int pos) {');
     lines.push('  if (pos >= s.length) return false;');
     lines.push('  for (var j = pos; j < s.length; j++) {');
@@ -572,18 +646,306 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('_checkBech32')) {
+  if (helpers.has('_checkBech32') || helpers.has('_isBech32Char')) {
     lines.push('bool _isBech32Char(int c) {');
     lines.push('  // 0-9 except 1, a-z except b, i, o');
     lines.push('  return (c >= 48 && c <= 57 && c != 49) || (c >= 97 && c <= 122 && c != 98 && c != 105 && c != 111);');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('_checkBech32')) {
     lines.push('bool _checkBech32(String s, String prefix, [int? dataLen]) {');
     lines.push('  if (!s.startsWith(prefix)) return false;');
     lines.push('  final data = s.substring(prefix.length);');
     lines.push('  if (data.isEmpty || !data.codeUnits.every(_isBech32Char)) return false;');
     lines.push('  if (dataLen != null) return data.length == dataLen;');
     lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkWrapped')) {
+    lines.push('bool _checkWrapped(String s, String prefix, String suffix) {');
+    lines.push('  return s.length >= prefix.length + suffix.length && s.startsWith(prefix) && s.endsWith(suffix);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkCsvList')) {
+    lines.push('bool _checkCsvList(String s, String charset) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  while (true) {');
+    lines.push('    final start = i;');
+    lines.push('    while (i < s.length && charset.contains(String.fromCharCode(s.codeUnitAt(i)))) i++;');
+    lines.push('    if (i == start) return false;');
+    lines.push('    if (i == s.length) return true;');
+    lines.push("    if (s.codeUnitAt(i) != 44) return false; // ','");
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkLnInvoice')) {
+    lines.push('bool _checkLnInvoice(String s, String prefix, int minHrpLen) {');
+    lines.push('  if (!s.startsWith(prefix)) return false;');
+    lines.push('  final sep = s.lastIndexOf(\'1\');');
+    lines.push('  if (sep < 0) return false;');
+    lines.push('  final hrp = s.substring(0, sep);');
+    lines.push('  if (hrp.length < minHrpLen) return false;');
+    lines.push('  if (!hrp.codeUnits.every((c) => (c >= 97 && c <= 122) || (c >= 48 && c <= 57))) return false;');
+    lines.push('  final data = s.substring(sep + 1);');
+    lines.push('  if (data.isEmpty) return false;');
+    lines.push('  return data.codeUnits.every(_isBech32Char);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkMimeType')) {
+    lines.push('bool _checkMimeType(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  final start = i;');
+    lines.push('  while (i < s.length) { final c = s.codeUnitAt(i); if (c >= 97 && c <= 122) i++; else break; }');
+    lines.push('  if (i == start) return false;');
+    lines.push("  if (i >= s.length || s.codeUnitAt(i) != 47) return false; // '/'");
+    lines.push('  i++;');
+    lines.push('  final subStart = i;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    final c = s.codeUnitAt(i);');
+    lines.push('    if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 46 || c == 43 || c == 45) i++;');
+    lines.push('    else break;');
+    lines.push('  }');
+    lines.push('  if (i == subStart) return false;');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkHttpOrigin')) {
+    lines.push('bool _checkHttpOrigin(String s) {');
+    lines.push('  int i;');
+    lines.push("  if (s.startsWith('https://')) { i = 8; }");
+    lines.push("  else if (s.startsWith('http://')) { i = 7; }");
+    lines.push('  else { return false; }');
+    lines.push('  final start = i;');
+    lines.push("  while (i < s.length && s.codeUnitAt(i) != 47) i++; // '/'");
+    lines.push('  if (i == start) return false;');
+    lines.push("  if (i < s.length && s.codeUnitAt(i) == 47) i++;");
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_isAsciiWs')) {
+    lines.push('bool _isAsciiWs(int c) {');
+    lines.push('  return c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkEmailLike')) {
+    lines.push('bool _checkEmailLike(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  final start = i;');
+    lines.push('  while (i < s.length && !_isAsciiWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
+    lines.push('  if (i == start) return false;');
+    lines.push('  if (i >= s.length || s.codeUnitAt(i) != 64) return false;');
+    lines.push('  i++;');
+    lines.push('  final domStart = i;');
+    lines.push('  while (i < s.length && !_isAsciiWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
+    lines.push('  if (i == domStart) return false;');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkGitCloneUrl')) {
+    lines.push('bool _checkGitCloneUrl(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i;');
+    lines.push("  if (s.startsWith('git@')) {");
+    lines.push('    i = 4;');
+    lines.push('  } else {');
+    lines.push('    final c0 = s.codeUnitAt(0);');
+    lines.push('    if (!(c0 >= 97 && c0 <= 122)) return false;');
+    lines.push('    i = 1;');
+    lines.push('    while (i < s.length) {');
+    lines.push('      final c = s.codeUnitAt(i);');
+    lines.push('      if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 43 || c == 46 || c == 45) i++;');
+    lines.push('      else break;');
+    lines.push('    }');
+    lines.push("    if (i + 3 > s.length || s[i] != ':' || s[i + 1] != '/' || s[i + 2] != '/') return false;");
+    lines.push('    i += 3;');
+    lines.push('  }');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    if (_isAsciiWs(s.codeUnitAt(i))) return false;');
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkContentType')) {
+    lines.push('bool _isTypeChar(int c) {');
+    lines.push('  return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 33 || c == 35 || c == 36 || c == 38 || c == 94 || c == 95 || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _isSubtypeChar(int c) {');
+    lines.push('  return _isTypeChar(c) || c == 46 || c == 43;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkContentType(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  final c0 = s.codeUnitAt(i);');
+    lines.push('  if (!((c0 >= 97 && c0 <= 122) || (c0 >= 65 && c0 <= 90))) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length && _isTypeChar(s.codeUnitAt(i))) i++;');
+    lines.push('  if (i >= s.length || s.codeUnitAt(i) != 47) return false;');
+    lines.push('  i++;');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  final sc = s.codeUnitAt(i);');
+    lines.push('  if (!((sc >= 97 && sc <= 122) || (sc >= 65 && sc <= 90) || (sc >= 48 && sc <= 57) || sc == 42)) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
+    lines.push('    if (i >= s.length) break;');
+    lines.push('    if (s.codeUnitAt(i) != 59) return false;');
+    lines.push('    i++;');
+    lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
+    lines.push('    final nameStart = i;');
+    lines.push('    while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
+    lines.push('    if (i == nameStart) return false;');
+    lines.push('    if (i >= s.length || s.codeUnitAt(i) != 61) return false;');
+    lines.push('    i++;');
+    lines.push('    final valStart = i;');
+    lines.push('    while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
+    lines.push('    if (i == valStart) return false;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkDoi')) {
+    lines.push('bool _checkDoi(String s) {');
+    lines.push("  if (s.length < 8) return false;");
+    lines.push("  if (!s.startsWith('10.')) return false;");
+    lines.push('  int i = 3;');
+    lines.push('  final dStart = i;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('  final dCount = i - dStart;');
+    lines.push('  if (dCount < 4 || dCount > 9) return false;');
+    lines.push("  if (i >= s.length || s.codeUnitAt(i) != 47) return false; // '/'");
+    lines.push('  i++;');
+    lines.push('  return _checkDotTail(s, i);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkAnnotateUser')) {
+    lines.push('bool _checkAnnotateUser(String s) {');
+    lines.push("  if (s.length < 83) return false;");
+    lines.push("  if (!s.startsWith('annotate-user ')) return false;");
+    lines.push('  int i = 15;');
+    lines.push('  if (i + 64 > s.length) return false;');
+    lines.push('  for (var j = 0; j < 64; j++) {');
+    lines.push('    final c = s.codeUnitAt(i + j);');
+    lines.push('    if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 102))) return false;');
+    lines.push('  }');
+    lines.push('  i += 64;');
+    lines.push('  for (var round = 0; round < 2; round++) {');
+    lines.push("    if (i >= s.length || s[i] != ':') return false;");
+    lines.push('    i++;');
+    lines.push('    final start = i;');
+    lines.push('    while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('    if (i == start) return false;');
+    lines.push("    if (i < s.length && s[i] == '.') {");
+    lines.push('      i++;');
+    lines.push('      final fStart = i;');
+    lines.push('      while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('      if (i == fStart) return false;');
+    lines.push('    }');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkNoWsTail')) {
+    lines.push('bool _checkNoWsTail(String s, int offset) {');
+    lines.push('  if (offset >= s.length) return false;');
+    lines.push('  for (var i = offset; i < s.length; i++) {');
+    lines.push('    if (_isAsciiWs(s.codeUnitAt(i))) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkExternalIdentity')) {
+    lines.push('bool _checkExternalIdentity(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  int i = 0;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    final c = s.codeUnitAt(i);');
+    lines.push('    if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 46 || c == 95 || c == 45 || c == 47) i++;');
+    lines.push('    else break;');
+    lines.push('  }');
+    lines.push('  if (i == 0) return false;');
+    lines.push("  if (i >= s.length || s.codeUnitAt(i) != 58) return false; // ':'");
+    lines.push('  i++;');
+    lines.push('  return i < s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkPackageId')) {
+    lines.push('bool _isPkgChar(int c) {');
+    lines.push('  return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 46 || c == 95 || c == 43 || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkPackageId(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push("  if (s == '#') return true;");
+    lines.push('  int i = 0;');
+    lines.push('  final c0 = s.codeUnitAt(i);');
+    lines.push('  if (!((c0 >= 97 && c0 <= 122) || (c0 >= 65 && c0 <= 90) || (c0 >= 48 && c0 <= 57))) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length && _isPkgChar(s.codeUnitAt(i))) i++;');
+    lines.push("  while (i < s.length && s.codeUnitAt(i) == 58) { // ':'");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length) return false;');
+    lines.push('    final cc = s.codeUnitAt(i);');
+    lines.push('    if (!((cc >= 97 && cc <= 122) || (cc >= 65 && cc <= 90) || (cc >= 48 && cc <= 57))) return false;');
+    lines.push('    i++;');
+    lines.push('    while (i < s.length && _isPkgChar(s.codeUnitAt(i))) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkImetaDim')) {
+    lines.push('bool _checkImetaDim(String s) {');
+    lines.push('  if (s.length < 7) return false;');
+    lines.push('  if (!s.startsWith("dim ")) return false;');
+    lines.push('  var i = 4;');
+    lines.push('  var dc = 0;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) { i++; dc++; }');
+    lines.push('  if (dc < 1 || dc > 5) return false;');
+    lines.push('  if (i >= s.length || s[i] != \'x\') return false;');
+    lines.push('  i++; dc = 0;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) { i++; dc++; }');
+    lines.push('  if (dc < 1 || dc > 5) return false;');
+    lines.push('  return i == s.length;');
     lines.push('}');
     lines.push('');
   }

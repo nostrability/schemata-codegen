@@ -100,6 +100,83 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkDecimal');
       return { expr: `checkDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      helpers.add('strings');
+      return {
+        expr: `(strings.HasPrefix(${varExpr}, ${JSON.stringify(check.prefix)}) && len(${varExpr}) > ${check.prefix.length})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('checkWrapped');
+      helpers.add('strings');
+      return { expr: `checkWrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('checkCsvList');
+      return { expr: `checkCsvList(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('checkLnInvoice');
+      helpers.add('checkBech32');
+      helpers.add('strings');
+      return { expr: `checkLnInvoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('checkMimeType');
+      return { expr: `checkMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('checkHttpOrigin');
+      return { expr: `checkHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('checkEmailLike');
+      helpers.add('isAsciiWs');
+      return { expr: `checkEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('checkGitCloneUrl');
+      helpers.add('isAsciiWs');
+      return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('checkContentType');
+      return { expr: `checkContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('checkDoi');
+      return { expr: `checkDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('checkAnnotateUser');
+      return { expr: `checkAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('strings');
+      helpers.add('checkNoWsTail');
+      helpers.add('isAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(strings.HasPrefix(${varExpr}, ${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('checkExternalIdentity');
+      return { expr: `checkExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('checkPackageId');
+      return { expr: `checkPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('checkImetaDim');
+      return { expr: `checkImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -714,7 +791,7 @@ function emitGoHelpers(helpers: Set<string>): string {
   }
 
   // Shared dot-tail helper: Go regexp . excludes \n only
-  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDoi')) {
     lines.push('func checkDotTail(s string, pos int) bool {');
     lines.push('\tif pos >= len(s) { return false }');
     lines.push('\tfor j := pos; j < len(s); j++ {');
@@ -845,6 +922,458 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\treturn matched');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('checkWrapped')) {
+    lines.push('func checkWrapped(s string, prefix string, suffix string) bool {');
+    lines.push('\treturn len(s) >= len(prefix)+len(suffix) && strings.HasPrefix(s, prefix) && strings.HasSuffix(s, suffix)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkCsvList')) {
+    lines.push('func checkCsvList(s string, charset string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tfor {');
+    lines.push('\t\tstart := i');
+    lines.push('\t\tfor i < len(s) {');
+    lines.push('\t\t\tfound := false');
+    lines.push('\t\t\tfor j := 0; j < len(charset); j++ {');
+    lines.push('\t\t\t\tif s[i] == charset[j] {');
+    lines.push('\t\t\t\t\tfound = true');
+    lines.push('\t\t\t\t\tbreak');
+    lines.push('\t\t\t\t}');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\tif !found {');
+    lines.push('\t\t\t\tbreak');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == start {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == len(s) {');
+    lines.push('\t\t\treturn true');
+    lines.push('\t\t}');
+    lines.push("\t\tif s[i] != ',' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkLnInvoice')) {
+    lines.push('func checkLnInvoice(s string, prefix string, minHrpLen int) bool {');
+    lines.push('\tif !strings.HasPrefix(s, prefix) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tsep := strings.LastIndex(s, \"1\")");
+    lines.push('\tif sep < 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif sep < minHrpLen {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < sep; i++ {');
+    lines.push('\t\tc := s[i]');
+    lines.push("\t\tif !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tdata := s[sep+1:]');
+    lines.push('\tif len(data) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < len(data); i++ {');
+    lines.push('\t\tif !isBech32Char(data[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeType')) {
+    lines.push('func checkMimeType(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tfor i < len(s) && s[i] >= 'a' && s[i] <= 'z' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != '/' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tstart := i');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tc := s[i]');
+    lines.push("\t\tif (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t} else {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tif i == start {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkHttpOrigin')) {
+    lines.push('func checkHttpOrigin(s string) bool {');
+    lines.push('\ti := 0');
+    lines.push('\tif len(s) >= 8 && s[:8] == "https://" {');
+    lines.push('\t\ti = 8');
+    lines.push('\t} else if len(s) >= 7 && s[:7] == "http://" {');
+    lines.push('\t\ti = 7');
+    lines.push('\t} else {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tstart := i');
+    lines.push("\tfor i < len(s) && s[i] != '/' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == start {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i < len(s) && s[i] == '/' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // Shared isAsciiWs helper
+  if (helpers.has('isAsciiWs')) {
+    lines.push('func isAsciiWs(c byte) bool {');
+    lines.push("\treturn c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkEmailLike')) {
+    lines.push('func checkEmailLike(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tfor i < len(s) && !isAsciiWs(s[i]) && s[i] != '@' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != '@' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tstart := i');
+    lines.push("\tfor i < len(s) && !isAsciiWs(s[i]) && s[i] != '@' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == start {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkGitCloneUrl')) {
+    lines.push('func checkGitCloneUrl(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tif len(s) >= 4 && s[:4] == "git@" {');
+    lines.push('\t\ti = 4');
+    lines.push('\t} else {');
+    lines.push("\t\tif !(s[0] >= 'a' && s[0] <= 'z') {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti = 1');
+    lines.push('\t\tfor i < len(s) {');
+    lines.push('\t\t\tc := s[i]');
+    lines.push("\t\t\tif (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-' {");
+    lines.push('\t\t\t\ti++');
+    lines.push('\t\t\t} else {');
+    lines.push('\t\t\t\tbreak');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
+    lines.push("\t\tif i+3 > len(s) || s[i] != ':' || s[i+1] != '/' || s[i+2] != '/' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti += 3');
+    lines.push('\t}');
+    lines.push('\tif i >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tif isAsciiWs(s[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkContentType')) {
+    lines.push('func isTypeChar(c byte) bool {');
+    lines.push("\treturn (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func isSubtypeChar(c byte) bool {');
+    lines.push("\treturn isTypeChar(c) || c == '.' || c == '+'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkContentType(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tif !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z')) {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) && isTypeChar(s[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != '/' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tif i >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tc := s[i]');
+    lines.push("\tif !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '*') {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) && isSubtypeChar(s[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tfor i < len(s) {');
+    lines.push("\t\tfor i < len(s) && (s[i] == ' ' || s[i] == '\\t') {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i >= len(s) {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push("\t\tif s[i] != ';' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push("\t\tfor i < len(s) && (s[i] == ' ' || s[i] == '\\t') {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tstart := i');
+    lines.push('\t\tfor i < len(s) && isSubtypeChar(s[i]) {');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == start {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tif i >= len(s) || s[i] != '=' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t\tvstart := i');
+    lines.push('\t\tfor i < len(s) && isSubtypeChar(s[i]) {');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == vstart {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDoi')) {
+    lines.push('func checkDoi(s string) bool {');
+    lines.push('\tif len(s) < 8 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif s[0] != '1' || s[1] != '0' || s[2] != '.' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 3');
+    lines.push('\tstart := i');
+    lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tdigitCount := i - start');
+    lines.push('\tif digitCount < 4 || digitCount > 9 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != '/' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\treturn checkDotTail(s, i)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkAnnotateUser')) {
+    lines.push('func checkAnnotateUser(s string) bool {');
+    lines.push('\tif len(s) < 82 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif s[:14] != "annotate-user " {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 14');
+    lines.push('\tif i+64 > len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor j := 0; j < 64; j++ {');
+    lines.push('\t\tc := s[i+j]');
+    lines.push("\t\tif !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\ti += 64');
+    lines.push('\tfor round := 0; round < 2; round++ {');
+    lines.push("\t\tif i >= len(s) || s[i] != ':' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t\tstart := i');
+    lines.push("\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == start {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tif i < len(s) && s[i] == '.' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t\tdstart := i');
+    lines.push("\t\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\t\t\ti++');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\tif i == dstart {');
+    lines.push('\t\t\t\treturn false');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoWsTail')) {
+    lines.push('func checkNoWsTail(s string, offset int) bool {');
+    lines.push('\tif offset >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := offset; i < len(s); i++ {');
+    lines.push('\t\tif isAsciiWs(s[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkExternalIdentity')) {
+    lines.push('func checkExternalIdentity(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tc := s[i]');
+    lines.push("\t\tif (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t} else {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != ':' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\treturn i < len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPackageId')) {
+    lines.push('func isPkgChar(c byte) bool {');
+    lines.push("\treturn (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkPackageId(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif s == \"#\" {");
+    lines.push('\t\treturn true');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tif !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')) {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) && isPkgChar(s[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] == ':' {");
+    lines.push('\t\ti++');
+    lines.push('\t\tif i >= len(s) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tif !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')) {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t\tfor i < len(s) && isPkgChar(s[i]) {');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkImetaDim')) {
+    lines.push('');
+    lines.push('func checkImetaDim(s string) bool {');
+    lines.push('\tif len(s) < 7 { return false }');
+    lines.push('\tif s[:4] != "dim " { return false }');
+    lines.push('\ti := 4');
+    lines.push('\tdc := 0');
+    lines.push('\tfor i < len(s) && s[i] >= \'0\' && s[i] <= \'9\' { i++; dc++ }');
+    lines.push('\tif dc < 1 || dc > 5 { return false }');
+    lines.push('\tif i >= len(s) || s[i] != \'x\' { return false }');
+    lines.push('\ti++; dc = 0');
+    lines.push('\tfor i < len(s) && s[i] >= \'0\' && s[i] <= \'9\' { i++; dc++ }');
+    lines.push('\tif dc < 1 || dc > 5 { return false }');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
   }
 
   return lines.join('\n');

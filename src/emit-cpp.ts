@@ -95,6 +95,82 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_decimal');
       return { expr: `check_decimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      const len = check.prefix.length;
+      return {
+        expr: `(${varExpr}.size() > ${len} && ${varExpr}.compare(0, ${len}, ${JSON.stringify(check.prefix)}) == 0)`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('check_wrapped');
+      return { expr: `check_wrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('check_csv_list');
+      return { expr: `check_csv_list(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('check_ln_invoice');
+      helpers.add('check_bech32'); // triggers is_bech32_char
+      return { expr: `check_ln_invoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('check_mime_type');
+      return { expr: `check_mime_type(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('check_http_origin');
+      return { expr: `check_http_origin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('check_email_like');
+      helpers.add('is_ascii_ws');
+      return { expr: `check_email_like(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('check_git_clone_url');
+      helpers.add('is_ascii_ws');
+      return { expr: `check_git_clone_url(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('check_content_type');
+      return { expr: `check_content_type(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('check_doi');
+      helpers.add('check_relay_url'); // triggers check_dot_tail
+      return { expr: `check_doi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('check_annotate_user');
+      return { expr: `check_annotate_user(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('check_no_ws_tail');
+      helpers.add('is_ascii_ws');
+      const checks = check.prefixes.map(p => {
+        const len = p.length;
+        return `(${varExpr}.size() >= ${len} && ${varExpr}.compare(0, ${len}, ${JSON.stringify(p)}) == 0 && check_no_ws_tail(${varExpr}, ${len}))`;
+      });
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('check_external_identity');
+      return { expr: `check_external_identity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('check_package_id');
+      return { expr: `check_package_id(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('check_imeta_dim');
+      return { expr: `check_imeta_dim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -603,6 +679,274 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    if (!std::all_of(data.begin(), data.end(), is_bech32_char)) return false;');
     lines.push('    if (data_len >= 0) return static_cast<int>(data.size()) == data_len;');
     lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('is_ascii_ws')) {
+    lines.push('inline bool is_ascii_ws(char c) {');
+    lines.push("    return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C;");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_wrapped')) {
+    lines.push('inline bool check_wrapped(const std::string& s, const std::string& prefix, const std::string& suffix) {');
+    lines.push('    return s.size() >= prefix.size() + suffix.size() && s.compare(0, prefix.size(), prefix) == 0 && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_csv_list')) {
+    lines.push('inline bool check_csv_list(const std::string& s, const std::string& charset) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    while (true) {');
+    lines.push('        size_t start = i;');
+    lines.push('        while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push('        if (i == start) return false;');
+    lines.push('        if (i == s.size()) return true;');
+    lines.push("        if (s[i] != ',') return false;");
+    lines.push('        i++;');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_ln_invoice')) {
+    lines.push('inline bool check_ln_invoice(const std::string& s, const std::string& prefix, int min_hrp_len) {');
+    lines.push('    if (s.size() < prefix.size() || s.compare(0, prefix.size(), prefix) != 0) return false;');
+    lines.push("    auto sep = s.rfind('1');");
+    lines.push('    if (sep == std::string::npos) return false;');
+    lines.push('    int hrp_len = static_cast<int>(sep);');
+    lines.push('    if (hrp_len < min_hrp_len) return false;');
+    lines.push('    for (size_t j = 0; j < sep; j++) {');
+    lines.push("        char c = s[j];");
+    lines.push("        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return false;");
+    lines.push('    }');
+    lines.push('    if (sep + 1 >= s.size()) return false;');
+    lines.push('    for (size_t j = sep + 1; j < s.size(); j++) {');
+    lines.push("        if (!is_bech32_char(s[j])) return false;");
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_mime_type')) {
+    lines.push('inline bool check_mime_type(const std::string& s) {');
+    lines.push('    size_t i = 0;');
+    lines.push("    if (i >= s.size() || s[i] < 'a' || s[i] > 'z') return false;");
+    lines.push("    while (i < s.size() && s[i] >= 'a' && s[i] <= 'z') i++;");
+    lines.push("    if (i >= s.size() || s[i] != '/') return false;");
+    lines.push('    i++;');
+    lines.push('    size_t sub_start = i;');
+    lines.push('    while (i < s.size()) {');
+    lines.push("        char c = s[i];");
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i == sub_start) return false;');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_http_origin')) {
+    lines.push('inline bool check_http_origin(const std::string& s) {');
+    lines.push('    size_t pos = 0;');
+    lines.push('    if (s.compare(0, 8, "https://") == 0) { pos = 8; }');
+    lines.push('    else if (s.compare(0, 7, "http://") == 0) { pos = 7; }');
+    lines.push('    else { return false; }');
+    lines.push('    size_t host_start = pos;');
+    lines.push("    while (pos < s.size() && s[pos] != '/') pos++;");
+    lines.push('    if (pos == host_start) return false;');
+    lines.push("    if (pos < s.size() && s[pos] == '/') pos++;");
+    lines.push('    return pos == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_email_like')) {
+    lines.push('inline bool check_email_like(const std::string& s) {');
+    lines.push('    size_t i = 0;');
+    lines.push("    while (i < s.size() && !is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push('    if (i == 0) return false;');
+    lines.push("    if (i >= s.size() || s[i] != '@') return false;");
+    lines.push('    i++;');
+    lines.push('    size_t after_at = i;');
+    lines.push("    while (i < s.size() && !is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push('    if (i == after_at) return false;');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_git_clone_url')) {
+    lines.push('inline bool check_git_clone_url(const std::string& s) {');
+    lines.push('    size_t pos = 0;');
+    lines.push('    if (s.compare(0, 4, "git@") == 0) { pos = 4; }');
+    lines.push('    else {');
+    lines.push("        if (s.empty() || s[0] < 'a' || s[0] > 'z') return false;");
+    lines.push('        pos = 1;');
+    lines.push('        while (pos < s.size()) {');
+    lines.push("            char c = s[pos];");
+    lines.push("            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') pos++;");
+    lines.push('            else break;');
+    lines.push('        }');
+    lines.push('        if (pos + 3 > s.size() || s.compare(pos, 3, "://") != 0) return false;');
+    lines.push('        pos += 3;');
+    lines.push('    }');
+    lines.push('    if (pos >= s.size()) return false;');
+    lines.push('    for (size_t j = pos; j < s.size(); j++) {');
+    lines.push('        if (is_ascii_ws(s[j])) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_content_type')) {
+    lines.push('inline bool is_type_char(char c) {');
+    lines.push("    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('inline bool is_subtype_char(char c) {');
+    lines.push("    return is_type_char(c) || c == '.' || c == '+';");
+    lines.push('}');
+    lines.push('');
+    lines.push('inline bool check_content_type(const std::string& s) {');
+    lines.push('    size_t i = 0;');
+    lines.push("    if (i >= s.size() || !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return false;");
+    lines.push('    i++;');
+    lines.push('    while (i < s.size() && is_type_char(s[i])) i++;');
+    lines.push("    if (i >= s.size() || s[i] != '/') return false;");
+    lines.push('    i++;');
+    lines.push("    if (i >= s.size() || !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '*')) return false;");
+    lines.push('    i++;');
+    lines.push('    while (i < s.size() && is_subtype_char(s[i])) i++;');
+    lines.push("    while (i < s.size() && (s[i] == ' ' || s[i] == '\\t' || s[i] == ';')) {");
+    lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("        if (i >= s.size() || s[i] != ';') return false;");
+    lines.push('        i++;');
+    lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push('        size_t param_start = i;');
+    lines.push('        while (i < s.size() && is_subtype_char(s[i])) i++;');
+    lines.push('        if (i == param_start) return false;');
+    lines.push("        if (i >= s.size() || s[i] != '=') return false;");
+    lines.push('        i++;');
+    lines.push('        size_t val_start = i;');
+    lines.push('        while (i < s.size() && is_subtype_char(s[i])) i++;');
+    lines.push('        if (i == val_start) return false;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_doi')) {
+    lines.push('inline bool check_doi(const std::string& s) {');
+    lines.push('    if (s.size() < 8 || s.compare(0, 3, "10.") != 0) return false;');
+    lines.push('    size_t i = 3;');
+    lines.push('    size_t digit_start = i;');
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    size_t digit_count = i - digit_start;');
+    lines.push('    if (digit_count < 4 || digit_count > 9) return false;');
+    lines.push("    if (i >= s.size() || s[i] != '/') return false;");
+    lines.push('    i++;');
+    lines.push('    return check_dot_tail(s, i);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_annotate_user')) {
+    lines.push('inline bool check_annotate_user(const std::string& s) {');
+    lines.push('    if (s.size() < 15 + 64 + 4 || s.compare(0, 15, "annotate-user ") != 0) return false;');
+    lines.push('    for (size_t j = 15; j < 79; j++) {');
+    lines.push("        char c = s[j];");
+    lines.push("        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('    }');
+    lines.push('    size_t pos = 79;');
+    lines.push('    for (int coord = 0; coord < 2; coord++) {');
+    lines.push("        if (pos >= s.size() || s[pos] != ':') return false;");
+    lines.push('        pos++;');
+    lines.push('        size_t dstart = pos;');
+    lines.push("        while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('        if (pos == dstart) return false;');
+    lines.push("        if (pos < s.size() && s[pos] == '.') {");
+    lines.push('            pos++;');
+    lines.push("            while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    return pos == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_no_ws_tail')) {
+    lines.push('inline bool check_no_ws_tail(const std::string& s, size_t offset) {');
+    lines.push('    if (offset >= s.size()) return false;');
+    lines.push('    for (size_t j = offset; j < s.size(); j++) {');
+    lines.push('        if (is_ascii_ws(s[j])) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_external_identity')) {
+    lines.push('inline bool check_external_identity(const std::string& s) {');
+    lines.push('    size_t i = 0;');
+    lines.push('    while (i < s.size()) {');
+    lines.push("        char c = s[i];");
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i == 0) return false;');
+    lines.push("    if (i >= s.size() || s[i] != ':') return false;");
+    lines.push('    return i + 1 < s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_imeta_dim')) {
+    lines.push('inline bool check_imeta_dim(const std::string& s) {');
+    lines.push('    if (s.size() < 7 || s.compare(0, 4, "dim ") != 0) return false;');
+    lines.push('    size_t i = 4;');
+    lines.push('    size_t d1 = i;');
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    size_t d1len = i - d1;');
+    lines.push('    if (d1len < 1 || d1len > 5) return false;');
+    lines.push("    if (i >= s.size() || s[i] != 'x') return false;");
+    lines.push('    i++;');
+    lines.push('    size_t d2 = i;');
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    size_t d2len = i - d2;');
+    lines.push('    if (d2len < 1 || d2len > 5) return false;');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_package_id')) {
+    lines.push('inline bool is_pkg_id_char(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('inline bool check_package_id(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push("    if (s == \"#\") return true;");
+    lines.push('    size_t i = 0;');
+    lines.push("    if (!((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('    i++;');
+    lines.push('    while (i < s.size() && is_pkg_id_char(s[i])) i++;');
+    lines.push("    while (i < s.size() && s[i] == ':') {");
+    lines.push('        i++;');
+    lines.push("        if (i >= s.size() || !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('        i++;');
+    lines.push('        while (i < s.size() && is_pkg_id_char(s[i])) i++;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
     lines.push('}');
     lines.push('');
   }

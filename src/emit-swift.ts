@@ -94,6 +94,81 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('checkDecimal');
       return { expr: `checkDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${varExpr} == ${JSON.stringify(v)}`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      const len = check.prefix.length;
+      return {
+        expr: `(${varExpr}.hasPrefix(${JSON.stringify(check.prefix)}) && ${varExpr}.count > ${len})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('checkWrapped');
+      return { expr: `checkWrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('checkCsvList');
+      return { expr: `checkCsvList(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('checkLnInvoice');
+      helpers.add('checkBech32'); // triggers isBech32Char
+      return { expr: `checkLnInvoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('checkMimeType');
+      return { expr: `checkMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('checkHttpOrigin');
+      return { expr: `checkHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('checkEmailLike');
+      helpers.add('isAsciiWs');
+      return { expr: `checkEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('checkGitCloneUrl');
+      helpers.add('isAsciiWs');
+      return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('checkContentType');
+      return { expr: `checkContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('checkDoi');
+      helpers.add('checkRelayUrl'); // triggers checkDotTail
+      return { expr: `checkDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('checkAnnotateUser');
+      return { expr: `checkAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('checkNoWsTail');
+      helpers.add('isAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr}.hasPrefix(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('checkExternalIdentity');
+      return { expr: `checkExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('checkPackageId');
+      return { expr: `checkPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('checkImetaDim');
+      return { expr: `checkImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -604,6 +679,294 @@ function emitSwiftHelpers(helpers: Set<string>): string {
   if (helpers.has('regex')) {
     lines.push('private func checkRegex(_ s: String, _ pattern: String) -> Bool {');
     lines.push('    s.range(of: pattern, options: .regularExpression) != nil');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('isAsciiWs')) {
+    lines.push('private func isAsciiWs(_ c: UInt8) -> Bool {');
+    lines.push('    c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x0B || c == 0x0C');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkWrapped')) {
+    lines.push('private func checkWrapped(_ s: String, _ prefix: String, _ suffix: String) -> Bool {');
+    lines.push('    s.count >= prefix.count + suffix.count && s.hasPrefix(prefix) && s.hasSuffix(suffix)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkCsvList')) {
+    lines.push('private func checkCsvList(_ s: String, _ charset: String) -> Bool {');
+    lines.push('    if s.isEmpty { return false }');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let cs = Array(charset.utf8)');
+    lines.push('    var i = 0');
+    lines.push('    while true {');
+    lines.push('        let start = i');
+    lines.push('        while i < u.count && cs.contains(u[i]) { i += 1 }');
+    lines.push('        if i == start { return false }');
+    lines.push('        if i == u.count { return true }');
+    lines.push('        if u[i] != 0x2C { return false }');
+    lines.push('        i += 1');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkLnInvoice')) {
+    lines.push('private func checkLnInvoice(_ s: String, _ prefix: String, _ minHrpLen: Int) -> Bool {');
+    lines.push('    guard s.hasPrefix(prefix) else { return false }');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var sep = -1');
+    lines.push('    for j in stride(from: u.count - 1, through: 0, by: -1) {');
+    lines.push('        if u[j] == 0x31 { sep = j; break }');
+    lines.push('    }');
+    lines.push('    if sep < 0 { return false }');
+    lines.push('    if sep < minHrpLen { return false }');
+    lines.push('    for j in 0..<sep {');
+    lines.push('        let c = u[j]');
+    lines.push('        if !((c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39)) { return false }');
+    lines.push('    }');
+    lines.push('    if sep + 1 >= u.count { return false }');
+    lines.push('    for j in (sep + 1)..<u.count {');
+    lines.push('        if !isBech32Char(Character(UnicodeScalar(u[j]))) { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeType')) {
+    lines.push('private func checkMimeType(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var i = 0');
+    lines.push('    if i >= u.count || u[i] < 0x61 || u[i] > 0x7A { return false }');
+    lines.push('    while i < u.count && u[i] >= 0x61 && u[i] <= 0x7A { i += 1 }');
+    lines.push('    if i >= u.count || u[i] != 0x2F { return false }');
+    lines.push('    i += 1');
+    lines.push('    let subStart = i');
+    lines.push('    while i < u.count {');
+    lines.push('        let c = u[i]');
+    lines.push('        if (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2E || c == 0x2B || c == 0x2D { i += 1 }');
+    lines.push('        else { break }');
+    lines.push('    }');
+    lines.push('    if i == subStart { return false }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkHttpOrigin')) {
+    lines.push('private func checkHttpOrigin(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var pos = 0');
+    lines.push('    if u.count >= 8 && u[0] == 0x68 && u[1] == 0x74 && u[2] == 0x74 && u[3] == 0x70 && u[4] == 0x73 && u[5] == 0x3A && u[6] == 0x2F && u[7] == 0x2F { pos = 8 }');
+    lines.push('    else if u.count >= 7 && u[0] == 0x68 && u[1] == 0x74 && u[2] == 0x74 && u[3] == 0x70 && u[4] == 0x3A && u[5] == 0x2F && u[6] == 0x2F { pos = 7 }');
+    lines.push('    else { return false }');
+    lines.push('    let hostStart = pos');
+    lines.push('    while pos < u.count && u[pos] != 0x2F { pos += 1 }');
+    lines.push('    if pos == hostStart { return false }');
+    lines.push('    if pos < u.count && u[pos] == 0x2F { pos += 1 }');
+    lines.push('    return pos == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkEmailLike')) {
+    lines.push('private func checkEmailLike(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var i = 0');
+    lines.push('    while i < u.count && !isAsciiWs(u[i]) && u[i] != 0x40 { i += 1 }');
+    lines.push('    if i == 0 { return false }');
+    lines.push('    if i >= u.count || u[i] != 0x40 { return false }');
+    lines.push('    i += 1');
+    lines.push('    let afterAt = i');
+    lines.push('    while i < u.count && !isAsciiWs(u[i]) && u[i] != 0x40 { i += 1 }');
+    lines.push('    if i == afterAt { return false }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkGitCloneUrl')) {
+    lines.push('private func checkGitCloneUrl(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var pos = 0');
+    lines.push('    if u.count >= 4 && u[0] == 0x67 && u[1] == 0x69 && u[2] == 0x74 && u[3] == 0x40 { pos = 4 }');
+    lines.push('    else {');
+    lines.push('        if u.isEmpty || u[0] < 0x61 || u[0] > 0x7A { return false }');
+    lines.push('        pos = 1');
+    lines.push('        while pos < u.count {');
+    lines.push('            let c = u[pos]');
+    lines.push('            if (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2B || c == 0x2E || c == 0x2D { pos += 1 }');
+    lines.push('            else { break }');
+    lines.push('        }');
+    lines.push('        if pos + 3 > u.count || u[pos] != 0x3A || u[pos+1] != 0x2F || u[pos+2] != 0x2F { return false }');
+    lines.push('        pos += 3');
+    lines.push('    }');
+    lines.push('    if pos >= u.count { return false }');
+    lines.push('    for j in pos..<u.count {');
+    lines.push('        if isAsciiWs(u[j]) { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkContentType')) {
+    lines.push('private func isTypeChar(_ c: UInt8) -> Bool {');
+    lines.push('    (c >= 0x61 && c <= 0x7A) || (c >= 0x41 && c <= 0x5A) || (c >= 0x30 && c <= 0x39) || c == 0x21 || c == 0x23 || c == 0x24 || c == 0x26 || c == 0x5E || c == 0x5F || c == 0x2D');
+    lines.push('}');
+    lines.push('');
+    lines.push('private func isSubtypeChar(_ c: UInt8) -> Bool {');
+    lines.push('    isTypeChar(c) || c == 0x2E || c == 0x2B');
+    lines.push('}');
+    lines.push('');
+    lines.push('private func checkContentType(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var i = 0');
+    lines.push('    if i >= u.count || !((u[i] >= 0x61 && u[i] <= 0x7A) || (u[i] >= 0x41 && u[i] <= 0x5A)) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < u.count && isTypeChar(u[i]) { i += 1 }');
+    lines.push('    if i >= u.count || u[i] != 0x2F { return false }');
+    lines.push('    i += 1');
+    lines.push('    if i >= u.count || !((u[i] >= 0x61 && u[i] <= 0x7A) || (u[i] >= 0x41 && u[i] <= 0x5A) || (u[i] >= 0x30 && u[i] <= 0x39) || u[i] == 0x2A) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < u.count && isSubtypeChar(u[i]) { i += 1 }');
+    lines.push('    while i < u.count && (u[i] == 0x20 || u[i] == 0x09 || u[i] == 0x3B) {');
+    lines.push('        while i < u.count && (u[i] == 0x20 || u[i] == 0x09) { i += 1 }');
+    lines.push('        if i >= u.count || u[i] != 0x3B { return false }');
+    lines.push('        i += 1');
+    lines.push('        while i < u.count && (u[i] == 0x20 || u[i] == 0x09) { i += 1 }');
+    lines.push('        let paramStart = i');
+    lines.push('        while i < u.count && isSubtypeChar(u[i]) { i += 1 }');
+    lines.push('        if i == paramStart { return false }');
+    lines.push('        if i >= u.count || u[i] != 0x3D { return false }');
+    lines.push('        i += 1');
+    lines.push('        let valStart = i');
+    lines.push('        while i < u.count && isSubtypeChar(u[i]) { i += 1 }');
+    lines.push('        if i == valStart { return false }');
+    lines.push('    }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDoi')) {
+    lines.push('private func checkDoi(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.count < 8 || u[0] != 0x31 || u[1] != 0x30 || u[2] != 0x2E { return false }');
+    lines.push('    var i = 3');
+    lines.push('    let digitStart = i');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    let digitCount = i - digitStart');
+    lines.push('    if digitCount < 4 || digitCount > 9 { return false }');
+    lines.push('    if i >= u.count || u[i] != 0x2F { return false }');
+    lines.push('    i += 1');
+    lines.push('    return checkDotTail(u, i)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkAnnotateUser')) {
+    lines.push('private func checkAnnotateUser(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    // "annotate-user " (15 bytes) + 64 hex + ":" + digit + ":" + digit = min 83');
+    lines.push('    if u.count < 83 { return false }');
+    lines.push('    let pfx: [UInt8] = Array("annotate-user ".utf8)');
+    lines.push('    for j in 0..<pfx.count { if u[j] != pfx[j] { return false } }');
+    lines.push('    for j in 15..<79 {');
+    lines.push('        let c = u[j]');
+    lines.push('        if !((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66)) { return false }');
+    lines.push('    }');
+    lines.push('    var pos = 79');
+    lines.push('    for _ in 0..<2 {');
+    lines.push('        if pos >= u.count || u[pos] != 0x3A { return false }');
+    lines.push('        pos += 1');
+    lines.push('        let dstart = pos');
+    lines.push('        while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('        if pos == dstart { return false }');
+    lines.push('        if pos < u.count && u[pos] == 0x2E {');
+    lines.push('            pos += 1');
+    lines.push('            while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    return pos == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoWsTail')) {
+    lines.push('private func checkNoWsTail(_ s: String, _ offset: Int) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if offset >= u.count { return false }');
+    lines.push('    for j in offset..<u.count {');
+    lines.push('        if isAsciiWs(u[j]) { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkExternalIdentity')) {
+    lines.push('private func checkExternalIdentity(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var i = 0');
+    lines.push('    while i < u.count {');
+    lines.push('        let c = u[i]');
+    lines.push('        if (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2E || c == 0x5F || c == 0x2D || c == 0x2F { i += 1 }');
+    lines.push('        else { break }');
+    lines.push('    }');
+    lines.push('    if i == 0 { return false }');
+    lines.push('    if i >= u.count || u[i] != 0x3A { return false }');
+    lines.push('    return i + 1 < u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkImetaDim')) {
+    lines.push('private func checkImetaDim(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    // "dim " + at least 1 digit + "x" + at least 1 digit = min 7');
+    lines.push('    if u.count < 7 || u[0] != 0x64 || u[1] != 0x69 || u[2] != 0x6D || u[3] != 0x20 { return false }');
+    lines.push('    var i = 4');
+    lines.push('    let d1 = i');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    let d1len = i - d1');
+    lines.push('    if d1len < 1 || d1len > 5 { return false }');
+    lines.push('    if i >= u.count || u[i] != 0x78 { return false }');
+    lines.push('    i += 1');
+    lines.push('    let d2 = i');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    let d2len = i - d2');
+    lines.push('    if d2len < 1 || d2len > 5 { return false }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPackageId')) {
+    lines.push('private func isPkgIdChar(_ c: UInt8) -> Bool {');
+    lines.push('    (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2E || c == 0x5F || c == 0x2B || c == 0x2D');
+    lines.push('}');
+    lines.push('');
+    lines.push('private func checkPackageId(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    if u.count == 1 && u[0] == 0x23 { return true }');
+    lines.push('    var i = 0');
+    lines.push('    if !((u[i] >= 0x41 && u[i] <= 0x5A) || (u[i] >= 0x61 && u[i] <= 0x7A) || (u[i] >= 0x30 && u[i] <= 0x39)) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < u.count && isPkgIdChar(u[i]) { i += 1 }');
+    lines.push('    while i < u.count && u[i] == 0x3A {');
+    lines.push('        i += 1');
+    lines.push('        if i >= u.count || !((u[i] >= 0x41 && u[i] <= 0x5A) || (u[i] >= 0x61 && u[i] <= 0x7A) || (u[i] >= 0x30 && u[i] <= 0x39)) { return false }');
+    lines.push('        i += 1');
+    lines.push('        while i < u.count && isPkgIdChar(u[i]) { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == u.count');
     lines.push('}');
     lines.push('');
   }

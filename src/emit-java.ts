@@ -98,6 +98,78 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('checkDecimal');
       return { expr: `checkDecimal(${varExpr})`, helpers };
     }
+    case 'exact_values': {
+      const checks = check.values.map(v => `${JSON.stringify(v)}.equals(${varExpr})`);
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'prefix_nonempty': {
+      return {
+        expr: `(${varExpr} != null && ${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && ${varExpr}.length() > ${check.prefix.length})`,
+        helpers,
+      };
+    }
+    case 'wrapped': {
+      helpers.add('checkWrapped');
+      return { expr: `checkWrapped(${varExpr}, ${JSON.stringify(check.prefix)}, ${JSON.stringify(check.suffix)})`, helpers };
+    }
+    case 'csv_list': {
+      helpers.add('checkCsvList');
+      return { expr: `checkCsvList(${varExpr}, ${JSON.stringify(check.itemCharset)})`, helpers };
+    }
+    case 'ln_invoice': {
+      helpers.add('checkLnInvoice');
+      return { expr: `checkLnInvoice(${varExpr}, ${JSON.stringify(check.prefix)}, ${check.minHrpLen})`, helpers };
+    }
+    case 'mime_type': {
+      helpers.add('checkMimeType');
+      return { expr: `checkMimeType(${varExpr})`, helpers };
+    }
+    case 'http_origin': {
+      helpers.add('checkHttpOrigin');
+      return { expr: `checkHttpOrigin(${varExpr})`, helpers };
+    }
+    case 'email_like': {
+      helpers.add('checkEmailLike');
+      helpers.add('isAsciiWs');
+      return { expr: `checkEmailLike(${varExpr})`, helpers };
+    }
+    case 'git_clone_url': {
+      helpers.add('checkGitCloneUrl');
+      helpers.add('isAsciiWs');
+      return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
+    }
+    case 'content_type': {
+      helpers.add('checkContentType');
+      return { expr: `checkContentType(${varExpr})`, helpers };
+    }
+    case 'doi': {
+      helpers.add('checkDoi');
+      return { expr: `checkDoi(${varExpr})`, helpers };
+    }
+    case 'annotate_user': {
+      helpers.add('checkAnnotateUser');
+      return { expr: `checkAnnotateUser(${varExpr})`, helpers };
+    }
+    case 'prefix_no_whitespace': {
+      helpers.add('checkNoWsTail');
+      helpers.add('isAsciiWs');
+      const checks = check.prefixes.map(p =>
+        `(${varExpr} != null && ${varExpr}.startsWith(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
+      );
+      return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
+    }
+    case 'external_identity': {
+      helpers.add('checkExternalIdentity');
+      return { expr: `checkExternalIdentity(${varExpr})`, helpers };
+    }
+    case 'package_id': {
+      helpers.add('checkPackageId');
+      return { expr: `checkPackageId(${varExpr})`, helpers };
+    }
+    case 'imeta_dim': {
+      helpers.add('checkImetaDim');
+      return { expr: `checkImetaDim(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -649,6 +721,287 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (data.isEmpty() || !data.chars().allMatch(c -> isBech32Char((char) c))) return false;');
     lines.push('        if (dataLen >= 0) return data.length() == dataLen;');
     lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkWrapped')) {
+    lines.push('    private static boolean checkWrapped(String s, String prefix, String suffix) {');
+    lines.push('        return s != null && s.length() >= prefix.length() + suffix.length() && s.startsWith(prefix) && s.endsWith(suffix);');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkCsvList')) {
+    lines.push('    private static boolean checkCsvList(String s, String charset) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push('        while (true) {');
+    lines.push('            int start = i;');
+    lines.push('            while (i < s.length() && charset.indexOf(s.charAt(i)) >= 0) i++;');
+    lines.push('            if (i == start) return false;');
+    lines.push('            if (i == s.length()) return true;');
+    lines.push("            if (s.charAt(i) != ',') return false;");
+    lines.push('            i++;');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('isAsciiWs')) {
+    lines.push('    private static boolean isAsciiWs(char c) {');
+    lines.push("        return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C;");
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkLnInvoice')) {
+    lines.push('    private static boolean isBech32Data(char c) {');
+    lines.push("        return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('    }');
+    lines.push('');
+    lines.push('    private static boolean checkLnInvoice(String s, String prefix, int minHrpLen) {');
+    lines.push('        if (s == null || !s.startsWith(prefix)) return false;');
+    lines.push("        int sep = s.lastIndexOf('1');");
+    lines.push('        if (sep < 0) return false;');
+    lines.push('        String hrp = s.substring(0, sep);');
+    lines.push('        if (hrp.length() < minHrpLen) return false;');
+    lines.push('        for (int i = 0; i < hrp.length(); i++) {');
+    lines.push('            char c = hrp.charAt(i);');
+    lines.push("            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return false;");
+    lines.push('        }');
+    lines.push('        String data = s.substring(sep + 1);');
+    lines.push('        if (data.isEmpty()) return false;');
+    lines.push('        for (int i = 0; i < data.length(); i++) {');
+    lines.push('            if (!isBech32Data(data.charAt(i))) return false;');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeType')) {
+    lines.push('    private static boolean checkMimeType(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push("        if (s.charAt(i) < 'a' || s.charAt(i) > 'z') return false;");
+    lines.push("        while (i < s.length() && s.charAt(i) >= 'a' && s.charAt(i) <= 'z') i++;");
+    lines.push("        if (i >= s.length() || s.charAt(i) != '/') return false;");
+    lines.push('        i++;');
+    lines.push('        if (i >= s.length()) return false;');
+    lines.push('        char c = s.charAt(i);');
+    lines.push("        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-')) return false;");
+    lines.push("        while (i < s.length()) { c = s.charAt(i); if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-') i++; else break; }");
+    lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkHttpOrigin')) {
+    lines.push('    private static boolean checkHttpOrigin(String s) {');
+    lines.push('        if (s == null) return false;');
+    lines.push('        int pos;');
+    lines.push('        if (s.startsWith("https://")) { pos = 8; }');
+    lines.push('        else if (s.startsWith("http://")) { pos = 7; }');
+    lines.push('        else { return false; }');
+    lines.push('        int start = pos;');
+    lines.push("        while (pos < s.length() && s.charAt(pos) != '/') pos++;");
+    lines.push('        if (pos == start) return false;');
+    lines.push("        if (pos < s.length() && s.charAt(pos) == '/') pos++;");
+    lines.push('        return pos == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkEmailLike')) {
+    lines.push('    private static boolean checkEmailLike(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push("        if (isAsciiWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
+    lines.push("        while (i < s.length() && !isAsciiWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
+    lines.push("        if (i >= s.length() || s.charAt(i) != '@') return false;");
+    lines.push('        i++;');
+    lines.push("        if (i >= s.length() || isAsciiWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
+    lines.push("        while (i < s.length() && !isAsciiWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
+    lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkGitCloneUrl')) {
+    lines.push('    private static boolean checkGitCloneUrl(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int pos;');
+    lines.push('        if (s.startsWith("git@")) {');
+    lines.push('            pos = 4;');
+    lines.push('        } else {');
+    lines.push('            char c0 = s.charAt(0);');
+    lines.push("            if (c0 < 'a' || c0 > 'z') return false;");
+    lines.push('            pos = 1;');
+    lines.push("            while (pos < s.length()) { char c = s.charAt(pos); if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') pos++; else break; }");
+    lines.push('            if (pos + 3 > s.length() || !s.substring(pos, pos + 3).equals("://")) return false;');
+    lines.push('            pos += 3;');
+    lines.push('        }');
+    lines.push('        if (pos >= s.length()) return false;');
+    lines.push('        for (int i = pos; i < s.length(); i++) {');
+    lines.push('            if (isAsciiWs(s.charAt(i))) return false;');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkContentType')) {
+    lines.push('    private static boolean isTypeChar(char c) {');
+    lines.push("        return Character.isLetter(c) || Character.isDigit(c) || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
+    lines.push('    }');
+    lines.push('');
+    lines.push('    private static boolean isSubtypeChar(char c) {');
+    lines.push("        return isTypeChar(c) || c == '.' || c == '+';");
+    lines.push('    }');
+    lines.push('');
+    lines.push('    private static boolean checkContentType(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push('        if (!Character.isLetter(s.charAt(i))) return false;');
+    lines.push('        i++;');
+    lines.push('        while (i < s.length() && isTypeChar(s.charAt(i))) i++;');
+    lines.push("        if (i >= s.length() || s.charAt(i) != '/') return false;");
+    lines.push('        i++;');
+    lines.push("        if (i >= s.length() || !(Character.isLetter(s.charAt(i)) || Character.isDigit(s.charAt(i)) || s.charAt(i) == '*')) return false;");
+    lines.push('        i++;');
+    lines.push('        while (i < s.length() && isSubtypeChar(s.charAt(i))) i++;');
+    lines.push('        while (i < s.length()) {');
+    lines.push('            int j = i;');
+    lines.push("            while (j < s.length() && (s.charAt(j) == ' ' || s.charAt(j) == '\\t')) j++;");
+    lines.push("            if (j >= s.length() || s.charAt(j) != ';') break;");
+    lines.push('            j++;');
+    lines.push("            while (j < s.length() && (s.charAt(j) == ' ' || s.charAt(j) == '\\t')) j++;");
+    lines.push('            int start = j;');
+    lines.push('            while (j < s.length() && isSubtypeChar(s.charAt(j))) j++;');
+    lines.push('            if (j == start) break;');
+    lines.push("            if (j >= s.length() || s.charAt(j) != '=') break;");
+    lines.push('            j++;');
+    lines.push('            start = j;');
+    lines.push('            while (j < s.length() && isSubtypeChar(s.charAt(j))) j++;');
+    lines.push('            if (j == start) break;');
+    lines.push('            i = j;');
+    lines.push('        }');
+    lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDoi')) {
+    // doi uses checkDotTail which is emitted when checkRelayUrl or checkATag is present
+    if (!helpers.has('checkRelayUrl') && !helpers.has('checkATag')) {
+      lines.push('    private static boolean checkDotTail(String s, int pos) {');
+      lines.push('        if (pos >= s.length()) return false;');
+      lines.push('        for (int j = pos; j < s.length(); j++) {');
+      lines.push("            char ch = s.charAt(j);");
+      lines.push("            if (ch == '\\n' || ch == '\\r' || ch == '\\u0085' || ch == '\\u2028' || ch == '\\u2029') return false;");
+      lines.push('        }');
+      lines.push('        return true;');
+      lines.push('    }');
+      lines.push('');
+    }
+    lines.push('    private static boolean checkDoi(String s) {');
+    lines.push('        if (s == null || !s.startsWith("10.")) return false;');
+    lines.push('        int i = 3;');
+    lines.push('        int count = 0;');
+    lines.push("        while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') { count++; i++; }");
+    lines.push('        if (count < 4 || count > 9) return false;');
+    lines.push("        if (i >= s.length() || s.charAt(i) != '/') return false;");
+    lines.push('        i++;');
+    lines.push('        return checkDotTail(s, i);');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkAnnotateUser')) {
+    lines.push('    private static boolean checkAnnotateUser(String s) {');
+    lines.push('        if (s == null || !s.startsWith("annotate-user ")) return false;');
+    lines.push('        int i = 15;');
+    lines.push('        if (i + 64 > s.length()) return false;');
+    lines.push('        for (int j = 0; j < 64; j++) {');
+    lines.push('            char c = s.charAt(i + j);');
+    lines.push("            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('        }');
+    lines.push('        i += 64;');
+    lines.push('        for (int round = 0; round < 2; round++) {');
+    lines.push("            if (i >= s.length() || s.charAt(i) != ':') return false;");
+    lines.push('            i++;');
+    lines.push("            if (i >= s.length() || s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("            while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
+    lines.push("            if (i < s.length() && s.charAt(i) == '.') {");
+    lines.push('                i++;');
+    lines.push("                if (i >= s.length() || s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("                while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoWsTail')) {
+    lines.push('    private static boolean checkNoWsTail(String s, int offset) {');
+    lines.push('        if (s == null || offset >= s.length()) return false;');
+    lines.push('        for (int i = offset; i < s.length(); i++) {');
+    lines.push('            if (isAsciiWs(s.charAt(i))) return false;');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkExternalIdentity')) {
+    lines.push('    private static boolean checkExternalIdentity(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        int i = 0;');
+    lines.push('        char c = s.charAt(i);');
+    lines.push("        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/')) return false;");
+    lines.push("        while (i < s.length()) { c = s.charAt(i); if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/') i++; else break; }");
+    lines.push("        if (i >= s.length() || s.charAt(i) != ':') return false;");
+    lines.push('        i++;');
+    lines.push('        return i < s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkImetaDim')) {
+    lines.push('    private static boolean checkImetaDim(String s) {');
+    lines.push('        if (s.length() < 7) return false;');
+    lines.push('        if (!s.startsWith("dim ")) return false;');
+    lines.push('        int i = 4;');
+    lines.push('        int dc = 0;');
+    lines.push("        while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') { i++; dc++; }");
+    lines.push('        if (dc < 1 || dc > 5) return false;');
+    lines.push("        if (i >= s.length() || s.charAt(i) != 'x') return false;");
+    lines.push('        i++; dc = 0;');
+    lines.push("        while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') { i++; dc++; }");
+    lines.push('        if (dc < 1 || dc > 5) return false;');
+    lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPackageId')) {
+    lines.push('    private static boolean checkPackageId(String s) {');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
+    lines.push('        if (s.equals("#")) return true;');
+    lines.push('        char c0 = s.charAt(0);');
+    lines.push("        if (!Character.isLetter(c0) && !Character.isDigit(c0)) return false;");
+    lines.push('        int i = 1;');
+    lines.push("        while (i < s.length()) { char c = s.charAt(i); if (Character.isLetter(c) || Character.isDigit(c) || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
+    lines.push('        while (i < s.length()) {');
+    lines.push("            if (s.charAt(i) != ':') return false;");
+    lines.push('            i++;');
+    lines.push("            if (i >= s.length() || (!Character.isLetter(s.charAt(i)) && !Character.isDigit(s.charAt(i)))) return false;");
+    lines.push('            i++;');
+    lines.push("            while (i < s.length()) { char c = s.charAt(i); if (Character.isLetter(c) || Character.isDigit(c) || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
+    lines.push('        }');
+    lines.push('        return i == s.length();');
     lines.push('    }');
     lines.push('');
   }
