@@ -10,6 +10,21 @@
  *   - all_digits: numeric string (optionally signed)
  *   - starts_with_any: string starting with known prefixes
  *   - chars_in: string composed of a specific character set
+ *   - exact_values: string equals one of N constants
+ *   - prefix_nonempty: starts with literal prefix + ≥1 more char
+ *   - wrapped: starts with prefix AND ends with suffix
+ *   - csv_list: comma-separated items from a charset
+ *   - ln_invoice: Lightning Network bech32 invoice
+ *   - mime_type: simple MIME type/subtype
+ *   - http_origin: base HTTP URL with no path
+ *   - email_like: local@domain format
+ *   - git_clone_url: git clone URL (scheme:// or git@)
+ *   - content_type: full Content-Type with optional params
+ *   - doi: Digital Object Identifier
+ *   - annotate_user: image annotation coordinates
+ *   - prefix_no_whitespace: literal prefix + non-whitespace tail
+ *   - external_identity: NIP-39 identity tag format
+ *   - package_id: hierarchical colon-separated ID
  *   - compound: multiple checks combined (AND)
  *   - regex: fallback (original regex preserved)
  */
@@ -28,6 +43,22 @@ export type PatternCheck =
   | { op: 'date_iso' }
   | { op: 'datetime_iso' }
   | { op: 'decimal' }
+  | { op: 'exact_values'; values: string[] }
+  | { op: 'prefix_nonempty'; prefix: string }
+  | { op: 'wrapped'; prefix: string; suffix: string }
+  | { op: 'csv_list'; itemCharset: string }
+  | { op: 'ln_invoice'; prefix: string; minHrpLen: number }
+  | { op: 'mime_type' }
+  | { op: 'http_origin' }
+  | { op: 'email_like' }
+  | { op: 'git_clone_url' }
+  | { op: 'content_type' }
+  | { op: 'doi' }
+  | { op: 'annotate_user' }
+  | { op: 'prefix_no_whitespace'; prefixes: string[] }
+  | { op: 'external_identity' }
+  | { op: 'package_id' }
+  | { op: 'imeta_dim' }
   | { op: 'compound'; checks: PatternCheck[] }
   | { op: 'regex'; pattern: string };
 
@@ -56,9 +87,9 @@ export function classifyRegex(pattern: string): PatternCheck {
     }
   }
 
-  // Hex with prefix: ^0x[0-9a-f]{4}$
+  // Hex with literal prefix: ^0x[0-9a-f]{4}$ or ^x [a-f0-9]{64}$
   {
-    const m = pattern.match(/^\^(0x)\[(?:0-9a-f|a-f0-9)\]\{(\d+)\}\$$/);
+    const m = pattern.match(/^\^([^[\\]+)\[(?:0-9a-f|a-f0-9)\]\{(\d+)\}\$$/);
     if (m) {
       return { op: 'hex_prefixed', prefix: m[1], hexLen: parseInt(m[2], 10), case: 'lower' };
     }
@@ -190,6 +221,112 @@ export function classifyRegex(pattern: string): PatternCheck {
     return { op: 'datetime_iso' };
   }
 
+  // --- New ops below ---
+
+  // Exact values: expand anchored literal alternation to string list
+  {
+    const values = expandLiteralAlternation(pattern);
+    if (values && values.length > 0 && values.length <= 20) {
+      return { op: 'exact_values', values };
+    }
+  }
+
+  // PGP signature: ^-----BEGIN PGP SIGNATURE-----[\s\S]*-----END PGP SIGNATURE-----$
+  if (pattern === '^-----BEGIN PGP SIGNATURE-----[\\s\\S]*-----END PGP SIGNATURE-----$') {
+    return { op: 'wrapped', prefix: '-----BEGIN PGP SIGNATURE-----', suffix: '-----END PGP SIGNATURE-----' };
+  }
+
+  // CSV list: ^[charset]+(,[charset]+)*$
+  {
+    const m = pattern.match(/^\^\[([A-Za-z0-9_-]+)\]\+\(,\[([A-Za-z0-9_-]+)\]\+\)\*\$$/);
+    if (m && m[1] === m[2]) {
+      return { op: 'csv_list', itemCharset: m[1] };
+    }
+  }
+
+  // Prefix + non-whitespace tail: ^<prefix>https?://\S+$ or ^<prefix>[^\s]+$
+  {
+    // Pattern: ^<word> https?://\S+$
+    const m = pattern.match(/^\^([a-zA-Z]+ )https\?:\/\/\\S\+\$$/);
+    if (m) {
+      const prefixes = [m[1] + 'http://', m[1] + 'https://'];
+      return { op: 'prefix_no_whitespace', prefixes };
+    }
+  }
+  // Pattern: ^ref: refs/heads/[^\s]+$
+  if (pattern === '^ref: refs/heads/[^\\s]+$') {
+    return { op: 'prefix_no_whitespace', prefixes: ['ref: refs/heads/'] };
+  }
+
+  // Prefix + nonempty tail: ^<literal>.+$
+  {
+    const m = pattern.match(/^\^([a-zA-Z][a-zA-Z0-9-]* )\.\+\$$/);
+    if (m) {
+      return { op: 'prefix_nonempty', prefix: m[1] };
+    }
+  }
+
+  // HTTP origin: ^https?://[^/]+/?$
+  if (pattern === '^https?://[^/]+/?$') {
+    return { op: 'http_origin' };
+  }
+
+  // Git clone URL: ^(([a-z][a-z0-9+\\.-]*://)|git@)[^\s]+$
+  if (pattern === '^(([a-z][a-z0-9+\\\\.-]*://)|git@)[^\\s]+$' ||
+      pattern === '^(([a-z][a-z0-9+\\.-]*://)|git@)[^\\s]+$') {
+    return { op: 'git_clone_url' };
+  }
+
+  // BOLT-11 invoice: ^lnbc[a-z0-9]*1[02-9ac-hj-np-z]+$
+  if (pattern === '^lnbc[a-z0-9]*1[02-9ac-hj-np-z]+$') {
+    return { op: 'ln_invoice', prefix: 'lnbc', minHrpLen: 4 };
+  }
+
+  // Generic LN bech32: ^ln[a-z0-9]+[02-9ac-hj-np-z]*1[02-9ac-hj-np-z]+$
+  if (pattern === '^ln[a-z0-9]+[02-9ac-hj-np-z]*1[02-9ac-hj-np-z]+$') {
+    return { op: 'ln_invoice', prefix: 'ln', minHrpLen: 3 };
+  }
+
+  // Simple MIME type: ^[a-z]+/[a-z0-9.+-]+$
+  if (pattern === '^[a-z]+/[a-z0-9.+-]+$') {
+    return { op: 'mime_type' };
+  }
+
+  // Content-Type with params
+  if (pattern === '^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\\s*;\\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$') {
+    return { op: 'content_type' };
+  }
+
+  // Email-like: ^[^\s@]+@[^\s@]+$
+  if (pattern === '^[^\\s@]+@[^\\s@]+$') {
+    return { op: 'email_like' };
+  }
+
+  // DOI: ^10\.\d{4,9}/.+$
+  if (pattern === '^10\\.\\d{4,9}/.+$') {
+    return { op: 'doi' };
+  }
+
+  // Annotate user: ^annotate-user [a-f0-9]{64}:[0-9]+(?:\.[0-9]+)?:[0-9]+(?:\.[0-9]+)?$
+  if (pattern === '^annotate-user [a-f0-9]{64}:[0-9]+(?:\\.[0-9]+)?:[0-9]+(?:\\.[0-9]+)?$') {
+    return { op: 'annotate_user' };
+  }
+
+  // External identity: ^[a-z0-9._\-/]+:.+
+  if (pattern === '^[a-z0-9._\\-/]+:.+') {
+    return { op: 'external_identity' };
+  }
+
+  // Package ID: ^(#|[A-Za-z0-9][A-Za-z0-9._+-]*(?::[A-Za-z0-9][A-Za-z0-9._+-]*)*)$
+  if (pattern === '^(#|[A-Za-z0-9][A-Za-z0-9._+-]*(?::[A-Za-z0-9][A-Za-z0-9._+-]*)*)$') {
+    return { op: 'package_id' };
+  }
+
+  // imeta dimensions: ^dim [0-9]{1,5}x[0-9]{1,5}$
+  if (pattern === '^dim [0-9]{1,5}x[0-9]{1,5}$') {
+    return { op: 'imeta_dim' };
+  }
+
   // Fallback: preserve original regex
   return { op: 'regex', pattern };
 }
@@ -235,6 +372,79 @@ function expandOptionalChar(s: string): string[] | undefined {
 }
 
 /**
+ * Expand an anchored regex consisting of only literals, groups, and alternation
+ * into a list of all possible literal strings. Returns undefined if the regex
+ * contains metacharacters that can't be expanded.
+ *
+ * Examples:
+ *   ^(38172|38173)$ → ["38172", "38173"]
+ *   ^m (image/(apng|avif))$ → ["m image/apng", "m image/avif"]
+ */
+function expandLiteralAlternation(pattern: string): string[] | undefined {
+  if (!pattern.startsWith('^') || !pattern.endsWith('$')) return undefined;
+  const body = pattern.slice(1, -1);
+  if (body.length === 0) return undefined;
+  return expandLiteralGroup(body);
+}
+
+function expandLiteralGroup(s: string): string[] | undefined {
+  // Parse: literal chars, groups (...), alternation |
+  // Returns all possible literal strings, or undefined if regex metacharacters found
+  const alternatives: string[][] = [['']];
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === '(') {
+      // Find matching close paren
+      let depth = 1;
+      let j = i + 1;
+      while (j < s.length && depth > 0) {
+        if (s[j] === '(') depth++;
+        if (s[j] === ')') depth--;
+        j++;
+      }
+      if (depth !== 0) return undefined;
+      const inner = expandLiteralGroup(s.slice(i + 1, j - 1));
+      if (!inner) return undefined;
+      // Cross product current alternatives with inner alternatives
+      const last = alternatives[alternatives.length - 1];
+      const newLast: string[] = [];
+      for (const prefix of last) {
+        for (const suffix of inner) {
+          newLast.push(prefix + suffix);
+        }
+      }
+      alternatives[alternatives.length - 1] = newLast;
+      i = j;
+    } else if (s[i] === '|') {
+      alternatives.push(['']);
+      i++;
+    } else if (s[i] === '\\' && i + 1 < s.length) {
+      // Escape sequence — only handle literal escapes
+      const escaped = s[i + 1];
+      if ('.*+?^${}()|[]\\'.includes(escaped)) {
+        const last = alternatives[alternatives.length - 1];
+        for (let k = 0; k < last.length; k++) {
+          last[k] += escaped;
+        }
+        i += 2;
+      } else {
+        return undefined; // Unknown escape like \d, \s
+      }
+    } else if ('.*+?[]{}^$'.includes(s[i])) {
+      return undefined; // Unescaped regex metacharacter
+    } else {
+      // Literal char
+      const last = alternatives[alternatives.length - 1];
+      for (let k = 0; k < last.length; k++) {
+        last[k] += s[i];
+      }
+      i++;
+    }
+  }
+  return alternatives.flat();
+}
+
+/**
  * Check if a PatternCheck can be rendered without regex in all target languages.
  * Returns true if the check uses only native operations (no regex fallback).
  */
@@ -252,6 +462,22 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'date_iso':
     case 'datetime_iso':
     case 'decimal':
+    case 'exact_values':
+    case 'prefix_nonempty':
+    case 'wrapped':
+    case 'csv_list':
+    case 'ln_invoice':
+    case 'mime_type':
+    case 'http_origin':
+    case 'email_like':
+    case 'git_clone_url':
+    case 'content_type':
+    case 'doi':
+    case 'annotate_user':
+    case 'prefix_no_whitespace':
+    case 'external_identity':
+    case 'package_id':
+    case 'imeta_dim':
       return true;
     case 'compound':
       return check.checks.every(isNativeCheck);
