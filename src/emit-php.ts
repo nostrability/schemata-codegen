@@ -75,6 +75,10 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       const escaped = check.pattern.replace(/#/g, '\\#');
       return { expr: `preg_match(${phpString('#' + escaped + '#')}, ${varExpr}) === 1`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('schemata_check_relay_url');
+      return { expr: `schemata_check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('schemata_check_date_iso');
       return { expr: `schemata_check_date_iso(${varExpr})`, helpers };
@@ -575,6 +579,35 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push("        while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
     lines.push('    }');
     lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_relay_url')) {
+    lines.push('function schemata_check_relay_url(string $s): bool {');
+    lines.push("    if (str_starts_with($s, 'wss://')) { $pos = 6; }");
+    lines.push("    elseif (str_starts_with($s, 'ws://')) { $pos = 5; }");
+    lines.push('    else { return false; }');
+    lines.push('    $hostStart = $pos;');
+    lines.push('    while ($pos < strlen($s)) {');
+    lines.push('        $c = ord($s[$pos]);');
+    lines.push('        if (($c >= 97 && $c <= 122) || ($c >= 65 && $c <= 90) || ($c >= 48 && $c <= 57) || $c === 46 || $c === 95 || $c === 45) { $pos++; }');
+    lines.push('        else { break; }');
+    lines.push('    }');
+    lines.push('    if ($pos === $hostStart) { return false; }');
+    lines.push("    if ($pos < strlen($s) && $s[$pos] === ':') {");
+    lines.push('        $pos++;');
+    lines.push('        $portStart = $pos;');
+    lines.push("        while ($pos < strlen($s) && $s[$pos] >= '0' && $s[$pos] <= '9') { $pos++; }");
+    lines.push('        if ($pos === $portStart) { return false; }');
+    lines.push('    }');
+    lines.push("    if ($pos < strlen($s) && $s[$pos] === '/') {");
+    lines.push('        for ($j = $pos + 1; $j < strlen($s); $j++) {');
+    lines.push('            if ($s[$j] === "\\n") { return false; }  // PCRE . excludes \\n only');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('    return $pos === strlen($s);');
     lines.push('}');
     lines.push('');
   }

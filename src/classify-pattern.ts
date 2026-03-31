@@ -23,6 +23,7 @@ export type PatternCheck =
   | { op: 'starts_with_any'; prefixes: string[] }
   | { op: 'chars_in'; charset: string; min?: number; max?: number }
   | { op: 'bech32'; hrp: string; dataLen?: number }
+  | { op: 'relay_url' }
   | { op: 'date_iso' }
   | { op: 'decimal' }
   | { op: 'compound'; checks: PatternCheck[] }
@@ -178,6 +179,11 @@ export function classifyRegex(pattern: string): PatternCheck {
     return { op: 'decimal' };
   }
 
+  // Relay URL: ^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$
+  if (pattern === '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$') {
+    return { op: 'relay_url' };
+  }
+
   // Fallback: preserve original regex
   return { op: 'regex', pattern };
 }
@@ -235,6 +241,7 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'starts_with_any':
     case 'chars_in':
     case 'bech32':
+    case 'relay_url':
     case 'date_iso':
     case 'decimal':
       return true;

@@ -131,6 +131,10 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('regex');
       return { expr: `check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('check_relay_url');
+      return { expr: `check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
@@ -527,6 +531,31 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
     lines.push('    }');
     lines.push('    i == b.len() && i > 0');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_relay_url')) {
+    lines.push('fn check_relay_url(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let pos;');
+    lines.push('    if b.starts_with(b"wss://") { pos = 6; }');
+    lines.push('    else if b.starts_with(b"ws://") { pos = 5; }');
+    lines.push('    else { return false; }');
+    lines.push('    let host_start = pos;');
+    lines.push('    let mut i = pos;');
+    lines.push("    while i < b.len() && matches!(b[i], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'-') { i += 1; }");
+    lines.push('    if i == host_start { return false; }');
+    lines.push("    if i < b.len() && b[i] == b':' {");
+    lines.push('        i += 1;');
+    lines.push('        let port_start = i;');
+    lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('        if i == port_start { return false; }');
+    lines.push('    }');
+    lines.push("    if i < b.len() && b[i] == b'/' {");
+    lines.push("        return b[i+1..].iter().all(|&c| c != b'\\n'); // regex crate . excludes \\n only");
+    lines.push('    }');
+    lines.push('    i == b.len()');
     lines.push('}');
     lines.push('');
   }

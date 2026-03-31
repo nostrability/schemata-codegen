@@ -175,13 +175,13 @@ describe('validators runtime', () => {
   it('rejects overlong p tag on kind 4 (additionalItems:false)', () => {
     if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
 
-    // kind 4 p tag schema: items = [const "p", hex64, petname], additionalItems: false
-    // So max length should be 3. A 4-element p tag should fail.
+    // kind 4 p tag schema: items = [const "p", hex64, relayUrl|"", petname], additionalItems: false
+    // So max length should be 4. A 5-element p tag should fail.
     const errors = validators.validateKind4Tags([
-      ['p', 'a'.repeat(64), 'petname', 'extra-element'],
+      ['p', 'a'.repeat(64), 'wss://relay.example.com', 'alice', 'extra-element'],
     ]) as Array<{ path: string; message: string }>;
 
-    assert.ok(errors.length > 0, 'should reject 4-element p tag when additionalItems:false');
+    assert.ok(errors.length > 0, 'should reject 5-element p tag when additionalItems:false');
   });
 
   it('accepts valid 2-element p tag on kind 4', () => {
@@ -194,14 +194,14 @@ describe('validators runtime', () => {
     assert.deepStrictEqual(errors, [], `should accept valid p tag, got: ${JSON.stringify(errors)}`);
   });
 
-  it('accepts valid 3-element p tag on kind 4', () => {
+  it('accepts valid 4-element p tag on kind 4 (relay URL + petname)', () => {
     if (!validators?.validateKind4Tags) { console.log('Skipping'); return; }
 
     const errors = validators.validateKind4Tags([
-      ['p', 'a'.repeat(64), 'alice'],
+      ['p', 'a'.repeat(64), 'wss://relay.example.com', 'alice'],
     ]) as Array<{ path: string; message: string }>;
 
-    assert.deepStrictEqual(errors, [], `should accept valid p tag with petname, got: ${JSON.stringify(errors)}`);
+    assert.deepStrictEqual(errors, [], `should accept valid p tag with relay URL and petname, got: ${JSON.stringify(errors)}`);
   });
 
   // --- P1b regression: optional positions with enum constraints must be validated ---

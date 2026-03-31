@@ -26,7 +26,7 @@ emit-*.ts (12 languages + TS)       → source files (.ts, .c, .rs, .go, ...)
 
 | Abstraction | File | Purpose |
 |---|---|---|
-| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (9 ops: hex, hex_range, hex_prefixed, all_digits, starts_with_any, chars_in, bech32, compound, regex) |
+| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (10 ops: hex, hex_range, hex_prefixed, all_digits, starts_with_any, chars_in, bech32, relay_url, compound, regex) |
 | `ValidatorAction` | `plan-validators.ts` | Language-independent validation step (require_tag, check_pattern, etc.) |
 | `BuilderAction` | `plan-builders.ts` | Language-independent tag construction step |
 | `KindShape` | `kind-types.ts` | Extracted kind metadata (kind number, NIP spec reference, tag constraints) |
@@ -65,7 +65,9 @@ Every `renderPatternCheck*()` function has a `switch (check.op)` that MUST handl
 5. Add helper implementation in **ALL 12** `emit*Helpers()` functions
 6. Add tests in `classify-pattern.test.ts`
 
-**Past incident:** The `bech32` op was added to all 12 `renderPatternCheck*()` functions but helper implementations were only added to 2 (C, Rust). The other 10 emitted calls to undefined functions → generated code failed to compile in 10 languages. No test caught this.
+**Past incident (bech32):** The `bech32` op was added to all 12 `renderPatternCheck*()` functions but helper implementations were only added to 2 (C, Rust). The other 10 emitted calls to undefined functions → generated code failed to compile in 10 languages. No test caught this.
+
+**Past incident (relay_url):** The `relay_url` op translated `(?:/.*)?$` as "if slash, accept remainder" — but regex `.` does not match `\n`/`\r`, so `wss://relay.example.com/\npath` passed the native check but failed the regex. Also: the C helper read `s[0]..s[5]` without a length guard (unsafe on short non-null-terminated buffers), and the Python helper used `str.isdigit()` which accepts Unicode numerals instead of ASCII-only `[0-9]`. All three bugs were caught in review, not by tests, because the equivalence test only used well-formed URLs.
 
 ### 2. EVERY `helpers.add()` MUST have a matching `emit*Helpers()` implementation
 
@@ -97,13 +99,20 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER double-collect tag constraints** — `unwrapTagSchema` already merges `structural.allOf` contains into `extraAllOf`
 - **NEVER skip constrained optional positions in validation** — `emitTagMatcher` skips optional positions for existence checks, but constrained optional positions need a separate `validate_optional_positions` action
 - **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
+- **NEVER treat regex `.` as "any character"** — `.` excludes language-specific line terminators. A native shortcut like "if slash, accept remainder" silently widens the accepted set. After any delimiter, scan remaining characters and reject the correct set for the target language:
+  - **`\n` only**: C (POSIX), C# (.NET), Go, Rust, Python, Ruby, PHP (PCRE)
+  - **`\n` `\r` only**: C++ — `std::regex` on `std::string` is byte-oriented; the ECMAScript spec says `.` excludes `\u2028`/`\u2029`, but the UTF-8 bytes (E2 80 A8/A9) don't individually match `\n`/`\r`, so `std::regex` accepts them
+  - **`\n` `\r` `\u2028` `\u2029`**: Dart (16-bit code units, detects LS/PS directly)
+  - **`\n` `\r` `\u0085` `\u2028` `\u2029`**: Java, Kotlin (16-bit chars), Swift (ICU — uses UTF-8 byte sequence detection: C2 85, E2 80 A8/A9)
+- **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
+- **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.
 - **NEVER add runtime dependencies** — zero dependencies (Node builtins only)
 
 ### ALWAYS:
 
 - **ALWAYS follow existing helper naming conventions** per language (see emitter table above)
 - **ALWAYS test with `--all` flag** to generate all languages and catch cross-language regressions
-- **ALWAYS run `npm test`** — 333+ tests covering extraction, emission, compilation, and runtime validation
+- **ALWAYS run `npm test`** — 435+ tests covering extraction, emission, compilation, and runtime validation
 - **ALWAYS check `isNativeCheck()`** returns `true` for any new op that doesn't need regex fallback
 - **Use `--dump-plan`** to inspect the `ValidatorAction[]` plan when debugging validator output
 
@@ -118,8 +127,12 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
    - Add `case '<op>':` to `renderPatternCheck*()`
    - Add `helpers.add('<helperName>')` with appropriate naming
    - Add `if (helpers.has('<helperName>'))` block in `emit*Helpers()` with the implementation
-5. Add tests in `classify-pattern.test.ts` for classification
-6. Run `npm test` to verify
+5. Add tests in `classify-pattern.test.ts`:
+   - Classification test (pattern → expected op)
+   - Add pattern to the coverage array
+   - TypeScript reference implementation of the native algorithm
+   - **Regex-vs-native equivalence test with adversarial inputs** — include empty strings, 1-char strings, embedded `\n`/`\r`, Unicode where ASCII is expected, strings that exercise every metacharacter edge case (`.` vs newlines, `$` anchoring, character class boundaries). Well-formed happy-path inputs alone are insufficient.
+6. Run `npm test` and `--all` to verify
 
 ### Adding a new language emitter
 

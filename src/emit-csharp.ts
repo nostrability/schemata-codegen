@@ -69,6 +69,10 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('regex');
       return { expr: `Regex.IsMatch(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('CheckRelayUrl');
+      return { expr: `CheckRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('CheckDateIso');
       return { expr: `CheckDateIso(${varExpr})`, helpers };
@@ -456,6 +460,40 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push("                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
     lines.push('            }');
     lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckRelayUrl')) {
+    lines.push('        private static bool CheckRelayUrl(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null) return false;');
+    lines.push('            int pos;');
+    lines.push('            if (s.StartsWith("wss://", StringComparison.Ordinal)) { pos = 6; }');
+    lines.push('            else if (s.StartsWith("ws://", StringComparison.Ordinal)) { pos = 5; }');
+    lines.push('            else { return false; }');
+    lines.push('            int hostStart = pos;');
+    lines.push('            while (pos < s.Length)');
+    lines.push('            {');
+    lines.push('                char c = s[pos];');
+    lines.push("                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') { pos++; }");
+    lines.push('                else { break; }');
+    lines.push('            }');
+    lines.push('            if (pos == hostStart) return false;');
+    lines.push("            if (pos < s.Length && s[pos] == ':')");
+    lines.push('            {');
+    lines.push('                pos++;');
+    lines.push('                int portStart = pos;');
+    lines.push("                while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('                if (pos == portStart) return false;');
+    lines.push('            }');
+    lines.push("            if (pos < s.Length && s[pos] == '/') {");
+    lines.push('                for (int j = pos + 1; j < s.Length; j++) {');
+    lines.push("                    if (s[j] == '\\n') return false; // .NET Regex . excludes \\n only");
+    lines.push('                }');
+    lines.push('                return true;');
+    lines.push('            }');
+    lines.push('            return pos == s.Length;');
     lines.push('        }');
     lines.push('');
   }
