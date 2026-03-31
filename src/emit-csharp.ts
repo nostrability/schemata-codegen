@@ -962,7 +962,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
 
   if (helpers.has('CheckImetaDim')) {
     lines.push('        private static bool CheckImetaDim(string s) {');
-    lines.push('            if (s.Length < 7) return false;');
+    lines.push('            if (s == null || s.Length < 7) return false;');
     lines.push('            if (!s.StartsWith("dim ")) return false;');
     lines.push('            int i = 4;');
     lines.push('            int dc = 0;');
