@@ -320,6 +320,7 @@ function emitRubyFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
 ): string {
+  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32');
   const lines: string[] = [
     '# frozen_string_literal: true',
     '',
@@ -328,10 +329,16 @@ function emitRubyFile(
     '#',
     '# Runtime validators for Nostr event tag constraints',
     '',
+  ];
+  if (needsSet) {
+    lines.push("require 'set'");
+    lines.push('');
+  }
+  lines.push(
     'module SchemataValidators',
     "  ValidationError = Struct.new(:path, :message)",
     '',
-  ];
+  );
 
   const helperCode = emitRubyHelpers(helpers);
   if (helperCode) {
