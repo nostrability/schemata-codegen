@@ -140,6 +140,7 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'content_type': {
       helpers.add('check_content_type');
+      helpers.add('ascii_ws');
       return { expr: `check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -642,7 +643,6 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push("    pos += 1 while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
     lines.push("    return false unless pos < s.length && s[pos] == ':'");
     lines.push('    kind_str = s[kind_start...pos]');
-    lines.push('    return false if kind_str.length > 1 && kind_str[0] == \'0\'');
     lines.push('    return false if kinds && !kinds.include?(kind_str)');
     lines.push('    pos += 1');
     lines.push('    return false if pos + 64 >= s.length');
@@ -824,11 +824,11 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    i += 1');
     lines.push('    i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
     lines.push('    while i < s.length');
-    lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
+    lines.push("      i += 1 while i < s.length && ECMA_WS.include?(s[i])");
     lines.push('      return false if i >= s.length');
     lines.push("      return false unless s[i] == ';'");
     lines.push('      i += 1');
-    lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
+    lines.push("      i += 1 while i < s.length && ECMA_WS.include?(s[i])");
     lines.push('      name_start = i');
     lines.push('      i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
     lines.push('      return false if i == name_start');

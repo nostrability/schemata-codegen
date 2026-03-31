@@ -26,7 +26,7 @@ emit-*.ts (12 languages + TS)       → source files (.ts, .c, .rs, .go, ...)
 
 | Abstraction | File | Purpose |
 |---|---|---|
-| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (10 ops: hex, hex_range, hex_prefixed, all_digits, starts_with_any, chars_in, bech32, relay_url, compound, regex) |
+| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (25+ ops including hex, all_digits, starts_with_any, chars_in, bech32, relay_url, a_tag, datetime_iso, content_type, external_identity, etc.) |
 | `ValidatorAction` | `plan-validators.ts` | Language-independent validation step (require_tag, check_pattern, etc.) |
 | `BuilderAction` | `plan-builders.ts` | Language-independent tag construction step |
 | `KindShape` | `kind-types.ts` | Extracted kind metadata (kind number, NIP spec reference, tag constraints) |
@@ -66,6 +66,8 @@ Every `renderPatternCheck*()` function has a `switch (check.op)` that MUST handl
 6. Add tests in `classify-pattern.test.ts`
 
 **Past incident (bech32):** The `bech32` op was added to all 12 `renderPatternCheck*()` functions but helper implementations were only added to 2 (C, Rust). The other 10 emitted calls to undefined functions → generated code failed to compile in 10 languages. No test caught this.
+
+**Past incident (a_tag/content_type):** The `a_tag` op added an unconditional leading-zero rejection (`kindLen > 1 && kindStr[0] == '0'`) that is correct for fixed-kind patterns but WRONG for the generic `^\d+:...` pattern which accepts `01:<hex>:x`. Similarly, the `content_type` op narrowed `\s*` to just ASCII space/tab, but the schema regex uses ECMAScript `\s` which matches 23 codepoints including `\u00A0`, `\n`, etc. Both bugs affected ALL 12 emitters simultaneously because agents copied the same incorrect pattern to each file.
 
 **Past incident (relay_url):** The `relay_url` op translated `(?:/.*)?$` as "if slash, accept remainder" — but regex `.` does not match `\n`/`\r`, so `wss://relay.example.com/\npath` passed the native check but failed the regex. Also: the C helper read `s[0]..s[5]` without a length guard (unsafe on short non-null-terminated buffers), and the Python helper used `str.isdigit()` which accepts Unicode numerals instead of ASCII-only `[0-9]`. All three bugs were caught in review, not by tests, because the equivalence test only used well-formed URLs.
 
@@ -107,12 +109,15 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
 - **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.
 - **NEVER add runtime dependencies** — zero dependencies (Node builtins only)
+- **NEVER narrow `\s` to ASCII space/tab** — ECMAScript `\s` matches 23 codepoints (space, tab, `\n`, `\r`, `\v`, `\f`, `\u00A0`, `\u1680`, `\u2000`–`\u200A`, `\u2028`, `\u2029`, `\u202F`, `\u205F`, `\u3000`, `\uFEFF`). When a schema regex uses `\s*` (e.g., content_type OWS around semicolons), native helpers MUST use the full set via the per-emitter `isEcmaWs` helper — not just `' '||'\t'`.
+- **NEVER add unconditional constraints that only apply in filtered mode** — Example: `checkATag` validates `^\d+:[a-f0-9]{64}:.+$`. A leading-zero rejection is correct when comparing against a specific kind string (`"030311" !== "30311"`), but `\d+` itself accepts leading zeros. The check must only fire when a `kinds` filter is active — or not at all, since string equality already handles it.
+- **NEVER skip the minimum-count check on optional group bodies** — Regex `(\.\d+)?` means: IF the dot is present, 1+ digits MUST follow. When translating to native code, consuming the dot and running a digit loop is not enough — you MUST verify at least one digit was consumed (save position before loop, compare after). This applies to any optional group with an internal `+` or `{n,}` quantifier.
 
 ### ALWAYS:
 
 - **ALWAYS follow existing helper naming conventions** per language (see emitter table above)
 - **ALWAYS test with `--all` flag** to generate all languages and catch cross-language regressions
-- **ALWAYS run `npm test`** — 435+ tests covering extraction, emission, compilation, and runtime validation
+- **ALWAYS run `npm test`** — 693+ tests covering extraction, emission, compilation, and runtime validation
 - **ALWAYS check `isNativeCheck()`** returns `true` for any new op that doesn't need regex fallback
 - **Use `--dump-plan`** to inspect the `ValidatorAction[]` plan when debugging validator output
 
@@ -132,6 +137,8 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
    - Add pattern to the coverage array
    - TypeScript reference implementation of the native algorithm
    - **Regex-vs-native equivalence test with adversarial inputs** — include empty strings, 1-char strings, embedded `\n`/`\r`, Unicode where ASCII is expected, strings that exercise every metacharacter edge case (`.` vs newlines, `$` anchoring, character class boundaries). Well-formed happy-path inputs alone are insufficient.
+   - **Test BOTH filtered and unfiltered modes** for ops that accept optional constraints (e.g., `a_tag` with and without a `kinds` filter). Include inputs like leading zeros that are valid unfiltered but invalid filtered.
+   - **Anchor test regex to match validator semantics** — generated validators check full strings (implicitly end-anchored). Test reference regexes MUST include `$` or the equivalence comparison will miss cases where unanchored regex accepts a prefix but native code rejects.
 6. Run `npm test` and `--all` to verify
 
 ### Adding a new language emitter

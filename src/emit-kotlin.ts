@@ -136,6 +136,7 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     }
     case 'content_type': {
       helpers.add('checkContentType');
+      helpers.add('isEcmaWs');
       return { expr: `checkContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -569,7 +570,6 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push("    while (pos < s.length && s[pos] in '0'..'9') pos++");
     lines.push("    if (pos >= s.length || s[pos] != ':') return false");
     lines.push('    val kindStr = s.substring(0, pos)');
-    lines.push("    if (kindStr.length > 1 && kindStr[0] == '0') return false");
     lines.push('    if (kinds != null && kindStr !in kinds) return false');
     lines.push('    pos++');
     lines.push('    if (pos + 64 >= s.length) return false');
@@ -784,11 +784,11 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push("    if (i >= s.length || !(s[i] in 'a'..'z' || s[i] in 'A'..'Z' || s[i] in '0'..'9' || s[i] == '*')) return false");
     lines.push('    i++');
     lines.push('    while (i < s.length && isSubtypeChar(s[i])) i++');
-    lines.push("    while (i < s.length && (s[i] == ' ' || s[i] == '\\t' || s[i] == ';')) {");
-    lines.push("        while (i < s.length && (s[i] == ' ' || s[i] == '\\t')) i++");
+    lines.push("    while (i < s.length && (isEcmaWs(s[i]) || s[i] == ';')) {");
+    lines.push("        while (i < s.length && isEcmaWs(s[i])) i++");
     lines.push("        if (i >= s.length || s[i] != ';') return false");
     lines.push('        i++');
-    lines.push("        while (i < s.length && (s[i] == ' ' || s[i] == '\\t')) i++");
+    lines.push("        while (i < s.length && isEcmaWs(s[i])) i++");
     lines.push('        if (i >= s.length) return false');
     lines.push('        val paramStart = i');
     lines.push('        while (i < s.length && isSubtypeChar(s[i])) i++');
@@ -836,7 +836,9 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('        if (pos == dstart) return false');
     lines.push("        if (pos < s.length && s[pos] == '.') {");
     lines.push('            pos++');
+    lines.push('            val fstart = pos');
     lines.push("            while (pos < s.length && s[pos] in '0'..'9') pos++");
+    lines.push('            if (pos == fstart) return false');
     lines.push('        }');
     lines.push('    }');
     lines.push('    return pos == s.length');

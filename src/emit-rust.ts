@@ -197,6 +197,7 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'content_type': {
       helpers.add('check_content_type');
+      helpers.add('is_ecma_ws');
       return { expr: `check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -659,7 +660,6 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    if !b[pos].is_ascii_digit() { return false; }');
     lines.push('    while pos < b.len() && b[pos].is_ascii_digit() { pos += 1; }');
     lines.push('    let kind_len = pos;');
-    lines.push("    if kind_len > 1 && b[0] == b'0' { return false; }");
     lines.push("    if pos >= b.len() || b[pos] != b':' { return false; }");
     lines.push('    let kind_str = &s[..kind_len];');
     lines.push('    if !kinds.is_empty() && !kinds.iter().any(|&k| k == kind_str) { return false; }');
@@ -862,11 +862,11 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    i += 1;');
     lines.push('    while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
     lines.push('    while i < b.len() {');
-    lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
+    lines.push("        while i < b.len() { match s[i..].chars().next() { Some(c) if is_ecma_ws(c) => i += c.len_utf8(), _ => break } }");
     lines.push('        if i >= b.len() { return false; }');
     lines.push("        if b[i] != b';' { return false; }");
     lines.push('        i += 1;');
-    lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
+    lines.push("        while i < b.len() { match s[i..].chars().next() { Some(c) if is_ecma_ws(c) => i += c.len_utf8(), _ => break } }");
     lines.push('        let start = i;');
     lines.push('        while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
     lines.push('        if i == start { return false; }');

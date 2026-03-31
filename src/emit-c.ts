@@ -246,6 +246,7 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
     }
     case 'content_type': {
       helpers.add('schemata_check_content_type');
+      helpers.add('schemata_is_ecma_ws');
       return { expr: `schemata_check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -881,8 +882,6 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("    while (pos < len && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('    size_t kind_len = pos - kind_start;');
     lines.push("    if (pos >= len || s[pos] != ':') return 0;");
-    lines.push('    /* reject leading zeros: "0" ok, "0N..." not ok */');
-    lines.push("    if (kind_len > 1 && s[kind_start] == '0') return 0;");
     lines.push('    if (kinds && num_kinds > 0) {');
     lines.push('        int found = 0;');
     lines.push('        for (int i = 0; i < num_kinds; i++) {');
@@ -1158,7 +1157,9 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('static int schemata_check_content_type(const char *s) {');
     lines.push('    if (!s || !*s) return 0;');
     lines.push('    size_t len = strlen(s);');
+    lines.push('    const unsigned char *u = (const unsigned char *)s;');
     lines.push('    size_t i = 0;');
+    lines.push('    size_t adv;');
     lines.push('    /* type: [a-zA-Z][a-zA-Z0-9!#$&^_-]* */');
     lines.push("    if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return 0;");
     lines.push('    i++;');
@@ -1173,11 +1174,11 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    while (i < len && schemata_is_subtype_char(s[i])) i++;');
     lines.push('    /* params: (\\s*;\\s*token=token)* */');
     lines.push('    while (i < len) {');
-    lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("        while (i < len && schemata_is_ecma_ws(u, len, i, &adv)) i += adv;");
     lines.push('        if (i >= len) return 0;  /* trailing whitespace not allowed */');
     lines.push("        if (s[i] != ';') return 0;");
     lines.push('        i++;');
-    lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("        while (i < len && schemata_is_ecma_ws(u, len, i, &adv)) i += adv;");
     lines.push('        /* param name */');
     lines.push('        size_t start = i;');
     lines.push('        while (i < len && schemata_is_subtype_char(s[i])) i++;');

@@ -794,6 +794,8 @@ describe('check_a_tag behavioral correctness', () => {
       `1:${hex64}:d-id`,
       `30023:${hex64}:slug`,
       `0:${hex64}:x`,
+      `030311:${hex64}:slug`,
+      `00042:${hex64}:test`,
       `1:${hex64}:hello world`,
       '',
       'short',
@@ -1392,12 +1394,16 @@ describe('check_wrapped behavioral correctness', () => {
 
 describe('check_content_type behavioral correctness (B6)', () => {
   // Reference: ^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\s*;\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$
+  // \s* around semicolons uses full ECMAScript whitespace set
   function isTypeChar(c: string): boolean {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
            '!#$&^_-'.includes(c);
   }
   function isSubtypeChar(c: string): boolean {
     return isTypeChar(c) || c === '.' || c === '+';
+  }
+  function isEcmaWsCt(c: string): boolean {
+    return /\s/.test(c);
   }
   function checkContentType(s: string): boolean {
     if (s.length === 0) return false;
@@ -1413,11 +1419,11 @@ describe('check_content_type behavioral correctness (B6)', () => {
     while (i < s.length && isSubtypeChar(s[i])) i++;
     // params: (\s*;\s*token=token)*
     while (i < s.length) {
-      while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+      while (i < s.length && isEcmaWsCt(s[i])) i++;
       if (i >= s.length) return false; // B6: trailing OWS must fail (not break)
       if (s[i] !== ';') return false;
       i++;
-      while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+      while (i < s.length && isEcmaWsCt(s[i])) i++;
       const start = i;
       while (i < s.length && isSubtypeChar(s[i])) i++;
       if (i === start) return false;
@@ -1437,11 +1443,14 @@ describe('check_content_type behavioral correctness (B6)', () => {
   it('accepts text/plain ; charset=utf-8', () => assert.ok(checkContentType('text/plain ; charset=utf-8')));
   it('accepts with multiple params', () => assert.ok(checkContentType('text/plain;charset=utf-8;boundary=something')));
   it('accepts with * subtype', () => assert.ok(checkContentType('text/*')));
+  it('accepts NBSP around semicolon', () => assert.ok(checkContentType('text/plain\u00A0;\u00A0charset=utf-8')));
+  it('accepts newline before semicolon', () => assert.ok(checkContentType('text/plain\n;charset=utf-8')));
   it('rejects empty', () => assert.ok(!checkContentType('')));
   it('rejects no subtype', () => assert.ok(!checkContentType('text/')));
   it('rejects no slash', () => assert.ok(!checkContentType('textplain')));
   it('B6: rejects trailing space', () => assert.ok(!checkContentType('text/plain ')));
   it('B6: rejects trailing tab', () => assert.ok(!checkContentType('text/plain\t')));
+  it('B6: rejects trailing NBSP', () => assert.ok(!checkContentType('text/plain\u00A0')));
   it('B6: rejects trailing OWS after param', () => assert.ok(!checkContentType('text/plain;charset=utf-8 ')));
 
   it('matches regex', () => {
@@ -1452,6 +1461,9 @@ describe('check_content_type behavioral correctness (B6)', () => {
       'text/plain;charset=utf-8;boundary=something',
       'text/*', '', 'text/', 'textplain',
       'text/plain ', 'text/plain\t', 'text/plain;charset=utf-8 ',
+      'text/plain\u00A0;\u00A0charset=utf-8',
+      'text/plain\n;charset=utf-8',
+      'text/plain\u00A0',
     ];
     for (const input of inputs) {
       assert.strictEqual(checkContentType(input), regex.test(input),
@@ -1598,7 +1610,9 @@ describe('check_imeta_dim behavioral correctness', () => {
 });
 
 describe('check_a_tag string kinds (B1/B2)', () => {
-  // Reference: string-based kind comparison, no integer overflow, no leading-zero acceptance
+  // Reference: string-based kind comparison, no integer overflow
+  // Leading zeros are allowed by the generic \d+ pattern; string equality
+  // naturally rejects "030311" !== "30311" when a kinds filter is active.
   function checkATagStr(s: string, kinds?: string[]): boolean {
     if (s.length < 68) return false;
     let pos = 0;
@@ -1683,12 +1697,12 @@ describe('check_external_identity dot-tail (B10)', () => {
   it('B10: rejects github: followed by \\r', () => assert.ok(!checkExternalIdentity('github:\ruser')));
   it('B10: rejects github: followed by LS', () => assert.ok(!checkExternalIdentity('github:\u2028user')));
 
-  it('matches regex (unanchored — no $ anchor)', () => {
-    // Note: ^[a-z0-9._\-/]+:.+ has no $ anchor in the original pattern
-    const regex = new RegExp('^[a-z0-9._\\-/]+:.+');
+  it('matches regex (anchored — validators check full string)', () => {
+    // Generated validators check the full string, so $ anchor matches native behavior
+    const regex = new RegExp('^[a-z0-9._\\-/]+:.+$');
     const inputs = [
       'github:user', 'github:', 'github:\nuser', 'github:\ruser',
-      'github:\u2028user', 'github: user', '',
+      'github:\u2028user', 'github: user', '', 'github:user\nrest',
     ];
     for (const input of inputs) {
       assert.strictEqual(checkExternalIdentity(input), regex.test(input),
