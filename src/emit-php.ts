@@ -947,7 +947,7 @@ function emitPhpHelpers(helpers: Set<string>): string {
 
   if (helpers.has('schemata_check_content_type')) {
     lines.push('function schemata_is_type_char(string $c): bool {');
-    lines.push("    return (($c >= 'a' && $c <= 'z') || ($c >= 'A' && $c <= 'Z')) || ($c >= '0' && $c <= '9') || strpos('!#\$&^_-', $c) !== false;");
+    lines.push("    return (($c >= 'a' && $c <= 'z') || ($c >= 'A' && $c <= 'Z')) || ($c >= '0' && $c <= '9') || strpos('!#$&^_-', $c) !== false;");
     lines.push('}');
     lines.push('');
     lines.push('function schemata_is_subtype_char(string $c): bool {');
