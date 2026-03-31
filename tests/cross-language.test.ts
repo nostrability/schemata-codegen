@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execSync, execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -13,14 +13,10 @@ const projectRoot = __dirname.includes('dist-tests')
 const schemasDir = join(projectRoot, '..', 'schemata', 'dist');
 const schemasAvailable = existsSync(join(schemasDir, '@', 'tag'));
 
-/** Check if a command exists on PATH. */
+/** Check if a command exists on PATH (cross-platform). */
 function hasCommand(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
+  const result = spawnSync(cmd, ['--version'], { stdio: 'pipe', timeout: 5_000 });
+  return result.error === undefined || (result.error as NodeJS.ErrnoException).code !== 'ENOENT';
 }
 
 /** Temp directory for generated files, lazily created once. */
@@ -98,7 +94,7 @@ describe('cross-language compile checks', () => {
       'regex = "1"',
       '',
     ].join('\n'));
-    execSync(`cp "${join(dir, 'validators.rs')}" "${join(rustDir, 'src', 'lib.rs')}"`);
+    copyFileSync(join(dir, 'validators.rs'), join(rustDir, 'src', 'lib.rs'));
     execSync('cargo check --quiet', {
       cwd: rustDir, encoding: 'utf-8', stdio: 'pipe', timeout: 120_000,
     });
@@ -111,7 +107,7 @@ describe('cross-language compile checks', () => {
     const dir = ensureGenerated();
     const goDir = join(dir, 'go-project');
     mkdirSync(join(goDir, 'schemata'), { recursive: true });
-    execSync(`cp "${join(dir, 'validators.go')}" "${join(goDir, 'schemata', 'validators.go')}"`);
+    copyFileSync(join(dir, 'validators.go'), join(goDir, 'schemata', 'validators.go'));
     execSync('go mod init schemata-check', {
       cwd: goDir, encoding: 'utf-8', stdio: 'pipe',
     });
@@ -149,7 +145,7 @@ describe('cross-language compile checks', () => {
     if (hasCommand('dotnet')) {
       const csDir = join(dir, 'csharp-project');
       mkdirSync(csDir, { recursive: true });
-      execSync(`cp "${join(dir, 'Validators.cs')}" "${csDir}/Validators.cs"`);
+      copyFileSync(join(dir, 'Validators.cs'), join(csDir, 'Validators.cs'));
       writeFileSync(join(csDir, 'check.csproj'), [
         '<Project Sdk="Microsoft.NET.Sdk">',
         '  <PropertyGroup>',
@@ -183,7 +179,7 @@ describe('cross-language compile checks', () => {
     const dir = ensureGenerated();
     const dartDir = join(dir, 'dart-project');
     mkdirSync(join(dartDir, 'lib'), { recursive: true });
-    execSync(`cp "${join(dir, 'validators.dart')}" "${join(dartDir, 'lib', 'validators.dart')}"`);
+    copyFileSync(join(dir, 'validators.dart'), join(dartDir, 'lib', 'validators.dart'));
     writeFileSync(join(dartDir, 'pubspec.yaml'), [
       'name: schemata_check',
       'environment:',

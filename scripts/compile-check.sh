@@ -20,10 +20,21 @@ SCHEMAS_DIR=""
 prev_arg=""
 for arg in "$@"; do
   if [[ "$prev_arg" == "--schemas" ]]; then
+    if [[ -z "$arg" || "$arg" == -* ]]; then
+      echo "ERROR: --schemas requires a path argument"
+      exit 1
+    fi
     SCHEMAS_DIR="$arg"
+    prev_arg=""
+    continue
   fi
   prev_arg="$arg"
 done
+
+if [[ "$prev_arg" == "--schemas" ]]; then
+  echo "ERROR: --schemas requires a path argument"
+  exit 1
+fi
 
 if [[ -z "$SCHEMAS_DIR" ]]; then
   SCHEMAS_DIR="$PROJECT_DIR/../schemata/dist"
@@ -50,25 +61,7 @@ echo "Building codegen..."
 
 # Generate all output files into temp directory
 echo "Generating all validator files..."
-node "$PROJECT_DIR/dist/index.js" \
-  --schemas "$SCHEMAS_DIR" \
-  --out "$TMPDIR_GEN/tags.d.ts" \
-  --kinds "$TMPDIR_GEN/kinds.d.ts" \
-  --validators "$TMPDIR_GEN/validators.ts" \
-  --registry "$TMPDIR_GEN/kind-registry.ts" \
-  --errors "$TMPDIR_GEN/error-messages.ts" \
-  --c-validators "$TMPDIR_GEN/validators.c" \
-  --rust-validators "$TMPDIR_GEN/validators.rs" \
-  --go-validators "$TMPDIR_GEN/validators.go" \
-  --python-validators "$TMPDIR_GEN/validators.py" \
-  --kotlin-validators "$TMPDIR_GEN/Validators.kt" \
-  --java-validators "$TMPDIR_GEN/SchemataValidators.java" \
-  --swift-validators "$TMPDIR_GEN/Validators.swift" \
-  --dart-validators "$TMPDIR_GEN/validators.dart" \
-  --php-validators "$TMPDIR_GEN/validators.php" \
-  --csharp-validators "$TMPDIR_GEN/Validators.cs" \
-  --cpp-validators "$TMPDIR_GEN/validators.hpp" \
-  --ruby-validators "$TMPDIR_GEN/validators.rb"
+(cd "$TMPDIR_GEN" && node "$PROJECT_DIR/dist/index.js" --schemas "$SCHEMAS_DIR" --all)
 
 echo ""
 echo "--- Compile checks ---"
@@ -91,7 +84,7 @@ check_result() {
   else
     echo "  FAIL  $lang"
     if [[ -n "$detail" ]]; then
-      echo "$detail" | head -20 | sed 's/^/        /'
+      printf '%s\n' "$detail" | sed -n '1,20p' | sed 's/^/        /'
     fi
     FAIL=$((FAIL + 1))
   fi
