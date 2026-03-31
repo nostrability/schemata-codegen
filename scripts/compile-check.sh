@@ -221,7 +221,7 @@ fi
 
 # --- Swift ---
 if command -v swiftc >/dev/null 2>&1; then
-  if swiftc -parse "$TMPDIR_GEN/Validators.swift" 2>"$TMPDIR_GEN/swift.err"; then
+  if swiftc -typecheck "$TMPDIR_GEN/Validators.swift" 2>"$TMPDIR_GEN/swift.err"; then
     check_result "Swift" "pass"
   else
     check_result "Swift" "fail" "$(cat "$TMPDIR_GEN/swift.err")"

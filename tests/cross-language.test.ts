@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,28 +32,25 @@ function ensureGenerated(): string {
   genDir = join(tmpdir(), `schemata-cross-lang-${Date.now()}`);
   mkdirSync(genDir, { recursive: true });
 
-  execSync(
-    [
-      `node ${join(projectRoot, 'dist', 'index.js')}`,
-      `--schemas ${schemasDir}`,
-      `--out ${join(genDir, 'tags.d.ts')}`,
-      `--kinds ${join(genDir, 'kinds.d.ts')}`,
-      `--validators ${join(genDir, 'validators.ts')}`,
-      `--c-validators ${join(genDir, 'validators.c')}`,
-      `--rust-validators ${join(genDir, 'validators.rs')}`,
-      `--go-validators ${join(genDir, 'validators.go')}`,
-      `--python-validators ${join(genDir, 'validators.py')}`,
-      `--kotlin-validators ${join(genDir, 'Validators.kt')}`,
-      `--java-validators ${join(genDir, 'SchemataValidators.java')}`,
-      `--swift-validators ${join(genDir, 'Validators.swift')}`,
-      `--dart-validators ${join(genDir, 'validators.dart')}`,
-      `--php-validators ${join(genDir, 'validators.php')}`,
-      `--csharp-validators ${join(genDir, 'Validators.cs')}`,
-      `--cpp-validators ${join(genDir, 'validators.hpp')}`,
-      `--ruby-validators ${join(genDir, 'validators.rb')}`,
-    ].join(' '),
-    { cwd: projectRoot, encoding: 'utf-8', timeout: 60_000 }
-  );
+  execFileSync(process.execPath, [
+    join(projectRoot, 'dist', 'index.js'),
+    '--schemas', schemasDir,
+    '--out', join(genDir, 'tags.d.ts'),
+    '--kinds', join(genDir, 'kinds.d.ts'),
+    '--validators', join(genDir, 'validators.ts'),
+    '--c-validators', join(genDir, 'validators.c'),
+    '--rust-validators', join(genDir, 'validators.rs'),
+    '--go-validators', join(genDir, 'validators.go'),
+    '--python-validators', join(genDir, 'validators.py'),
+    '--kotlin-validators', join(genDir, 'Validators.kt'),
+    '--java-validators', join(genDir, 'SchemataValidators.java'),
+    '--swift-validators', join(genDir, 'Validators.swift'),
+    '--dart-validators', join(genDir, 'validators.dart'),
+    '--php-validators', join(genDir, 'validators.php'),
+    '--csharp-validators', join(genDir, 'Validators.cs'),
+    '--cpp-validators', join(genDir, 'validators.hpp'),
+    '--ruby-validators', join(genDir, 'validators.rb'),
+  ], { cwd: projectRoot, encoding: 'utf-8', timeout: 60_000 });
 
   return genDir;
 }
@@ -146,14 +143,10 @@ describe('cross-language compile checks', () => {
   });
 
   // --- C# ---
-  it('C#: mcs or dotnet build', () => {
+  it('C#: dotnet build or mcs', () => {
     if (!schemasAvailable) { console.log('Skipping: schemas not available'); return; }
     const dir = ensureGenerated();
-    if (hasCommand('mcs')) {
-      execSync(`mcs -target:library -out:"${join(dir, 'Validators.dll')}" "${join(dir, 'Validators.cs')}"`, {
-        encoding: 'utf-8', stdio: 'pipe',
-      });
-    } else if (hasCommand('dotnet')) {
+    if (hasCommand('dotnet')) {
       const csDir = join(dir, 'csharp-project');
       mkdirSync(csDir, { recursive: true });
       execSync(`cp "${join(dir, 'Validators.cs')}" "${csDir}/Validators.cs"`);
@@ -169,16 +162,16 @@ describe('cross-language compile checks', () => {
         cwd: csDir, encoding: 'utf-8', stdio: 'pipe',
       });
     } else {
-      console.log('Skipping: mcs/dotnet not found');
+      console.log('Skipping: dotnet not found');
     }
   });
 
   // --- Swift ---
-  it('Swift: swiftc -parse', () => {
+  it('Swift: swiftc -typecheck', () => {
     if (!schemasAvailable) { console.log('Skipping: schemas not available'); return; }
     if (!hasCommand('swiftc')) { console.log('Skipping: swiftc not found'); return; }
     const dir = ensureGenerated();
-    execSync(`swiftc -parse "${join(dir, 'Validators.swift')}"`, {
+    execSync(`swiftc -typecheck "${join(dir, 'Validators.swift')}"`, {
       encoding: 'utf-8', stdio: 'pipe',
     });
   });
