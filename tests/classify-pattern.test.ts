@@ -205,6 +205,14 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  // --- Relay URL ---
+
+  it('classifies relay URL pattern as relay_url', () => {
+    const r = classifyRegex('^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$');
+    assert.deepStrictEqual(r, { op: 'relay_url' });
+    assert.ok(isNativeCheck(r));
+  });
+
   // --- Regex fallback ---
 
   it('falls back to regex for PGP signature', () => {
@@ -288,6 +296,7 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^nevent1[02-9ac-hj-np-z]+$',
     '^naddr1[02-9ac-hj-np-z]+$',
     '^lnurl1[02-9ac-hj-np-z]+$',
+    '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$',
   ];
 
   it('processes all schemata patterns without throwing', () => {
@@ -335,4 +344,114 @@ describe('check_decimal behavioral correctness', () => {
   it('rejects alpha', () => assert.ok(!checkDecimal('a')));
   it('rejects trailing dot', () => assert.ok(!checkDecimal('1.')));
   it('rejects multiple dots', () => assert.ok(!checkDecimal('1.2.3')));
+});
+
+describe('check_relay_url behavioral correctness', () => {
+  // Reference implementation matching the emitted code logic across all 12 languages.
+  // Algorithm:
+  //   1. Check starts with "wss://" (pos=6) or "ws://" (pos=5), else fail
+  //   2. Hostname: consume [a-zA-Z0-9._-]+, must have >=1 char
+  //   3. Optional port: if ':', consume [0-9]+, must have >=1 digit
+  //   4. Optional path: if '/', accept (remainder is anything)
+  //   5. Must be at end of string
+  function checkRelayUrl(s: string): boolean {
+    let i = 0;
+    if (s.startsWith('wss://')) {
+      i = 6;
+    } else if (s.startsWith('ws://')) {
+      i = 5;
+    } else {
+      return false;
+    }
+    // Hostname: [a-zA-Z0-9._-]+
+    const hostStart = i;
+    while (i < s.length) {
+      const c = s[i];
+      if (
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c === '.' || c === '_' || c === '-'
+      ) {
+        i++;
+      } else {
+        break;
+      }
+    }
+    if (i === hostStart) return false; // must have >=1 hostname char
+    // Optional port
+    if (i < s.length && s[i] === ':') {
+      i++;
+      const portStart = i;
+      while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+      if (i === portStart) return false; // colon but no digits
+    }
+    // Optional path
+    if (i < s.length && s[i] === '/') {
+      return true; // remainder is anything
+    }
+    return i === s.length;
+  }
+
+  // --- Valid URLs ---
+  it('accepts wss://relay.example.com', () => assert.ok(checkRelayUrl('wss://relay.example.com')));
+  it('accepts ws://relay.example.com', () => assert.ok(checkRelayUrl('ws://relay.example.com')));
+  it('accepts wss://localhost', () => assert.ok(checkRelayUrl('wss://localhost')));
+  it('accepts wss://relay.example.com:8080', () => assert.ok(checkRelayUrl('wss://relay.example.com:8080')));
+  it('accepts wss://relay.example.com/', () => assert.ok(checkRelayUrl('wss://relay.example.com/')));
+  it('accepts wss://relay.example.com/path', () => assert.ok(checkRelayUrl('wss://relay.example.com/path')));
+  it('accepts wss://relay.example.com:443/path/to', () => assert.ok(checkRelayUrl('wss://relay.example.com:443/path/to')));
+  it('accepts wss://a', () => assert.ok(checkRelayUrl('wss://a'))); // minimal hostname
+  it('accepts ws://192.168.1.1', () => assert.ok(checkRelayUrl('ws://192.168.1.1')));
+  it('accepts wss://relay-test_01.nostr.com', () => assert.ok(checkRelayUrl('wss://relay-test_01.nostr.com')));
+  it('accepts wss://relay.example.com:8080/', () => assert.ok(checkRelayUrl('wss://relay.example.com:8080/')));
+  it('accepts wss://relay.example.com/path with spaces after slash', () => assert.ok(checkRelayUrl('wss://relay.example.com/path with stuff')));
+
+  // --- Invalid URLs ---
+  it('rejects empty string', () => assert.ok(!checkRelayUrl('')));
+  it('rejects http://relay.example.com', () => assert.ok(!checkRelayUrl('http://relay.example.com')));
+  it('rejects https://relay.example.com', () => assert.ok(!checkRelayUrl('https://relay.example.com')));
+  it('rejects wss:// (empty hostname)', () => assert.ok(!checkRelayUrl('wss://')));
+  it('rejects ws:// (empty hostname)', () => assert.ok(!checkRelayUrl('ws://')));
+  it('rejects wss://relay.example.com: (colon no port)', () => assert.ok(!checkRelayUrl('wss://relay.example.com:')));
+  it('rejects wss://relay.example.com:abc (non-digit port)', () => assert.ok(!checkRelayUrl('wss://relay.example.com:abc')));
+  it('rejects plain text', () => assert.ok(!checkRelayUrl('not a url')));
+  it('rejects wss (no colon-slash-slash)', () => assert.ok(!checkRelayUrl('wss')));
+
+  // --- Regex-vs-native equivalence ---
+  it('reference implementation matches regex on all test inputs', () => {
+    const regex = new RegExp('^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$');
+    const inputs = [
+      // Valid
+      'wss://relay.example.com',
+      'ws://relay.example.com',
+      'wss://localhost',
+      'wss://relay.example.com:8080',
+      'wss://relay.example.com/',
+      'wss://relay.example.com/path',
+      'wss://relay.example.com:443/path/to',
+      'wss://a',
+      'ws://192.168.1.1',
+      'wss://relay-test_01.nostr.com',
+      'wss://relay.example.com:8080/',
+      'wss://relay.example.com/path with stuff',
+      // Invalid
+      '',
+      'http://relay.example.com',
+      'https://relay.example.com',
+      'wss://',
+      'ws://',
+      'wss://relay.example.com:',
+      'wss://relay.example.com:abc',
+      'not a url',
+      'wss',
+      'wss://relay.example.com:8080?query',
+      'wss:///path',
+      'WSS://RELAY.EXAMPLE.COM',
+    ];
+    for (const input of inputs) {
+      const regexResult = regex.test(input);
+      const nativeResult = checkRelayUrl(input);
+      assert.strictEqual(nativeResult, regexResult,
+        `Mismatch for "${input}": native=${nativeResult}, regex=${regexResult}`);
+    }
+  });
 });

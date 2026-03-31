@@ -177,6 +177,10 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_regex');
       return { expr: `schemata_check_regex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('schemata_check_relay_url');
+      return { expr: `schemata_check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('schemata_check_date_iso');
       return { expr: `schemata_check_date_iso(${varExpr})`, helpers };
@@ -732,6 +736,32 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("        while (*p >= '0' && *p <= '9') p++;");
     lines.push('    }');
     lines.push("    return *p == '\\0';");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_relay_url')) {
+    lines.push('static int schemata_check_relay_url(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    int pos = 0;');
+    lines.push("    if (s[0] == 'w' && s[1] == 's' && s[2] == 's' && s[3] == ':' && s[4] == '/' && s[5] == '/') { pos = 6; }");
+    lines.push("    else if (s[0] == 'w' && s[1] == 's' && s[2] == ':' && s[3] == '/' && s[4] == '/') { pos = 5; }");
+    lines.push('    else { return 0; }');
+    lines.push('    int host_start = pos;');
+    lines.push('    while (s[pos]) {');
+    lines.push("        char c = s[pos];");
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') { pos++; }");
+    lines.push('        else { break; }');
+    lines.push('    }');
+    lines.push('    if (pos == host_start) return 0;');
+    lines.push("    if (s[pos] == ':') {");
+    lines.push('        pos++;');
+    lines.push('        int port_start = pos;');
+    lines.push("        while (s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('        if (pos == port_start) return 0;');
+    lines.push('    }');
+    lines.push("    if (s[pos] == '/') return 1;");
+    lines.push("    return s[pos] == '\\0';");
     lines.push('}');
     lines.push('');
   }

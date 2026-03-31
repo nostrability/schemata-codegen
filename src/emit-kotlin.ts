@@ -67,6 +67,10 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('regex');
       return { expr: `Regex(${JSON.stringify(check.pattern)}).matches(${varExpr})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('checkRelayUrl');
+      return { expr: `checkRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
@@ -426,6 +430,31 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push("        if (i >= s.length || s[i] !in '0'..'9') return false");
     lines.push("        while (i < s.length && s[i] in '0'..'9') i++");
     lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkRelayUrl')) {
+    lines.push('private fun checkRelayUrl(s: String): Boolean {');
+    lines.push('    val pos: Int');
+    lines.push('    if (s.startsWith("wss://")) { pos = 6 }');
+    lines.push('    else if (s.startsWith("ws://")) { pos = 5 }');
+    lines.push('    else { return false }');
+    lines.push('    var i = pos');
+    lines.push('    while (i < s.length) {');
+    lines.push('        val c = s[i]');
+    lines.push("        if (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '_' || c == '-') { i++ }");
+    lines.push('        else { break }');
+    lines.push('    }');
+    lines.push('    if (i == pos) return false');
+    lines.push("    if (i < s.length && s[i] == ':') {");
+    lines.push('        i++');
+    lines.push('        val portStart = i');
+    lines.push("        while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('        if (i == portStart) return false');
+    lines.push('    }');
+    lines.push("    if (i < s.length && s[i] == '/') return true");
     lines.push('    return i == s.length');
     lines.push('}');
     lines.push('');

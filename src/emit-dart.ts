@@ -66,6 +66,10 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     case 'regex': {
       return { expr: `RegExp(${dartString(check.pattern)}).hasMatch(${varExpr})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('_checkRelayUrl');
+      return { expr: `_checkRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('_checkDateIso');
       return { expr: `_checkDateIso(${varExpr})`, helpers };
@@ -449,6 +453,31 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('    while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
     lines.push('  }');
     lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkRelayUrl')) {
+    lines.push('bool _isRelayHostChar(int c) {');
+    lines.push('  return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 46 || c == 95 || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkRelayUrl(String s) {');
+    lines.push("  int pos;");
+    lines.push("  if (s.startsWith('wss://')) { pos = 6; }");
+    lines.push("  else if (s.startsWith('ws://')) { pos = 5; }");
+    lines.push('  else { return false; }');
+    lines.push('  final hostStart = pos;');
+    lines.push('  while (pos < s.length && _isRelayHostChar(s.codeUnitAt(pos))) { pos++; }');
+    lines.push('  if (pos == hostStart) return false;');
+    lines.push("  if (pos < s.length && s[pos] == ':') {");
+    lines.push('    pos++;');
+    lines.push('    final portStart = pos;');
+    lines.push('    while (pos < s.length && s.codeUnitAt(pos) >= 48 && s.codeUnitAt(pos) <= 57) { pos++; }');
+    lines.push('    if (pos == portStart) return false;');
+    lines.push('  }');
+    lines.push("  if (pos < s.length && s[pos] == '/') return true;");
+    lines.push('  return pos == s.length;');
     lines.push('}');
     lines.push('');
   }

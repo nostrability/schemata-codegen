@@ -77,6 +77,10 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('regexp');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('checkRelayUrl');
+      return { expr: `checkRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
@@ -692,6 +696,46 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push("\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
     lines.push('\t\t\ti++');
     lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkRelayUrl')) {
+    lines.push('func checkRelayUrl(s string) bool {');
+    lines.push('\ti := 0');
+    lines.push('\tif len(s) >= 6 && s[:6] == "wss://" {');
+    lines.push('\t\ti = 6');
+    lines.push('\t} else if len(s) >= 5 && s[:5] == "ws://" {');
+    lines.push('\t\ti = 5');
+    lines.push('\t} else {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\thostStart := i');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tb := s[i]');
+    lines.push("\t\tif (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '.' || b == '_' || b == '-' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t} else {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tif i == hostStart {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif i < len(s) && s[i] == ':' {");
+    lines.push('\t\ti++');
+    lines.push('\t\tportStart := i');
+    lines.push("\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == portStart {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push("\tif i < len(s) && s[i] == '/' {");
+    lines.push('\t\treturn true');
     lines.push('\t}');
     lines.push('\treturn i == len(s)');
     lines.push('}');

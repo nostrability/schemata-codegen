@@ -72,6 +72,10 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     case 'regex': {
       return { expr: `${varExpr}.match?(Regexp.new(${rubyString(check.pattern)}))`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('check_relay_url');
+      return { expr: `check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
@@ -451,6 +455,33 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push("      i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
     lines.push('    end');
     lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_relay_url')) {
+    lines.push('  RELAY_HOST_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-".chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_relay_url(s)');
+    lines.push('    return false unless s.is_a?(String)');
+    lines.push("    if s.start_with?('wss://')");
+    lines.push('      pos = 6');
+    lines.push("    elsif s.start_with?('ws://')");
+    lines.push('      pos = 5');
+    lines.push('    else');
+    lines.push('      return false');
+    lines.push('    end');
+    lines.push('    host_start = pos');
+    lines.push('    pos += 1 while pos < s.length && RELAY_HOST_CHARS.include?(s[pos])');
+    lines.push('    return false if pos == host_start');
+    lines.push("    if pos < s.length && s[pos] == ':'");
+    lines.push('      pos += 1');
+    lines.push('      port_start = pos');
+    lines.push("      pos += 1 while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
+    lines.push('      return false if pos == port_start');
+    lines.push('    end');
+    lines.push("    return true if pos < s.length && s[pos] == '/'");
+    lines.push('    pos == s.length');
     lines.push('  end');
     lines.push('');
   }

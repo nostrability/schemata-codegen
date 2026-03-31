@@ -71,6 +71,10 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('regex');
       return { expr: `checkRegex(${varExpr}, ${JSON.stringify(check.pattern)})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('checkRelayUrl');
+      return { expr: `checkRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
@@ -470,6 +474,32 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        while i < chars.count && chars[i].isNumber { i += 1 }');
     lines.push('    }');
     lines.push('    return i == chars.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkRelayUrl')) {
+    lines.push('private func checkRelayUrl(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    var pos = 0');
+    lines.push('    if u.count >= 6 && u[0] == 0x77 && u[1] == 0x73 && u[2] == 0x73 && u[3] == 0x3A && u[4] == 0x2F && u[5] == 0x2F { pos = 6 }');
+    lines.push('    else if u.count >= 5 && u[0] == 0x77 && u[1] == 0x73 && u[2] == 0x3A && u[3] == 0x2F && u[4] == 0x2F { pos = 5 }');
+    lines.push('    else { return false }');
+    lines.push('    let hostStart = pos');
+    lines.push('    while pos < u.count {');
+    lines.push('        let c = u[pos]');
+    lines.push('        if (c >= 0x61 && c <= 0x7A) || (c >= 0x41 && c <= 0x5A) || (c >= 0x30 && c <= 0x39) || c == 0x2E || c == 0x5F || c == 0x2D { pos += 1 }');
+    lines.push('        else { break }');
+    lines.push('    }');
+    lines.push('    if pos == hostStart { return false }');
+    lines.push('    if pos < u.count && u[pos] == 0x3A {');
+    lines.push('        pos += 1');
+    lines.push('        let portStart = pos');
+    lines.push('        while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('        if pos == portStart { return false }');
+    lines.push('    }');
+    lines.push('    if pos < u.count && u[pos] == 0x2F { return true }');
+    lines.push('    return pos == u.count');
     lines.push('}');
     lines.push('');
   }

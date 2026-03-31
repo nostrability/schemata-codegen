@@ -72,6 +72,10 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('regex');
       return { expr: `std::regex_match(${varExpr}, std::regex(${JSON.stringify(check.pattern)}))`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('check_relay_url');
+      return { expr: `check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
@@ -469,6 +473,31 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push("        while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
     lines.push('    }');
     lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_relay_url')) {
+    lines.push('inline bool check_relay_url(const std::string& s) {');
+    lines.push('    std::size_t pos = 0;');
+    lines.push('    if (s.compare(0, 6, "wss://") == 0) { pos = 6; }');
+    lines.push('    else if (s.compare(0, 5, "ws://") == 0) { pos = 5; }');
+    lines.push('    else { return false; }');
+    lines.push('    std::size_t host_start = pos;');
+    lines.push('    while (pos < s.size()) {');
+    lines.push('        char c = s[pos];');
+    lines.push("        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') { pos++; }");
+    lines.push('        else { break; }');
+    lines.push('    }');
+    lines.push('    if (pos == host_start) return false;');
+    lines.push("    if (pos < s.size() && s[pos] == ':') {");
+    lines.push('        pos++;');
+    lines.push('        std::size_t port_start = pos;');
+    lines.push("        while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('        if (pos == port_start) return false;');
+    lines.push('    }');
+    lines.push("    if (pos < s.size() && s[pos] == '/') return true;");
+    lines.push('    return pos == s.size();');
     lines.push('}');
     lines.push('');
   }

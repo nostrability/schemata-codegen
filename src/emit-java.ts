@@ -75,6 +75,10 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('regex');
       return { expr: `Pattern.matches(${JSON.stringify(check.pattern)}, ${varExpr})`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('checkRelayUrl');
+      return { expr: `checkRelayUrl(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
@@ -514,6 +518,32 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("            while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') i++;");
     lines.push('        }');
     lines.push('        return i == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkRelayUrl')) {
+    lines.push('    private static boolean checkRelayUrl(String s) {');
+    lines.push('        if (s == null) return false;');
+    lines.push('        int pos;');
+    lines.push('        if (s.startsWith("wss://")) { pos = 6; }');
+    lines.push('        else if (s.startsWith("ws://")) { pos = 5; }');
+    lines.push('        else { return false; }');
+    lines.push('        int hostStart = pos;');
+    lines.push('        while (pos < s.length()) {');
+    lines.push('            char c = s.charAt(pos);');
+    lines.push("            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') { pos++; }");
+    lines.push('            else { break; }');
+    lines.push('        }');
+    lines.push('        if (pos == hostStart) return false;');
+    lines.push("        if (pos < s.length() && s.charAt(pos) == ':') {");
+    lines.push('            pos++;');
+    lines.push('            int portStart = pos;');
+    lines.push("            while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;");
+    lines.push('            if (pos == portStart) return false;');
+    lines.push('        }');
+    lines.push("        if (pos < s.length() && s.charAt(pos) == '/') return true;");
+    lines.push('        return pos == s.length();');
     lines.push('    }');
     lines.push('');
   }

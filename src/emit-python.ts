@@ -72,6 +72,10 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       helpers.add('_regex');
       return { expr: `bool(re.match(${JSON.stringify(check.pattern)}, ${varExpr}))`, helpers };
     }
+    case 'relay_url': {
+      helpers.add('_check_relay_url');
+      return { expr: `_check_relay_url(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('_check_date_iso');
       return { expr: `_check_date_iso(${varExpr})`, helpers };
@@ -469,6 +473,33 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("        while i < len(s) and s[i].isdigit():");
     lines.push('            i += 1');
     lines.push('    return i == len(s)');
+  }
+
+  if (helpers.has('_check_relay_url')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('_RELAY_HOST_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")');
+    lines.push('');
+    lines.push('');
+    lines.push('def _check_relay_url(s: str) -> bool:');
+    lines.push("    if s.startswith('wss://'):  pos = 6");
+    lines.push("    elif s.startswith('ws://'):  pos = 5");
+    lines.push('    else:  return False');
+    lines.push('    host_start = pos');
+    lines.push('    while pos < len(s) and s[pos] in _RELAY_HOST_CHARS:');
+    lines.push('        pos += 1');
+    lines.push('    if pos == host_start:');
+    lines.push('        return False');
+    lines.push("    if pos < len(s) and s[pos] == ':':");
+    lines.push('        pos += 1');
+    lines.push('        port_start = pos');
+    lines.push("        while pos < len(s) and s[pos].isdigit():");
+    lines.push('            pos += 1');
+    lines.push('        if pos == port_start:');
+    lines.push('            return False');
+    lines.push("    if pos < len(s) and s[pos] == '/':");
+    lines.push('        return True');
+    lines.push('    return pos == len(s)');
   }
 
   if (helpers.has('_check_bech32')) {
