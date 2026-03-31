@@ -103,14 +103,20 @@ export function checkClassifierCoverage(
   // Walk all JSON schema files and extract patterns
   const jsonFiles = findJsonFiles(distDir);
   for (const file of jsonFiles) {
+    let raw: string;
     try {
-      const raw = readFileSync(file, 'utf-8');
-      const schema = JSON.parse(raw);
-      for (const p of extractPatterns(schema)) {
-        allPatterns.add(p);
-      }
-    } catch {
-      // Skip files that can't be parsed
+      raw = readFileSync(file, 'utf-8');
+    } catch (err) {
+      throw new Error(`Failed to read ${file}: ${err}`);
+    }
+    let schema: unknown;
+    try {
+      schema = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`Failed to parse JSON in ${file}: ${err}`);
+    }
+    for (const p of extractPatterns(schema)) {
+      allPatterns.add(p);
     }
   }
 

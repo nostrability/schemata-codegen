@@ -19,8 +19,8 @@ describe('classifier coverage', () => {
     if (existsSync(ALLOWLIST_PATH)) {
       try {
         allowlist = JSON.parse(readFileSync(ALLOWLIST_PATH, 'utf-8'));
-      } catch {
-        // empty allowlist
+      } catch (err) {
+        assert.fail(`Failed to parse allowlist at ${ALLOWLIST_PATH}: ${err}`);
       }
     }
 
@@ -50,8 +50,8 @@ describe('classifier coverage', () => {
     let allowlist: { pattern: string; reason: string }[];
     try {
       allowlist = JSON.parse(readFileSync(ALLOWLIST_PATH, 'utf-8'));
-    } catch {
-      return; // Can't parse, skip
+    } catch (err) {
+      assert.fail(`Failed to parse allowlist at ${ALLOWLIST_PATH}: ${err}`);
     }
 
     if (allowlist.length === 0) {

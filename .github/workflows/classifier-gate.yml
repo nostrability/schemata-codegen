@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nostrability/schemata
+          ref: v0.3.0
           path: schemata
 
       - name: Setup Node.js
@@ -50,3 +51,11 @@ jobs:
       - name: Run tests
         working-directory: schemata-codegen
         run: npm test
+
+      - name: Run smoke test (--all generation)
+        working-directory: schemata-codegen
+        run: >
+          node dist/index.js --schemas ../schemata/dist --all
+          --validators /tmp/out.ts
+          --c-validators /tmp/out.c
+          --rust-validators /tmp/out.rs
