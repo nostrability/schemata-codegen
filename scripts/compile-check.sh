@@ -44,11 +44,9 @@ echo "Schemas: $SCHEMAS_DIR"
 echo "Output:  $TMPDIR_GEN"
 echo ""
 
-# Build the codegen if needed
-if [[ ! -f "$PROJECT_DIR/dist/index.js" ]]; then
-  echo "Building codegen..."
-  (cd "$PROJECT_DIR" && npm run build)
-fi
+# Always rebuild to avoid validating stale JS
+echo "Building codegen..."
+(cd "$PROJECT_DIR" && npm run build)
 
 # Generate all output files into temp directory
 echo "Generating all validator files..."

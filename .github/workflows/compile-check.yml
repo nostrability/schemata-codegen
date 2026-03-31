@@ -59,7 +59,7 @@ jobs:
       - name: Install additional compilers
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gcc g++ php-cli ruby mono-mcs 2>/dev/null || true
+          sudo apt-get install -y -qq gcc g++ php-cli ruby mono-mcs
           # Try to install kotlinc
           if ! command -v kotlinc >/dev/null 2>&1; then
             sudo snap install kotlin --classic 2>/dev/null || true
