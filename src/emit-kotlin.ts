@@ -454,7 +454,12 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push("        while (i < s.length && s[i] in '0'..'9') i++");
     lines.push('        if (i == portStart) return false');
     lines.push('    }');
-    lines.push("    if (i < s.length && s[i] == '/') return true");
+    lines.push("    if (i < s.length && s[i] == '/') {");
+    lines.push("        for (j in (i + 1) until s.length) {");
+    lines.push("            if (s[j] == '\\n' || s[j] == '\\r') return false");
+    lines.push('        }');
+    lines.push('        return true');
+    lines.push('    }');
     lines.push('    return i == s.length');
     lines.push('}');
     lines.push('');

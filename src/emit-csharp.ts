@@ -487,7 +487,12 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push("                while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('                if (pos == portStart) return false;');
     lines.push('            }');
-    lines.push("            if (pos < s.Length && s[pos] == '/') return true;");
+    lines.push("            if (pos < s.Length && s[pos] == '/') {");
+    lines.push('                for (int j = pos + 1; j < s.Length; j++) {');
+    lines.push("                    if (s[j] == '\\n' || s[j] == '\\r') return false;");
+    lines.push('                }');
+    lines.push('                return true;');
+    lines.push('            }');
     lines.push('            return pos == s.Length;');
     lines.push('        }');
     lines.push('');

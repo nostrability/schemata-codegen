@@ -480,7 +480,10 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push("      pos += 1 while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
     lines.push('      return false if pos == port_start');
     lines.push('    end');
-    lines.push("    return true if pos < s.length && s[pos] == '/'");
+    lines.push("    if pos < s.length && s[pos] == '/'");
+    lines.push('      (pos + 1...s.length).each { |j| return false if s[j] == "\\n" || s[j] == "\\r" }');
+    lines.push('      return true');
+    lines.push('    end');
     lines.push('    pos == s.length');
     lines.push('  end');
     lines.push('');

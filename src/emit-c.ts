@@ -743,9 +743,10 @@ function emitHelperFunctions(helpers: Set<string>): string {
   if (helpers.has('schemata_check_relay_url')) {
     lines.push('static int schemata_check_relay_url(const char *s) {');
     lines.push('    if (!s) return 0;');
-    lines.push('    int pos = 0;');
-    lines.push("    if (s[0] == 'w' && s[1] == 's' && s[2] == 's' && s[3] == ':' && s[4] == '/' && s[5] == '/') { pos = 6; }");
-    lines.push("    else if (s[0] == 'w' && s[1] == 's' && s[2] == ':' && s[3] == '/' && s[4] == '/') { pos = 5; }");
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t pos = 0;');
+    lines.push("    if (len >= 6 && s[0] == 'w' && s[1] == 's' && s[2] == 's' && s[3] == ':' && s[4] == '/' && s[5] == '/') { pos = 6; }");
+    lines.push("    else if (len >= 5 && s[0] == 'w' && s[1] == 's' && s[2] == ':' && s[3] == '/' && s[4] == '/') { pos = 5; }");
     lines.push('    else { return 0; }');
     lines.push('    int host_start = pos;');
     lines.push('    while (s[pos]) {');
@@ -760,7 +761,14 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("        while (s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('        if (pos == port_start) return 0;');
     lines.push('    }');
-    lines.push("    if (s[pos] == '/') return 1;");
+    lines.push("    if (s[pos] == '/') {");
+    lines.push('        pos++;');
+    lines.push("        while (s[pos]) {");
+    lines.push("            if (s[pos] == '\\n' || s[pos] == '\\r') return 0;");
+    lines.push('            pos++;');
+    lines.push('        }');
+    lines.push('        return 1;');
+    lines.push('    }');
     lines.push("    return s[pos] == '\\0';");
     lines.push('}');
     lines.push('');

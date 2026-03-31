@@ -601,7 +601,12 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push("        while ($pos < strlen($s) && $s[$pos] >= '0' && $s[$pos] <= '9') { $pos++; }");
     lines.push('        if ($pos === $portStart) { return false; }');
     lines.push('    }');
-    lines.push("    if ($pos < strlen($s) && $s[$pos] === '/') { return true; }");
+    lines.push("    if ($pos < strlen($s) && $s[$pos] === '/') {");
+    lines.push('        for ($j = $pos + 1; $j < strlen($s); $j++) {');
+    lines.push('            if ($s[$j] === "\\n" || $s[$j] === "\\r") { return false; }');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
     lines.push('    return $pos === strlen($s);');
     lines.push('}');
     lines.push('');

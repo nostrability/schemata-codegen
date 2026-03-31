@@ -352,7 +352,7 @@ describe('check_relay_url behavioral correctness', () => {
   //   1. Check starts with "wss://" (pos=6) or "ws://" (pos=5), else fail
   //   2. Hostname: consume [a-zA-Z0-9._-]+, must have >=1 char
   //   3. Optional port: if ':', consume [0-9]+, must have >=1 digit
-  //   4. Optional path: if '/', accept (remainder is anything)
+  //   4. Optional path: if '/', scan remainder rejecting \n and \r (regex . doesn't match newlines)
   //   5. Must be at end of string
   function checkRelayUrl(s: string): boolean {
     let i = 0;
@@ -384,9 +384,12 @@ describe('check_relay_url behavioral correctness', () => {
       while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
       if (i === portStart) return false; // colon but no digits
     }
-    // Optional path
+    // Optional path: '/' followed by any chars except \n and \r (matches regex /.*/)
     if (i < s.length && s[i] === '/') {
-      return true; // remainder is anything
+      for (let j = i + 1; j < s.length; j++) {
+        if (s[j] === '\n' || s[j] === '\r') return false;
+      }
+      return true;
     }
     return i === s.length;
   }
@@ -415,6 +418,8 @@ describe('check_relay_url behavioral correctness', () => {
   it('rejects wss://relay.example.com:abc (non-digit port)', () => assert.ok(!checkRelayUrl('wss://relay.example.com:abc')));
   it('rejects plain text', () => assert.ok(!checkRelayUrl('not a url')));
   it('rejects wss (no colon-slash-slash)', () => assert.ok(!checkRelayUrl('wss')));
+  it('rejects wss://relay.example.com/\\npath (newline in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/\npath')));
+  it('rejects wss://relay.example.com/path\\r\\n (CRLF in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/path\r\n')));
 
   // --- Regex-vs-native equivalence ---
   it('reference implementation matches regex on all test inputs', () => {
@@ -446,6 +451,9 @@ describe('check_relay_url behavioral correctness', () => {
       'wss://relay.example.com:8080?query',
       'wss:///path',
       'WSS://RELAY.EXAMPLE.COM',
+      'wss://relay.example.com/\npath',
+      'wss://relay.example.com/path\r\n',
+      'wss://relay.example.com/\rpath',
     ];
     for (const input of inputs) {
       const regexResult = regex.test(input);

@@ -552,7 +552,9 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
     lines.push('        if i == port_start { return false; }');
     lines.push('    }');
-    lines.push("    if i < b.len() && b[i] == b'/' { return true; }");
+    lines.push("    if i < b.len() && b[i] == b'/' {");
+    lines.push("        return b[i+1..].iter().all(|&c| c != b'\\n' && c != b'\\r');");
+    lines.push('    }');
     lines.push('    i == b.len()');
     lines.push('}');
     lines.push('');

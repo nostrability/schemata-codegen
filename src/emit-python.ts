@@ -493,12 +493,12 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("    if pos < len(s) and s[pos] == ':':");
     lines.push('        pos += 1');
     lines.push('        port_start = pos');
-    lines.push("        while pos < len(s) and s[pos].isdigit():");
+    lines.push("        while pos < len(s) and '0' <= s[pos] <= '9':");
     lines.push('            pos += 1');
     lines.push('        if pos == port_start:');
     lines.push('            return False');
     lines.push("    if pos < len(s) and s[pos] == '/':");
-    lines.push('        return True');
+    lines.push("        return '\\n' not in s[pos+1:] and '\\r' not in s[pos+1:]");
     lines.push('    return pos == len(s)');
   }
 

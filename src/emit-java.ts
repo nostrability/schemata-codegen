@@ -542,7 +542,13 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("            while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;");
     lines.push('            if (pos == portStart) return false;');
     lines.push('        }');
-    lines.push("        if (pos < s.length() && s.charAt(pos) == '/') return true;");
+    lines.push("        if (pos < s.length() && s.charAt(pos) == '/') {");
+    lines.push('            for (int j = pos + 1; j < s.length(); j++) {');
+    lines.push("                char ch = s.charAt(j);");
+    lines.push("                if (ch == '\\n' || ch == '\\r') return false;");
+    lines.push('            }');
+    lines.push('            return true;');
+    lines.push('        }');
     lines.push('        return pos == s.length();');
     lines.push('    }');
     lines.push('');

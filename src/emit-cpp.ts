@@ -496,7 +496,12 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push("        while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('        if (pos == port_start) return false;');
     lines.push('    }');
-    lines.push("    if (pos < s.size() && s[pos] == '/') return true;");
+    lines.push("    if (pos < s.size() && s[pos] == '/') {");
+    lines.push('        for (size_t j = pos + 1; j < s.size(); j++) {');
+    lines.push("            if (s[j] == '\\n' || s[j] == '\\r') return false;");
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
     lines.push('    return pos == s.size();');
     lines.push('}');
     lines.push('');

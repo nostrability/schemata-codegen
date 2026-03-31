@@ -735,6 +735,11 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\t}');
     lines.push('\t}');
     lines.push("\tif i < len(s) && s[i] == '/' {");
+    lines.push('\t\tfor j := i + 1; j < len(s); j++ {');
+    lines.push("\t\t\tif s[j] == '\\n' || s[j] == '\\r' {");
+    lines.push('\t\t\t\treturn false');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
     lines.push('\t\treturn true');
     lines.push('\t}');
     lines.push('\treturn i == len(s)');

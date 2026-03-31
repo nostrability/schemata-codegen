@@ -476,7 +476,13 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('    while (pos < s.length && s.codeUnitAt(pos) >= 48 && s.codeUnitAt(pos) <= 57) { pos++; }');
     lines.push('    if (pos == portStart) return false;');
     lines.push('  }');
-    lines.push("  if (pos < s.length && s[pos] == '/') return true;");
+    lines.push("  if (pos < s.length && s[pos] == '/') {");
+    lines.push('    for (var j = pos + 1; j < s.length; j++) {');
+    lines.push('      final c = s.codeUnitAt(j);');
+    lines.push('      if (c == 0x0A || c == 0x0D) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('  }');
     lines.push('  return pos == s.length;');
     lines.push('}');
     lines.push('');
