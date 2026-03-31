@@ -897,7 +897,7 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push("    elseif (str_starts_with($s, 'http://')) { $pos = 7; }");
     lines.push('    else { return false; }');
     lines.push('    $start = $pos;');
-    lines.push("    while ($pos < strlen($s) && $s[$pos] !== '/') { $pos++; }");
+    lines.push("    while ($pos < strlen($s) && $s[$pos] !== '/' && $s[$pos] !== \"\\n\" && $s[$pos] !== \"\\r\") { $pos++; }");
     lines.push('    if ($pos === $start) { return false; }');
     lines.push("    if ($pos < strlen($s) && $s[$pos] === '/') { $pos++; }");
     lines.push('    return $pos === strlen($s);');
