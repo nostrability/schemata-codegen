@@ -138,7 +138,8 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
     case 'a_tag': {
       helpers.add('check_a_tag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `check_a_tag(${varExpr}, &[${check.kinds.join(', ')}])`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `check_a_tag(${varExpr}, &[${arr}])`, helpers };
       }
       return { expr: `check_a_tag(${varExpr}, &[])`, helpers };
     }
@@ -159,8 +160,9 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('check_dot_tail');
       return {
-        expr: `(${varExpr}.starts_with(${JSON.stringify(check.prefix)}) && ${varExpr}.len() > ${check.prefix.length})`,
+        expr: `(${varExpr}.starts_with(${JSON.stringify(check.prefix)}) && ${varExpr}.len() > ${check.prefix.length} && ${varExpr}[${check.prefix.length}..].chars().all(|c| c != '\\n'))`,
         helpers,
       };
     }
@@ -208,7 +210,7 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
     case 'prefix_no_whitespace': {
       helpers.add('check_no_ws_tail');
       const checks = check.prefixes.map(p =>
-        `(${varExpr}.starts_with(${JSON.stringify(p)}) && check_no_ws_tail(${varExpr}.as_bytes(), ${p.length}))`
+        `(${varExpr}.starts_with(${JSON.stringify(p)}) && check_no_ws_tail(${varExpr}, ${p.length}))`
       );
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
@@ -617,7 +619,7 @@ function emitRustHelpers(helpers: Set<string>): string {
   }
 
   // Shared dot-tail helper: checks remaining bytes have >=1 byte and no \n (Rust regex . excludes \n only)
-  if (helpers.has('check_relay_url') || helpers.has('check_a_tag') || helpers.has('check_doi')) {
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag') || helpers.has('check_doi') || helpers.has('check_dot_tail')) {
     lines.push('fn check_dot_tail(b: &[u8], pos: usize) -> bool {');
     lines.push("    pos < b.len() && b[pos..].iter().all(|&c| c != b'\\n')");
     lines.push('}');
@@ -650,18 +652,17 @@ function emitRustHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('check_a_tag')) {
-    lines.push('fn check_a_tag(s: &str, kinds: &[u32]) -> bool {');
+    lines.push('fn check_a_tag(s: &str, kinds: &[&str]) -> bool {');
     lines.push('    let b = s.as_bytes();');
     lines.push('    if b.len() < 68 { return false; }');
     lines.push('    let mut pos = 0;');
     lines.push('    if !b[pos].is_ascii_digit() { return false; }');
-    lines.push('    let mut kind: u32 = 0;');
-    lines.push('    while pos < b.len() && b[pos].is_ascii_digit() {');
-    lines.push("        kind = kind * 10 + (b[pos] - b'0') as u32;");
-    lines.push('        pos += 1;');
-    lines.push('    }');
+    lines.push('    while pos < b.len() && b[pos].is_ascii_digit() { pos += 1; }');
+    lines.push('    let kind_len = pos;');
+    lines.push("    if kind_len > 1 && b[0] == b'0' { return false; }");
     lines.push("    if pos >= b.len() || b[pos] != b':' { return false; }");
-    lines.push('    if !kinds.is_empty() && !kinds.contains(&kind) { return false; }');
+    lines.push('    let kind_str = &s[..kind_len];');
+    lines.push('    if !kinds.is_empty() && !kinds.iter().any(|&k| k == kind_str) { return false; }');
     lines.push('    pos += 1;');
     lines.push('    if pos + 64 >= b.len() { return false; }');
     lines.push("    if !b[pos..pos+64].iter().all(|&c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) { return false; }");
@@ -793,35 +794,35 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  // Shared is_ascii_ws helper
-  if (helpers.has('check_email_like') || helpers.has('check_git_clone_url') || helpers.has('check_no_ws_tail')) {
-    lines.push('fn is_ascii_ws(c: u8) -> bool {');
-    lines.push("    matches!(c, b' ' | b'\\t' | b'\\n' | b'\\r' | 0x0B | 0x0C)");
+  // Shared is_ecma_ws helper — full ECMAScript WhiteSpace + LineTerminator set
+  if (helpers.has('is_ecma_ws') || helpers.has('check_email_like') || helpers.has('check_git_clone_url') || helpers.has('check_no_ws_tail')) {
+    lines.push('fn is_ecma_ws(c: char) -> bool {');
+    lines.push("    matches!(c, '\\t' | '\\n' | '\\x0B' | '\\x0C' | '\\r' | ' ' | '\\u{00A0}' | '\\u{1680}' | '\\u{2000}'..='\\u{200A}' | '\\u{2028}' | '\\u{2029}' | '\\u{202F}' | '\\u{205F}' | '\\u{3000}' | '\\u{FEFF}')");
     lines.push('}');
     lines.push('');
   }
 
   if (helpers.has('check_email_like')) {
     lines.push('fn check_email_like(s: &str) -> bool {');
-    lines.push('    let b = s.as_bytes();');
-    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    if s.is_empty() { return false; }');
+    lines.push('    let chars: Vec<char> = s.chars().collect();');
     lines.push('    let mut i = 0;');
-    lines.push("    while i < b.len() && !is_ascii_ws(b[i]) && b[i] != b'@' { i += 1; }");
+    lines.push("    while i < chars.len() && !is_ecma_ws(chars[i]) && chars[i] != '@' { i += 1; }");
     lines.push('    if i == 0 { return false; }');
-    lines.push("    if i >= b.len() || b[i] != b'@' { return false; }");
+    lines.push("    if i >= chars.len() || chars[i] != '@' { return false; }");
     lines.push('    i += 1;');
     lines.push('    let start = i;');
-    lines.push("    while i < b.len() && !is_ascii_ws(b[i]) && b[i] != b'@' { i += 1; }");
+    lines.push("    while i < chars.len() && !is_ecma_ws(chars[i]) && chars[i] != '@' { i += 1; }");
     lines.push('    if i == start { return false; }');
-    lines.push('    i == b.len()');
+    lines.push('    i == chars.len()');
     lines.push('}');
     lines.push('');
   }
 
   if (helpers.has('check_git_clone_url')) {
     lines.push('fn check_git_clone_url(s: &str) -> bool {');
+    lines.push('    if s.is_empty() { return false; }');
     lines.push('    let b = s.as_bytes();');
-    lines.push('    if b.is_empty() { return false; }');
     lines.push('    let mut i;');
     lines.push('    if b.starts_with(b"git@") {');
     lines.push('        i = 4;');
@@ -833,7 +834,7 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        i += 3;');
     lines.push('    }');
     lines.push('    if i >= b.len() { return false; }');
-    lines.push('    !b[i..].iter().any(|&c| is_ascii_ws(c))');
+    lines.push('    !s[i..].chars().any(|c| is_ecma_ws(c))');
     lines.push('}');
     lines.push('');
   }
@@ -862,7 +863,7 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    while i < b.len() && is_subtype_char(b[i]) { i += 1; }');
     lines.push('    while i < b.len() {');
     lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
-    lines.push('        if i >= b.len() { break; }');
+    lines.push('        if i >= b.len() { return false; }');
     lines.push("        if b[i] != b';' { return false; }");
     lines.push('        i += 1;');
     lines.push("        while i < b.len() && matches!(b[i], b' ' | b'\\t') { i += 1; }");
@@ -925,9 +926,9 @@ function emitRustHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('check_no_ws_tail')) {
-    lines.push('fn check_no_ws_tail(b: &[u8], offset: usize) -> bool {');
-    lines.push('    if offset >= b.len() { return false; }');
-    lines.push('    !b[offset..].iter().any(|&c| is_ascii_ws(c))');
+    lines.push('fn check_no_ws_tail(s: &str, offset: usize) -> bool {');
+    lines.push('    if offset >= s.len() { return false; }');
+    lines.push('    !s[offset..].chars().any(|c| is_ecma_ws(c))');
     lines.push('}');
     lines.push('');
   }
@@ -941,7 +942,9 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    if i == 0 { return false; }');
     lines.push("    if i >= b.len() || b[i] != b':' { return false; }");
     lines.push('    i += 1;');
-    lines.push('    i < b.len()');
+    lines.push("    if i >= b.len() { return false; }");
+    lines.push("    for c in s[i..].chars() { if c == '\\n' { return false; } }");
+    lines.push('    true');
     lines.push('}');
     lines.push('');
   }

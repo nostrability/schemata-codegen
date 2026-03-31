@@ -76,7 +76,8 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
     case 'a_tag': {
       helpers.add('CheckATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `CheckATag(${varExpr}, new[]{${check.kinds.join(', ')}})`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `CheckATag(${varExpr}, new string[]{${arr}})`, helpers };
       }
       return { expr: `CheckATag(${varExpr}, null)`, helpers };
     }
@@ -97,8 +98,9 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('CheckDotTail');
       return {
-        expr: `${varExpr} != null && ${varExpr}.StartsWith(${JSON.stringify(check.prefix)}, StringComparison.Ordinal) && ${varExpr}.Length > ${check.prefix.length}`,
+        expr: `${varExpr} != null && ${varExpr}.StartsWith(${JSON.stringify(check.prefix)}, StringComparison.Ordinal) && CheckDotTail(${varExpr}, ${check.prefix.length})`,
         helpers,
       };
     }
@@ -125,12 +127,12 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
     }
     case 'email_like': {
       helpers.add('CheckEmailLike');
-      helpers.add('IsAsciiWs');
+      helpers.add('IsEcmaWs');
       return { expr: `CheckEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('CheckGitCloneUrl');
-      helpers.add('IsAsciiWs');
+      helpers.add('IsEcmaWs');
       return { expr: `CheckGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -148,7 +150,7 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
     }
     case 'prefix_no_whitespace': {
       helpers.add('CheckNoWsTail');
-      helpers.add('IsAsciiWs');
+      helpers.add('IsEcmaWs');
       const checks = check.prefixes.map(p =>
         `(${varExpr} != null && ${varExpr}.StartsWith(${JSON.stringify(p)}, StringComparison.Ordinal) && CheckNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -633,18 +635,17 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('CheckATag')) {
-    lines.push('        private static bool CheckATag(string s, int[] kinds)');
+    lines.push('        private static bool CheckATag(string s, string[] kinds)');
     lines.push('        {');
     lines.push('            if (s == null || s.Length < 68) return false;');
     lines.push('            int pos = 0;');
     lines.push("            if (s[pos] < '0' || s[pos] > '9') return false;");
-    lines.push('            int kind = 0;');
-    lines.push("            while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') {");
-    lines.push("                kind = kind * 10 + (s[pos] - '0');");
-    lines.push('                pos++;');
-    lines.push('            }');
+    lines.push("            int kindStart = pos;");
+    lines.push("            while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push("            if (pos >= s.Length || s[pos] != ':') return false;");
-    lines.push('            if (kinds != null && !kinds.Contains(kind)) return false;');
+    lines.push("            var kindStr = s.Substring(kindStart, pos - kindStart);");
+    lines.push("            if (kindStr.Length > 1 && kindStr[0] == '0') return false;");
+    lines.push('            if (kinds != null && System.Array.IndexOf(kinds, kindStr) < 0) return false;');
     lines.push('            pos++;');
     lines.push('            if (pos + 64 >= s.Length) return false;');
     lines.push('            for (int i = 0; i < 64; i++) {');
@@ -759,9 +760,13 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('IsAsciiWs')) {
-    lines.push('        private static bool IsAsciiWs(char c)');
-    lines.push("            => c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\x0B' || c == '\\x0C';");
+  if (helpers.has('IsEcmaWs')) {
+    lines.push('        private static bool IsEcmaWs(char c)');
+    lines.push("            => c == '\\t' || c == '\\n' || c == '\\u000B' || c == '\\f' || c == '\\r' || c == ' '");
+    lines.push("            || c == '\\u00A0' || c == '\\u1680'");
+    lines.push("            || (c >= '\\u2000' && c <= '\\u200A')");
+    lines.push("            || c == '\\u2028' || c == '\\u2029' || c == '\\u202F' || c == '\\u205F'");
+    lines.push("            || c == '\\u3000' || c == '\\uFEFF';");
     lines.push('');
   }
 
@@ -771,12 +776,12 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            if (string.IsNullOrEmpty(s)) return false;');
     lines.push('            int i = 0;');
     lines.push('            int start = i;');
-    lines.push("            while (i < s.Length && !IsAsciiWs(s[i]) && s[i] != '@') i++;");
+    lines.push("            while (i < s.Length && !IsEcmaWs(s[i]) && s[i] != '@') i++;");
     lines.push('            if (i == start) return false;');
     lines.push("            if (i >= s.Length || s[i] != '@') return false;");
     lines.push('            i++;');
     lines.push('            int domStart = i;');
-    lines.push("            while (i < s.Length && !IsAsciiWs(s[i]) && s[i] != '@') i++;");
+    lines.push("            while (i < s.Length && !IsEcmaWs(s[i]) && s[i] != '@') i++;");
     lines.push('            if (i == domStart) return false;');
     lines.push('            return i == s.Length;');
     lines.push('        }');
@@ -803,7 +808,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            }');
     lines.push('            if (i >= s.Length) return false;');
     lines.push('            while (i < s.Length) {');
-    lines.push('                if (IsAsciiWs(s[i])) return false;');
+    lines.push('                if (IsEcmaWs(s[i])) return false;');
     lines.push('                i++;');
     lines.push('            }');
     lines.push('            return true;');
@@ -834,7 +839,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            while (i < s.Length && IsSubtypeChar(s[i])) i++;');
     lines.push('            while (i < s.Length) {');
     lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
-    lines.push('                if (i >= s.Length) break;');
+    lines.push('                if (i >= s.Length) return false;');
     lines.push("                if (s[i] != ';') return false;");
     lines.push('                i++;');
     lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
@@ -872,9 +877,9 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckAnnotateUser')) {
     lines.push('        private static bool CheckAnnotateUser(string s)');
     lines.push('        {');
-    lines.push('            if (s == null || s.Length < 83) return false;');
+    lines.push('            if (s == null || s.Length < 82) return false;');
     lines.push('            if (!s.StartsWith("annotate-user ", StringComparison.Ordinal)) return false;');
-    lines.push('            int i = 15;');
+    lines.push('            int i = 14;');
     lines.push('            if (i + 64 > s.Length) return false;');
     lines.push('            for (int j = 0; j < 64; j++) {');
     lines.push('                char c = s[i + j];');
@@ -904,7 +909,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('        {');
     lines.push('            if (s == null || offset >= s.Length) return false;');
     lines.push('            for (int i = offset; i < s.Length; i++) {');
-    lines.push('                if (IsAsciiWs(s[i])) return false;');
+    lines.push('                if (IsEcmaWs(s[i])) return false;');
     lines.push('            }');
     lines.push('            return true;');
     lines.push('        }');
@@ -924,7 +929,9 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            if (i == 0) return false;');
     lines.push("            if (i >= s.Length || s[i] != ':') return false;");
     lines.push('            i++;');
-    lines.push('            return i < s.Length;');
+    lines.push('            if (i >= s.Length) return false;');
+    lines.push("            for (int j = i; j < s.Length; j++) if (s[j] == '\\n') return false;");
+    lines.push('            return true;');
     lines.push('        }');
     lines.push('');
   }

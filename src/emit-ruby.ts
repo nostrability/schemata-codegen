@@ -79,7 +79,8 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     case 'a_tag': {
       helpers.add('check_a_tag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `check_a_tag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `check_a_tag(${varExpr}, [${arr}])`, helpers };
       }
       return { expr: `check_a_tag(${varExpr})`, helpers };
     }
@@ -100,8 +101,9 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       return { expr: `[${vals.join(', ')}].include?(${varExpr})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('check_dot_tail');
       return {
-        expr: `${varExpr}.is_a?(String) && ${varExpr}.start_with?(${rubyString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length}`,
+        expr: `${varExpr}.is_a?(String) && ${varExpr}.start_with?(${rubyString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length} && check_dot_tail(${varExpr}, ${check.prefix.length})`,
         helpers,
       };
     }
@@ -159,6 +161,7 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'external_identity': {
       helpers.add('check_external_identity');
+      helpers.add('check_dot_tail');
       return { expr: `check_external_identity(${varExpr})`, helpers };
     }
     case 'package_id': {
@@ -635,13 +638,12 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false unless s.is_a?(String) && s.length >= 68');
     lines.push('    pos = 0');
     lines.push("    return false unless s[pos] >= '0' && s[pos] <= '9'");
-    lines.push('    kind = 0');
-    lines.push("    while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
-    lines.push("      kind = kind * 10 + (s[pos].ord - '0'.ord)");
-    lines.push('      pos += 1');
-    lines.push('    end');
+    lines.push('    kind_start = pos');
+    lines.push("    pos += 1 while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
     lines.push("    return false unless pos < s.length && s[pos] == ':'");
-    lines.push('    return false if kinds && !kinds.include?(kind)');
+    lines.push('    kind_str = s[kind_start...pos]');
+    lines.push('    return false if kind_str.length > 1 && kind_str[0] == \'0\'');
+    lines.push('    return false if kinds && !kinds.include?(kind_str)');
     lines.push('    pos += 1');
     lines.push('    return false if pos + 64 >= s.length');
     lines.push('    (0...64).each { |i| return false unless HEX_LOWER.include?(s[pos + i]) }');
@@ -751,7 +753,13 @@ function emitRubyHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('ascii_ws')) {
-    lines.push("  ASCII_WS = Set.new([' ', \"\\t\", \"\\n\", \"\\r\", \"\\x0B\", \"\\x0C\"]).freeze");
+    lines.push('  ECMA_WS = Set.new([');
+    lines.push('    "\\u0009", "\\u000A", "\\u000B", "\\u000C", "\\u000D", "\\u0020",');
+    lines.push('    "\\u00A0", "\\u1680",');
+    lines.push('    "\\u2000", "\\u2001", "\\u2002", "\\u2003", "\\u2004", "\\u2005",');
+    lines.push('    "\\u2006", "\\u2007", "\\u2008", "\\u2009", "\\u200A",');
+    lines.push('    "\\u2028", "\\u2029", "\\u202F", "\\u205F", "\\u3000", "\\uFEFF"');
+    lines.push('  ]).freeze');
     lines.push('');
   }
 
@@ -760,12 +768,12 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false unless s.is_a?(String) && !s.empty?');
     lines.push('    i = 0');
     lines.push('    start = i');
-    lines.push("    i += 1 while i < s.length && !ASCII_WS.include?(s[i]) && s[i] != '@'");
+    lines.push("    i += 1 while i < s.length && !ECMA_WS.include?(s[i]) && s[i] != '@'");
     lines.push('    return false if i == start');
     lines.push("    return false unless i < s.length && s[i] == '@'");
     lines.push('    i += 1');
     lines.push('    dom_start = i');
-    lines.push("    i += 1 while i < s.length && !ASCII_WS.include?(s[i]) && s[i] != '@'");
+    lines.push("    i += 1 while i < s.length && !ECMA_WS.include?(s[i]) && s[i] != '@'");
     lines.push('    return false if i == dom_start');
     lines.push('    i == s.length');
     lines.push('  end');
@@ -792,7 +800,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('      i += 3');
     lines.push('    end');
     lines.push('    return false if i >= s.length');
-    lines.push('    (i...s.length).each { |j| return false if ASCII_WS.include?(s[j]) }');
+    lines.push('    (i...s.length).each { |j| return false if ECMA_WS.include?(s[j]) }');
     lines.push('    true');
     lines.push('  end');
     lines.push('');
@@ -817,7 +825,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    i += 1 while i < s.length && SUBTYPE_CHARS.include?(s[i])');
     lines.push('    while i < s.length');
     lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
-    lines.push('      break if i >= s.length');
+    lines.push('      return false if i >= s.length');
     lines.push("      return false unless s[i] == ';'");
     lines.push('      i += 1');
     lines.push("      i += 1 while i < s.length && (s[i] == ' ' || s[i] == \"\\t\")");
@@ -853,9 +861,9 @@ function emitRubyHelpers(helpers: Set<string>): string {
 
   if (helpers.has('check_annotate_user')) {
     lines.push('  def self.check_annotate_user(s)');
-    lines.push('    return false unless s.is_a?(String) && s.length >= 83');
+    lines.push('    return false unless s.is_a?(String) && s.length >= 82');
     lines.push("    return false unless s.start_with?('annotate-user ')");
-    lines.push('    i = 15');
+    lines.push('    i = 14');
     lines.push('    return false if i + 64 > s.length');
     lines.push('    (0...64).each do |j|');
     lines.push('      c = s[i + j]');
@@ -883,7 +891,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
   if (helpers.has('check_no_ws_tail')) {
     lines.push('  def self.check_no_ws_tail(s, offset)');
     lines.push('    return false unless s.is_a?(String) && offset < s.length');
-    lines.push('    (offset...s.length).each { |j| return false if ASCII_WS.include?(s[j]) }');
+    lines.push('    (offset...s.length).each { |j| return false if ECMA_WS.include?(s[j]) }');
     lines.push('    true');
     lines.push('  end');
     lines.push('');
@@ -904,7 +912,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false if i == 0');
     lines.push("    return false unless i < s.length && s[i] == ':'");
     lines.push('    i += 1');
-    lines.push('    i < s.length');
+    lines.push('    check_dot_tail(s, i)');
     lines.push('  end');
     lines.push('');
   }

@@ -79,7 +79,7 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     case 'a_tag': {
       helpers.add('check_a_tag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `check_a_tag(${varExpr}, {${check.kinds.join(', ')}})`, helpers };
+        return { expr: `check_a_tag(${varExpr}, {${check.kinds.map(k => JSON.stringify(k)).join(', ')}})`, helpers };
       }
       return { expr: `check_a_tag(${varExpr}, {})`, helpers };
     }
@@ -100,9 +100,10 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('check_dot_tail');
       const len = check.prefix.length;
       return {
-        expr: `(${varExpr}.size() > ${len} && ${varExpr}.compare(0, ${len}, ${JSON.stringify(check.prefix)}) == 0)`,
+        expr: `(${varExpr}.size() > ${len} && ${varExpr}.compare(0, ${len}, ${JSON.stringify(check.prefix)}) == 0 && check_dot_tail(${varExpr}, ${len}))`,
         helpers,
       };
     }
@@ -129,12 +130,12 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     }
     case 'email_like': {
       helpers.add('check_email_like');
-      helpers.add('is_ascii_ws');
+      helpers.add('is_ecma_ws');
       return { expr: `check_email_like(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('check_git_clone_url');
-      helpers.add('is_ascii_ws');
+      helpers.add('is_ecma_ws');
       return { expr: `check_git_clone_url(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -152,7 +153,7 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     }
     case 'prefix_no_whitespace': {
       helpers.add('check_no_ws_tail');
-      helpers.add('is_ascii_ws');
+      helpers.add('is_ecma_ws');
       const checks = check.prefixes.map(p => {
         const len = p.length;
         return `(${varExpr}.size() >= ${len} && ${varExpr}.compare(0, ${len}, ${JSON.stringify(p)}) == 0 && check_no_ws_tail(${varExpr}, ${len}))`;
@@ -603,11 +604,14 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag') || helpers.has('check_dot_tail')) {
     lines.push('inline bool check_dot_tail(const std::string& s, size_t pos) {');
     lines.push('    if (pos >= s.size()) return false;');
+    lines.push('    const unsigned char* u = reinterpret_cast<const unsigned char*>(s.data());');
     lines.push('    for (size_t j = pos; j < s.size(); j++) {');
-    lines.push("        if (s[j] == '\\n' || s[j] == '\\r') return false;");
+    lines.push("        if (u[j] == 0x0A || u[j] == 0x0D) return false;");
+    lines.push('        /* U+2028 (E2 80 A8) and U+2029 (E2 80 A9) */');
+    lines.push('        if (u[j] == 0xE2 && j + 2 < s.size() && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9)) return false;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
@@ -642,17 +646,23 @@ function emitCppHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('check_a_tag')) {
-    lines.push('inline bool check_a_tag(const std::string& s, const std::vector<int>& kinds) {');
+    lines.push('inline bool check_a_tag(const std::string& s, const std::vector<std::string>& kinds) {');
     lines.push('    if (s.size() < 68) return false;');
     lines.push('    std::size_t pos = 0;');
     lines.push("    if (s[pos] < '0' || s[pos] > '9') return false;");
-    lines.push('    int kind = 0;');
-    lines.push("    while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') {");
-    lines.push("        kind = kind * 10 + (s[pos] - '0');");
-    lines.push('        pos++;');
-    lines.push('    }');
+    lines.push('    std::size_t kind_start = pos;');
+    lines.push("    while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('    std::size_t kind_len = pos - kind_start;');
     lines.push("    if (pos >= s.size() || s[pos] != ':') return false;");
-    lines.push('    if (!kinds.empty() && std::find(kinds.begin(), kinds.end(), kind) == kinds.end()) return false;');
+    lines.push('    /* reject leading zeros: "0" ok, "0N..." not ok */');
+    lines.push("    if (kind_len > 1 && s[kind_start] == '0') return false;");
+    lines.push('    if (!kinds.empty()) {');
+    lines.push('        bool found = false;');
+    lines.push('        for (const auto& k : kinds) {');
+    lines.push('            if (k.size() == kind_len && s.compare(kind_start, kind_len, k) == 0) { found = true; break; }');
+    lines.push('        }');
+    lines.push('        if (!found) return false;');
+    lines.push('    }');
     lines.push('    pos++;');
     lines.push('    if (pos + 64 >= s.size()) return false;');
     lines.push('    for (std::size_t i = 0; i < 64; i++) {');
@@ -683,9 +693,33 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('is_ascii_ws')) {
-    lines.push('inline bool is_ascii_ws(char c) {');
-    lines.push("    return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C;");
+  if (helpers.has('is_ecma_ws')) {
+    lines.push('/* ECMAScript \\s semantics: full Unicode whitespace set (UTF-8 bytes) */');
+    lines.push('/* Returns number of bytes consumed (1-3) if whitespace, 0 otherwise */');
+    lines.push('inline int is_ecma_ws(const std::string& s, size_t pos) {');
+    lines.push('    if (pos >= s.size()) return 0;');
+    lines.push('    unsigned char c = static_cast<unsigned char>(s[pos]);');
+    lines.push('    /* ASCII whitespace: 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 */');
+    lines.push('    if (c == 0x09 || c == 0x0A || c == 0x0B || c == 0x0C || c == 0x0D || c == 0x20) return 1;');
+    lines.push('    /* 2-byte UTF-8: U+00A0 (C2 A0) */');
+    lines.push('    if (c == 0xC2 && pos + 1 < s.size() && static_cast<unsigned char>(s[pos + 1]) == 0xA0) return 2;');
+    lines.push('    /* 3-byte UTF-8 */');
+    lines.push('    if (c == 0xE1 && pos + 2 < s.size() && static_cast<unsigned char>(s[pos + 1]) == 0x9A && static_cast<unsigned char>(s[pos + 2]) == 0x80) return 3; /* U+1680 */');
+    lines.push('    if (c == 0xE2 && pos + 2 < s.size()) {');
+    lines.push('        unsigned char b1 = static_cast<unsigned char>(s[pos + 1]);');
+    lines.push('        unsigned char b2 = static_cast<unsigned char>(s[pos + 2]);');
+    lines.push('        /* U+2000-200A: E2 80 80-8A */');
+    lines.push('        if (b1 == 0x80 && b2 >= 0x80 && b2 <= 0x8A) return 3;');
+    lines.push('        /* U+2028: E2 80 A8, U+2029: E2 80 A9 */');
+    lines.push('        if (b1 == 0x80 && (b2 == 0xA8 || b2 == 0xA9)) return 3;');
+    lines.push('        /* U+202F: E2 80 AF */');
+    lines.push('        if (b1 == 0x80 && b2 == 0xAF) return 3;');
+    lines.push('        /* U+205F: E2 81 9F */');
+    lines.push('        if (b1 == 0x81 && b2 == 0x9F) return 3;');
+    lines.push('    }');
+    lines.push('    if (c == 0xE3 && pos + 2 < s.size() && static_cast<unsigned char>(s[pos + 1]) == 0x80 && static_cast<unsigned char>(s[pos + 2]) == 0x80) return 3; /* U+3000 */');
+    lines.push('    if (c == 0xEF && pos + 2 < s.size() && static_cast<unsigned char>(s[pos + 1]) == 0xBB && static_cast<unsigned char>(s[pos + 2]) == 0xBF) return 3; /* U+FEFF */');
+    lines.push('    return 0;');
     lines.push('}');
     lines.push('');
   }
@@ -770,12 +804,12 @@ function emitCppHelpers(helpers: Set<string>): string {
   if (helpers.has('check_email_like')) {
     lines.push('inline bool check_email_like(const std::string& s) {');
     lines.push('    size_t i = 0;');
-    lines.push("    while (i < s.size() && !is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push("    while (i < s.size() && is_ecma_ws(s, i) == 0 && s[i] != '@') i++;");
     lines.push('    if (i == 0) return false;');
     lines.push("    if (i >= s.size() || s[i] != '@') return false;");
     lines.push('    i++;');
     lines.push('    size_t after_at = i;');
-    lines.push("    while (i < s.size() && !is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push("    while (i < s.size() && is_ecma_ws(s, i) == 0 && s[i] != '@') i++;");
     lines.push('    if (i == after_at) return false;');
     lines.push('    return i == s.size();');
     lines.push('}');
@@ -798,8 +832,10 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('        pos += 3;');
     lines.push('    }');
     lines.push('    if (pos >= s.size()) return false;');
-    lines.push('    for (size_t j = pos; j < s.size(); j++) {');
-    lines.push('        if (is_ascii_ws(s[j])) return false;');
+    lines.push('    for (size_t j = pos; j < s.size(); ) {');
+    lines.push('        int adv = is_ecma_ws(s, j);');
+    lines.push('        if (adv > 0) return false;');
+    lines.push('        j++;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
@@ -825,9 +861,10 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push("    if (i >= s.size() || !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '*')) return false;");
     lines.push('    i++;');
     lines.push('    while (i < s.size() && is_subtype_char(s[i])) i++;');
-    lines.push("    while (i < s.size() && (s[i] == ' ' || s[i] == '\\t' || s[i] == ';')) {");
+    lines.push('    while (i < s.size()) {');
     lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
-    lines.push("        if (i >= s.size() || s[i] != ';') return false;");
+    lines.push('        if (i >= s.size()) return false;  /* trailing OWS not allowed */');
+    lines.push("        if (s[i] != ';') return false;");
     lines.push('        i++;');
     lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
     lines.push('        size_t param_start = i;');
@@ -861,12 +898,12 @@ function emitCppHelpers(helpers: Set<string>): string {
 
   if (helpers.has('check_annotate_user')) {
     lines.push('inline bool check_annotate_user(const std::string& s) {');
-    lines.push('    if (s.size() < 15 + 64 + 4 || s.compare(0, 15, "annotate-user ") != 0) return false;');
-    lines.push('    for (size_t j = 15; j < 79; j++) {');
+    lines.push('    if (s.size() < 14 + 64 + 4 || s.compare(0, 14, "annotate-user ") != 0) return false;');
+    lines.push('    for (size_t j = 14; j < 78; j++) {');
     lines.push("        char c = s[j];");
     lines.push("        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
     lines.push('    }');
-    lines.push('    size_t pos = 79;');
+    lines.push('    size_t pos = 78;');
     lines.push('    for (int coord = 0; coord < 2; coord++) {');
     lines.push("        if (pos >= s.size() || s[pos] != ':') return false;");
     lines.push('        pos++;');
@@ -886,8 +923,10 @@ function emitCppHelpers(helpers: Set<string>): string {
   if (helpers.has('check_no_ws_tail')) {
     lines.push('inline bool check_no_ws_tail(const std::string& s, size_t offset) {');
     lines.push('    if (offset >= s.size()) return false;');
-    lines.push('    for (size_t j = offset; j < s.size(); j++) {');
-    lines.push('        if (is_ascii_ws(s[j])) return false;');
+    lines.push('    for (size_t j = offset; j < s.size(); ) {');
+    lines.push('        int adv = is_ecma_ws(s, j);');
+    lines.push('        if (adv > 0) return false;');
+    lines.push('        j++;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
@@ -904,7 +943,16 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    if (i == 0) return false;');
     lines.push("    if (i >= s.size() || s[i] != ':') return false;");
-    lines.push('    return i + 1 < s.size();');
+    lines.push('    i++;');
+    lines.push('    /* .+ tail: at least one char, no line terminators */');
+    lines.push('    if (i >= s.size()) return false;');
+    lines.push('    const unsigned char* u = reinterpret_cast<const unsigned char*>(s.data());');
+    lines.push('    for (size_t j = i; j < s.size(); j++) {');
+    lines.push("        if (u[j] == 0x0A || u[j] == 0x0D) return false;");
+    lines.push('        /* U+2028 (E2 80 A8) and U+2029 (E2 80 A9) */');
+    lines.push('        if (u[j] == 0xE2 && j + 2 < s.size() && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9)) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
     lines.push('}');
     lines.push('');
   }

@@ -84,7 +84,8 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     case 'a_tag': {
       helpers.add('checkATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `checkATag(${varExpr}, []int{${check.kinds.join(', ')}})`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `checkATag(${varExpr}, []string{${arr}})`, helpers };
       }
       return { expr: `checkATag(${varExpr}, nil)`, helpers };
     }
@@ -106,8 +107,9 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     }
     case 'prefix_nonempty': {
       helpers.add('strings');
+      helpers.add('checkDotTail');
       return {
-        expr: `(strings.HasPrefix(${varExpr}, ${JSON.stringify(check.prefix)}) && len(${varExpr}) > ${check.prefix.length})`,
+        expr: `(strings.HasPrefix(${varExpr}, ${JSON.stringify(check.prefix)}) && checkDotTail(${varExpr}, ${check.prefix.length}))`,
         helpers,
       };
     }
@@ -136,12 +138,12 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     }
     case 'email_like': {
       helpers.add('checkEmailLike');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('checkGitCloneUrl');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -159,7 +161,7 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     case 'prefix_no_whitespace': {
       helpers.add('strings');
       helpers.add('checkNoWsTail');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       const checks = check.prefixes.map(p =>
         `(strings.HasPrefix(${varExpr}, ${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -791,7 +793,7 @@ function emitGoHelpers(helpers: Set<string>): string {
   }
 
   // Shared dot-tail helper: Go regexp . excludes \n only
-  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDoi')) {
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDoi') || helpers.has('checkDotTail')) {
     lines.push('func checkDotTail(s string, pos int) bool {');
     lines.push('\tif pos >= len(s) { return false }');
     lines.push('\tfor j := pos; j < len(s); j++ {');
@@ -843,24 +845,25 @@ function emitGoHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('checkATag')) {
-    lines.push('func checkATag(s string, kinds []int) bool {');
+    lines.push('func checkATag(s string, kinds []string) bool {');
     lines.push('\tif len(s) < 68 { return false }');
     lines.push('\tpos := 0');
     lines.push("\tif s[pos] < '0' || s[pos] > '9' { return false }");
-    lines.push('\tkind := 0');
-    lines.push("\tfor pos < len(s) && s[pos] >= '0' && s[pos] <= '9' {");
-    lines.push("\t\tkind = kind*10 + int(s[pos]-'0')");
-    lines.push('\t\tpos++');
+    lines.push('\tcolonPos := 0');
+    lines.push("\tfor colonPos < len(s) && s[colonPos] >= '0' && s[colonPos] <= '9' {");
+    lines.push('\t\tcolonPos++');
     lines.push('\t}');
-    lines.push("\tif pos >= len(s) || s[pos] != ':' { return false }");
+    lines.push("\tif colonPos >= len(s) || s[colonPos] != ':' { return false }");
+    lines.push('\tkindStr := s[:colonPos]');
+    lines.push("\tif len(kindStr) > 1 && kindStr[0] == '0' { return false }");
     lines.push('\tif len(kinds) > 0 {');
     lines.push('\t\tfound := false');
     lines.push('\t\tfor _, k := range kinds {');
-    lines.push('\t\t\tif k == kind { found = true; break }');
+    lines.push('\t\t\tif k == kindStr { found = true; break }');
     lines.push('\t\t}');
     lines.push('\t\tif !found { return false }');
     lines.push('\t}');
-    lines.push('\tpos++');
+    lines.push('\tpos = colonPos + 1');
     lines.push('\tif pos+64 >= len(s) { return false }');
     lines.push('\tfor i := 0; i < 64; i++ {');
     lines.push('\t\tc := s[pos+i]');
@@ -1057,10 +1060,17 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  // Shared isAsciiWs helper
-  if (helpers.has('isAsciiWs')) {
-    lines.push('func isAsciiWs(c byte) bool {');
-    lines.push("\treturn c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C");
+  // Shared isEcmaWs helper — matches ECMAScript \s (all 25 Unicode whitespace code points)
+  if (helpers.has('isEcmaWs')) {
+    lines.push('func isEcmaWs(r rune) bool {');
+    lines.push('\tswitch r {');
+    lines.push("\tcase '\\t', '\\n', 0x0B, 0x0C, '\\r', ' ',");
+    lines.push('\t\t0x00A0, 0x1680,');
+    lines.push('\t\t0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A,');
+    lines.push('\t\t0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:');
+    lines.push('\t\treturn true');
+    lines.push('\t}');
+    lines.push('\treturn false');
     lines.push('}');
     lines.push('');
   }
@@ -1070,25 +1080,22 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\tif len(s) == 0 {');
     lines.push('\t\treturn false');
     lines.push('\t}');
-    lines.push('\ti := 0');
-    lines.push("\tfor i < len(s) && !isAsciiWs(s[i]) && s[i] != '@' {");
-    lines.push('\t\ti++');
+    lines.push('\tatPos := -1');
+    lines.push('\tfor i, r := range s {');
+    lines.push('\t\tif isEcmaWs(r) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tif r == '@' {");
+    lines.push('\t\t\tif atPos >= 0 {');
+    lines.push('\t\t\t\treturn false');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\tatPos = i');
+    lines.push('\t\t}');
     lines.push('\t}');
-    lines.push('\tif i == 0 {');
+    lines.push('\tif atPos <= 0 || atPos >= len(s)-1 {');
     lines.push('\t\treturn false');
     lines.push('\t}');
-    lines.push("\tif i >= len(s) || s[i] != '@' {");
-    lines.push('\t\treturn false');
-    lines.push('\t}');
-    lines.push('\ti++');
-    lines.push('\tstart := i');
-    lines.push("\tfor i < len(s) && !isAsciiWs(s[i]) && s[i] != '@' {");
-    lines.push('\t\ti++');
-    lines.push('\t}');
-    lines.push('\tif i == start {');
-    lines.push('\t\treturn false');
-    lines.push('\t}');
-    lines.push('\treturn i == len(s)');
+    lines.push('\treturn true');
     lines.push('}');
     lines.push('');
   }
@@ -1122,11 +1129,10 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\tif i >= len(s) {');
     lines.push('\t\treturn false');
     lines.push('\t}');
-    lines.push('\tfor i < len(s) {');
-    lines.push('\t\tif isAsciiWs(s[i]) {');
+    lines.push('\tfor _, r := range s[i:] {');
+    lines.push('\t\tif isEcmaWs(r) {');
     lines.push('\t\t\treturn false');
     lines.push('\t\t}');
-    lines.push('\t\ti++');
     lines.push('\t}');
     lines.push('\treturn true');
     lines.push('}');
@@ -1174,7 +1180,7 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\t\ti++');
     lines.push('\t\t}');
     lines.push('\t\tif i >= len(s) {');
-    lines.push('\t\t\tbreak');
+    lines.push('\t\t\treturn false');
     lines.push('\t\t}');
     lines.push("\t\tif s[i] != ';' {");
     lines.push('\t\t\treturn false');
@@ -1285,8 +1291,8 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\tif offset >= len(s) {');
     lines.push('\t\treturn false');
     lines.push('\t}');
-    lines.push('\tfor i := offset; i < len(s); i++ {');
-    lines.push('\t\tif isAsciiWs(s[i]) {');
+    lines.push('\tfor _, r := range s[offset:] {');
+    lines.push('\t\tif isEcmaWs(r) {');
     lines.push('\t\t\treturn false');
     lines.push('\t\t}');
     lines.push('\t}');
@@ -1316,7 +1322,15 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\treturn false');
     lines.push('\t}');
     lines.push('\ti++');
-    lines.push('\treturn i < len(s)');
+    lines.push('\tif i >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tfor _, c := range s[i:] {");
+    lines.push("\t\tif c == '\\n' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
     lines.push('}');
     lines.push('');
   }
