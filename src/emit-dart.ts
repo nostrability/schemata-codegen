@@ -70,9 +70,20 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkRelayUrl');
       return { expr: `_checkRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('_checkATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `_checkATag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+      }
+      return { expr: `_checkATag(${varExpr}, null)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('_checkDateIso');
       return { expr: `_checkDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('_checkDatetimeIso');
+      return { expr: `_checkDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('_checkDecimal');
@@ -441,6 +452,45 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('_checkDatetimeIso')) {
+    lines.push('bool _checkDatetimeIso(String s) {');
+    lines.push('  if (s.length < 10) return false;');
+    lines.push('  for (var i = 0; i < 4; i++) if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push("  if (s[4] != '-') return false;");
+    lines.push('  for (var i = 5; i < 7; i++) if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push("  if (s[7] != '-') return false;");
+    lines.push('  for (var i = 8; i < 10; i++) if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('  if (s.length == 10) return true;');
+    lines.push("  if (s[10] != 'T' || s.length < 16) return false;");
+    lines.push('  for (var i = 11; i < 13; i++) if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push("  if (s[13] != ':') return false;");
+    lines.push('  for (var i = 14; i < 16; i++) if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('  var pos = 16;');
+    lines.push('  if (pos == s.length) return true;');
+    lines.push("  if (s[pos] == ':') {");
+    lines.push('    if (pos + 3 > s.length) return false;');
+    lines.push('    if (s.codeUnitAt(pos+1) < 48 || s.codeUnitAt(pos+1) > 57 || s.codeUnitAt(pos+2) < 48 || s.codeUnitAt(pos+2) > 57) return false;');
+    lines.push('    pos += 3;');
+    lines.push('  }');
+    lines.push('  if (pos == s.length) return true;');
+    lines.push("  if (s[pos] == '.') {");
+    lines.push('    pos++;');
+    lines.push('    if (pos >= s.length || s.codeUnitAt(pos) < 48 || s.codeUnitAt(pos) > 57) return false;');
+    lines.push('    while (pos < s.length && s.codeUnitAt(pos) >= 48 && s.codeUnitAt(pos) <= 57) pos++;');
+    lines.push('  }');
+    lines.push('  if (pos == s.length) return true;');
+    lines.push("  if (s[pos] == 'Z') return pos + 1 == s.length;");
+    lines.push("  if (s[pos] == '+' || s[pos] == '-') {");
+    lines.push('    if (pos + 6 != s.length) return false;');
+    lines.push('    if (s.codeUnitAt(pos+1) < 48 || s.codeUnitAt(pos+1) > 57 || s.codeUnitAt(pos+2) < 48 || s.codeUnitAt(pos+2) > 57) return false;');
+    lines.push("    if (s[pos+3] != ':') return false;");
+    lines.push('    return s.codeUnitAt(pos+4) >= 48 && s.codeUnitAt(pos+4) <= 57 && s.codeUnitAt(pos+5) >= 48 && s.codeUnitAt(pos+5) <= 57;');
+    lines.push('  }');
+    lines.push('  return false;');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('_checkDecimal')) {
     lines.push('bool _checkDecimal(String s) {');
     lines.push('  if (s.isEmpty) return false;');
@@ -453,6 +503,18 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('    while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
     lines.push('  }');
     lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkRelayUrl') || helpers.has('_checkATag')) {
+    lines.push('bool _checkDotTail(String s, int pos) {');
+    lines.push('  if (pos >= s.length) return false;');
+    lines.push('  for (var j = pos; j < s.length; j++) {');
+    lines.push('    final c = s.codeUnitAt(j);');
+    lines.push('    if (c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
     lines.push('}');
     lines.push('');
   }
@@ -477,13 +539,35 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('    if (pos == portStart) return false;');
     lines.push('  }');
     lines.push("  if (pos < s.length && s[pos] == '/') {");
-    lines.push('    for (var j = pos + 1; j < s.length; j++) {');
-    lines.push('      final c = s.codeUnitAt(j);');
-    lines.push('      if (c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029) return false;');
-    lines.push('    }');
-    lines.push('    return true;');
+    lines.push('    return _checkDotTail(s, pos + 1) || pos + 1 == s.length;');
     lines.push('  }');
     lines.push('  return pos == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkATag')) {
+    lines.push('bool _checkATag(String s, List<int>? kinds) {');
+    lines.push('  if (s.length < 68) return false;');
+    lines.push('  var pos = 0;');
+    lines.push('  if (s.codeUnitAt(pos) < 48 || s.codeUnitAt(pos) > 57) return false;');
+    lines.push('  var kind = 0;');
+    lines.push('  while (pos < s.length && s.codeUnitAt(pos) >= 48 && s.codeUnitAt(pos) <= 57) {');
+    lines.push('    kind = kind * 10 + (s.codeUnitAt(pos) - 48);');
+    lines.push('    pos++;');
+    lines.push('  }');
+    lines.push("  if (pos >= s.length || s[pos] != ':') return false;");
+    lines.push('  if (kinds != null && !kinds.contains(kind)) return false;');
+    lines.push('  pos++;');
+    lines.push('  if (pos + 64 >= s.length) return false;');
+    lines.push('  for (var i = 0; i < 64; i++) {');
+    lines.push('    final c = s.codeUnitAt(pos + i);');
+    lines.push('    if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 102))) return false;');
+    lines.push('  }');
+    lines.push('  pos += 64;');
+    lines.push("  if (pos >= s.length || s[pos] != ':') return false;");
+    lines.push('  pos++;');
+    lines.push('  return _checkDotTail(s, pos);');
     lines.push('}');
     lines.push('');
   }

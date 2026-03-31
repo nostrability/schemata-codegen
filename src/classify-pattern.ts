@@ -24,7 +24,9 @@ export type PatternCheck =
   | { op: 'chars_in'; charset: string; min?: number; max?: number }
   | { op: 'bech32'; hrp: string; dataLen?: number }
   | { op: 'relay_url' }
+  | { op: 'a_tag'; kinds?: number[] }
   | { op: 'date_iso' }
+  | { op: 'datetime_iso' }
   | { op: 'decimal' }
   | { op: 'compound'; checks: PatternCheck[] }
   | { op: 'regex'; pattern: string };
@@ -111,15 +113,18 @@ export function classifyRegex(pattern: string): PatternCheck {
 
   // Character class with quantifier: ^[a-z0-9._-]+$ or ^[A-Za-z]+$
   {
-    const m = pattern.match(/^\^\[([A-Za-z0-9_.+\-\/:#]+)\](\+|\{(\d+)(?:,(\d+))?\})\$$/);
+    const m = pattern.match(/^\^\[([A-Za-z0-9_.+\-\/:#]+)\](\+|\{(\d+)(?:,(\d+)?)?\})\$$/);
     if (m) {
       const charset = m[1];
       if (m[2] === '+') {
         return { op: 'chars_in', charset, min: 1 };
       }
       const min = parseInt(m[3], 10);
-      const max = m[4] ? parseInt(m[4], 10) : min;
-      return { op: 'chars_in', charset, min, max };
+      if (m[2].includes(',')) {
+        const max = m[4] ? parseInt(m[4], 10) : undefined;
+        return { op: 'chars_in', charset, min, max };
+      }
+      return { op: 'chars_in', charset, min, max: min };
     }
   }
 
@@ -135,27 +140,23 @@ export function classifyRegex(pattern: string): PatternCheck {
   {
     const m = pattern.match(/^\^\\?d\+:\[a-f0-9\]\{64\}:\.\+\$$/);
     if (m) {
-      return {
-        op: 'compound',
-        checks: [
-          { op: 'regex', pattern },
-        ],
-      };
+      return { op: 'a_tag' };
     }
   }
 
-  // Specific kind coordinates: ^(31922|31923):[a-f0-9]{64}:.+$
+  // Single-kind coordinates: ^30311:[a-f0-9]{64}:.+$
+  {
+    const m = pattern.match(/^\^(\d+):\[a-f0-9\]\{64\}:\.\+\$$/);
+    if (m) {
+      return { op: 'a_tag', kinds: [parseInt(m[1], 10)] };
+    }
+  }
+
+  // Multi-kind coordinates: ^(31922|31923):[a-f0-9]{64}:.+$
   {
     const m = pattern.match(/^\^\((\d+(?:\|\d+)*)\):\[a-f0-9\]\{64\}:\.\+\$$/);
     if (m) {
-      const prefixes = m[1].split('|').map(k => `${k}:`);
-      return {
-        op: 'compound',
-        checks: [
-          { op: 'starts_with_any', prefixes },
-          { op: 'regex', pattern },
-        ],
-      };
+      return { op: 'a_tag', kinds: m[1].split('|').map(k => parseInt(k, 10)) };
     }
   }
 
@@ -182,6 +183,11 @@ export function classifyRegex(pattern: string): PatternCheck {
   // Relay URL: ^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$
   if (pattern === '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$') {
     return { op: 'relay_url' };
+  }
+
+  // ISO 8601 datetime: ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$
+  if (pattern === '^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})?)?$') {
+    return { op: 'datetime_iso' };
   }
 
   // Fallback: preserve original regex
@@ -242,7 +248,9 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'chars_in':
     case 'bech32':
     case 'relay_url':
+    case 'a_tag':
     case 'date_iso':
+    case 'datetime_iso':
     case 'decimal':
       return true;
     case 'compound':

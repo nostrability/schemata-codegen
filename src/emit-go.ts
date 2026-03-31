@@ -81,9 +81,20 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkRelayUrl');
       return { expr: `checkRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('checkATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `checkATag(${varExpr}, []int{${check.kinds.join(', ')}})`, helpers };
+      }
+      return { expr: `checkATag(${varExpr}, nil)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('checkDatetimeIso');
+      return { expr: `checkDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('checkDecimal');
@@ -702,6 +713,18 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  // Shared dot-tail helper: Go regexp . excludes \n only
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+    lines.push('func checkDotTail(s string, pos int) bool {');
+    lines.push('\tif pos >= len(s) { return false }');
+    lines.push('\tfor j := pos; j < len(s); j++ {');
+    lines.push("\t\tif s[j] == '\\n' { return false }");
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('checkRelayUrl')) {
     lines.push('func checkRelayUrl(s string) bool {');
     lines.push('\ti := 0');
@@ -735,14 +758,80 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\t}');
     lines.push('\t}');
     lines.push("\tif i < len(s) && s[i] == '/' {");
-    lines.push('\t\tfor j := i + 1; j < len(s); j++ {');
-    lines.push("\t\t\tif s[j] == '\\n' { // Go regexp . excludes \\n only");
-    lines.push('\t\t\t\treturn false');
-    lines.push('\t\t\t}');
-    lines.push('\t\t}');
-    lines.push('\t\treturn true');
+    lines.push('\t\treturn checkDotTail(s, i + 1) || i + 1 == len(s)');
     lines.push('\t}');
     lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkATag')) {
+    lines.push('func checkATag(s string, kinds []int) bool {');
+    lines.push('\tif len(s) < 68 { return false }');
+    lines.push('\tpos := 0');
+    lines.push("\tif s[pos] < '0' || s[pos] > '9' { return false }");
+    lines.push('\tkind := 0');
+    lines.push("\tfor pos < len(s) && s[pos] >= '0' && s[pos] <= '9' {");
+    lines.push("\t\tkind = kind*10 + int(s[pos]-'0')");
+    lines.push('\t\tpos++');
+    lines.push('\t}');
+    lines.push("\tif pos >= len(s) || s[pos] != ':' { return false }");
+    lines.push('\tif len(kinds) > 0 {');
+    lines.push('\t\tfound := false');
+    lines.push('\t\tfor _, k := range kinds {');
+    lines.push('\t\t\tif k == kind { found = true; break }');
+    lines.push('\t\t}');
+    lines.push('\t\tif !found { return false }');
+    lines.push('\t}');
+    lines.push('\tpos++');
+    lines.push('\tif pos+64 >= len(s) { return false }');
+    lines.push('\tfor i := 0; i < 64; i++ {');
+    lines.push('\t\tc := s[pos+i]');
+    lines.push("\t\tif !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) { return false }");
+    lines.push('\t}');
+    lines.push('\tpos += 64');
+    lines.push("\tif pos >= len(s) || s[pos] != ':' { return false }");
+    lines.push('\tpos++');
+    lines.push('\treturn checkDotTail(s, pos)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDatetimeIso')) {
+    lines.push('func checkDatetimeIso(s string) bool {');
+    lines.push('\tif len(s) < 10 { return false }');
+    lines.push("\tfor _, i := range []int{0,1,2,3} { if s[i] < '0' || s[i] > '9' { return false } }");
+    lines.push("\tif s[4] != '-' { return false }");
+    lines.push("\tfor _, i := range []int{5,6} { if s[i] < '0' || s[i] > '9' { return false } }");
+    lines.push("\tif s[7] != '-' { return false }");
+    lines.push("\tfor _, i := range []int{8,9} { if s[i] < '0' || s[i] > '9' { return false } }");
+    lines.push('\tif len(s) == 10 { return true }');
+    lines.push("\tif s[10] != 'T' || len(s) < 16 { return false }");
+    lines.push("\tfor _, i := range []int{11,12} { if s[i] < '0' || s[i] > '9' { return false } }");
+    lines.push("\tif s[13] != ':' { return false }");
+    lines.push("\tfor _, i := range []int{14,15} { if s[i] < '0' || s[i] > '9' { return false } }");
+    lines.push('\tpos := 16');
+    lines.push('\tif pos == len(s) { return true }');
+    lines.push("\tif s[pos] == ':' {");
+    lines.push('\t\tif pos+3 > len(s) { return false }');
+    lines.push("\t\tif s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9' { return false }");
+    lines.push('\t\tpos += 3');
+    lines.push('\t}');
+    lines.push('\tif pos == len(s) { return true }');
+    lines.push("\tif s[pos] == '.' {");
+    lines.push('\t\tpos++');
+    lines.push("\t\tif pos >= len(s) || s[pos] < '0' || s[pos] > '9' { return false }");
+    lines.push("\t\tfor pos < len(s) && s[pos] >= '0' && s[pos] <= '9' { pos++ }");
+    lines.push('\t}');
+    lines.push('\tif pos == len(s) { return true }');
+    lines.push("\tif s[pos] == 'Z' { return pos+1 == len(s) }");
+    lines.push("\tif s[pos] == '+' || s[pos] == '-' {");
+    lines.push('\t\tif pos+6 != len(s) { return false }');
+    lines.push("\t\tif s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9' { return false }");
+    lines.push("\t\tif s[pos+3] != ':' { return false }");
+    lines.push("\t\treturn s[pos+4] >= '0' && s[pos+4] <= '9' && s[pos+5] >= '0' && s[pos+5] <= '9'");
+    lines.push('\t}');
+    lines.push('\treturn false');
     lines.push('}');
     lines.push('');
   }

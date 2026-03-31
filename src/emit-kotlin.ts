@@ -71,9 +71,20 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('checkRelayUrl');
       return { expr: `checkRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('checkATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `checkATag(${varExpr}, listOf(${check.kinds.join(', ')}))`, helpers };
+      }
+      return { expr: `checkATag(${varExpr}, null)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('checkDatetimeIso');
+      return { expr: `checkDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('checkDecimal');
@@ -435,6 +446,17 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+    lines.push('private fun checkDotTail(s: String, pos: Int): Boolean {');
+    lines.push('    if (pos >= s.length) return false');
+    lines.push('    for (j in pos until s.length) {');
+    lines.push("        if (s[j] == '\\n' || s[j] == '\\r' || s[j] == '\\u0085' || s[j] == '\\u2028' || s[j] == '\\u2029') return false");
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('checkRelayUrl')) {
     lines.push('private fun checkRelayUrl(s: String): Boolean {');
     lines.push('    val pos: Int');
@@ -455,12 +477,74 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('        if (i == portStart) return false');
     lines.push('    }');
     lines.push("    if (i < s.length && s[i] == '/') {");
-    lines.push("        for (j in (i + 1) until s.length) {");
-    lines.push("            if (s[j] == '\\n' || s[j] == '\\r' || s[j] == '\\u0085' || s[j] == '\\u2028' || s[j] == '\\u2029') return false");
-    lines.push('        }');
-    lines.push('        return true');
+    lines.push('        return checkDotTail(s, i + 1) || i + 1 == s.length');
     lines.push('    }');
     lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkATag')) {
+    lines.push('private fun checkATag(s: String, kinds: List<Int>?): Boolean {');
+    lines.push('    if (s.length < 68) return false');
+    lines.push('    var pos = 0');
+    lines.push("    if (s[pos] < '0' || s[pos] > '9') return false");
+    lines.push('    var kind = 0');
+    lines.push("    while (pos < s.length && s[pos] in '0'..'9') {");
+    lines.push("        kind = kind * 10 + (s[pos] - '0')");
+    lines.push('        pos++');
+    lines.push('    }');
+    lines.push("    if (pos >= s.length || s[pos] != ':') return false");
+    lines.push('    if (kinds != null && kind !in kinds) return false');
+    lines.push('    pos++');
+    lines.push('    if (pos + 64 >= s.length) return false');
+    lines.push('    for (i in 0 until 64) {');
+    lines.push('        val c = s[pos + i]');
+    lines.push("        if (!((c in '0'..'9') || (c in 'a'..'f'))) return false");
+    lines.push('    }');
+    lines.push('    pos += 64');
+    lines.push("    if (pos >= s.length || s[pos] != ':') return false");
+    lines.push('    pos++');
+    lines.push('    return checkDotTail(s, pos)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDatetimeIso')) {
+    lines.push('private fun checkDatetimeIso(s: String): Boolean {');
+    lines.push('    if (s.length < 10) return false');
+    lines.push("    for (i in 0..3) if (s[i] < '0' || s[i] > '9') return false");
+    lines.push("    if (s[4] != '-') return false");
+    lines.push("    for (i in 5..6) if (s[i] < '0' || s[i] > '9') return false");
+    lines.push("    if (s[7] != '-') return false");
+    lines.push("    for (i in 8..9) if (s[i] < '0' || s[i] > '9') return false");
+    lines.push('    if (s.length == 10) return true');
+    lines.push("    if (s[10] != 'T' || s.length < 16) return false");
+    lines.push("    for (i in 11..12) if (s[i] < '0' || s[i] > '9') return false");
+    lines.push("    if (s[13] != ':') return false");
+    lines.push("    for (i in 14..15) if (s[i] < '0' || s[i] > '9') return false");
+    lines.push('    var pos = 16');
+    lines.push('    if (pos == s.length) return true');
+    lines.push("    if (s[pos] == ':') {");
+    lines.push('        if (pos + 3 > s.length) return false');
+    lines.push("        if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false");
+    lines.push('        pos += 3');
+    lines.push('    }');
+    lines.push('    if (pos == s.length) return true');
+    lines.push("    if (s[pos] == '.') {");
+    lines.push('        pos++');
+    lines.push("        if (pos >= s.length || s[pos] < '0' || s[pos] > '9') return false");
+    lines.push("        while (pos < s.length && s[pos] in '0'..'9') pos++");
+    lines.push('    }');
+    lines.push('    if (pos == s.length) return true');
+    lines.push("    if (s[pos] == 'Z') return pos + 1 == s.length");
+    lines.push("    if (s[pos] == '+' || s[pos] == '-') {");
+    lines.push('        if (pos + 6 != s.length) return false');
+    lines.push("        if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false");
+    lines.push("        if (s[pos+3] != ':') return false");
+    lines.push("        return s[pos+4] >= '0' && s[pos+4] <= '9' && s[pos+5] >= '0' && s[pos+5] <= '9'");
+    lines.push('    }');
+    lines.push('    return false');
     lines.push('}');
     lines.push('');
   }

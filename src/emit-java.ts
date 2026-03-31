@@ -79,9 +79,20 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('checkRelayUrl');
       return { expr: `checkRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('checkATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `checkATag(${varExpr}, List.of(${check.kinds.join(', ')}))`, helpers };
+      }
+      return { expr: `checkATag(${varExpr}, null)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('checkDatetimeIso');
+      return { expr: `checkDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('checkDecimal');
@@ -522,6 +533,18 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+    lines.push('    private static boolean checkDotTail(String s, int pos) {');
+    lines.push('        if (pos >= s.length()) return false;');
+    lines.push('        for (int j = pos; j < s.length(); j++) {');
+    lines.push("            char ch = s.charAt(j);");
+    lines.push("            if (ch == '\\n' || ch == '\\r' || ch == '\\u0085' || ch == '\\u2028' || ch == '\\u2029') return false;");
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
   if (helpers.has('checkRelayUrl')) {
     lines.push('    private static boolean checkRelayUrl(String s) {');
     lines.push('        if (s == null) return false;');
@@ -543,13 +566,74 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('            if (pos == portStart) return false;');
     lines.push('        }');
     lines.push("        if (pos < s.length() && s.charAt(pos) == '/') {");
-    lines.push('            for (int j = pos + 1; j < s.length(); j++) {');
-    lines.push("                char ch = s.charAt(j);");
-    lines.push("                if (ch == '\\n' || ch == '\\r' || ch == '\\u0085' || ch == '\\u2028' || ch == '\\u2029') return false;");
-    lines.push('            }');
-    lines.push('            return true;');
+    lines.push('            return checkDotTail(s, pos + 1) || pos + 1 == s.length();');
     lines.push('        }');
     lines.push('        return pos == s.length();');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkATag')) {
+    lines.push('    private static boolean checkATag(String s, java.util.List<Integer> kinds) {');
+    lines.push('        if (s == null || s.length() < 68) return false;');
+    lines.push('        int pos = 0;');
+    lines.push("        if (s.charAt(pos) < '0' || s.charAt(pos) > '9') return false;");
+    lines.push('        int kind = 0;');
+    lines.push("        while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') {");
+    lines.push("            kind = kind * 10 + (s.charAt(pos) - '0');");
+    lines.push('            pos++;');
+    lines.push('        }');
+    lines.push("        if (pos >= s.length() || s.charAt(pos) != ':') return false;");
+    lines.push('        if (kinds != null && !kinds.contains(kind)) return false;');
+    lines.push('        pos++;');
+    lines.push('        if (pos + 64 >= s.length()) return false;');
+    lines.push('        for (int i = 0; i < 64; i++) {');
+    lines.push('            char c = s.charAt(pos + i);');
+    lines.push("            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('        }');
+    lines.push('        pos += 64;');
+    lines.push("        if (pos >= s.length() || s.charAt(pos) != ':') return false;");
+    lines.push('        pos++;');
+    lines.push('        return checkDotTail(s, pos);');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDatetimeIso')) {
+    lines.push('    private static boolean checkDatetimeIso(String s) {');
+    lines.push('        if (s == null || s.length() < 10) return false;');
+    lines.push("        for (int i = 0; i < 4; i++) if (s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("        if (s.charAt(4) != '-') return false;");
+    lines.push("        for (int i = 5; i < 7; i++) if (s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("        if (s.charAt(7) != '-') return false;");
+    lines.push("        for (int i = 8; i < 10; i++) if (s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push('        if (s.length() == 10) return true;');
+    lines.push("        if (s.charAt(10) != 'T' || s.length() < 16) return false;");
+    lines.push("        for (int i = 11; i < 13; i++) if (s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push("        if (s.charAt(13) != ':') return false;");
+    lines.push("        for (int i = 14; i < 16; i++) if (s.charAt(i) < '0' || s.charAt(i) > '9') return false;");
+    lines.push('        int pos = 16;');
+    lines.push('        if (pos == s.length()) return true;');
+    lines.push("        if (s.charAt(pos) == ':') {");
+    lines.push('            if (pos + 3 > s.length()) return false;');
+    lines.push("            if (s.charAt(pos+1) < '0' || s.charAt(pos+1) > '9' || s.charAt(pos+2) < '0' || s.charAt(pos+2) > '9') return false;");
+    lines.push('            pos += 3;');
+    lines.push('        }');
+    lines.push('        if (pos == s.length()) return true;');
+    lines.push("        if (s.charAt(pos) == '.') {");
+    lines.push('            pos++;');
+    lines.push("            if (pos >= s.length() || s.charAt(pos) < '0' || s.charAt(pos) > '9') return false;");
+    lines.push("            while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;");
+    lines.push('        }');
+    lines.push('        if (pos == s.length()) return true;');
+    lines.push("        if (s.charAt(pos) == 'Z') return pos + 1 == s.length();");
+    lines.push("        if (s.charAt(pos) == '+' || s.charAt(pos) == '-') {");
+    lines.push('            if (pos + 6 != s.length()) return false;');
+    lines.push("            if (s.charAt(pos+1) < '0' || s.charAt(pos+1) > '9' || s.charAt(pos+2) < '0' || s.charAt(pos+2) > '9') return false;");
+    lines.push("            if (s.charAt(pos+3) != ':') return false;");
+    lines.push("            return s.charAt(pos+4) >= '0' && s.charAt(pos+4) <= '9' && s.charAt(pos+5) >= '0' && s.charAt(pos+5) <= '9';");
+    lines.push('        }');
+    lines.push('        return false;');
     lines.push('    }');
     lines.push('');
   }

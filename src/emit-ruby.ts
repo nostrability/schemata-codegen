@@ -76,9 +76,20 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_relay_url');
       return { expr: `check_relay_url(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('check_a_tag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `check_a_tag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+      }
+      return { expr: `check_a_tag(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('check_datetime_iso');
+      return { expr: `check_datetime_iso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('check_decimal');
@@ -320,7 +331,7 @@ function emitRubyFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
 ): string {
-  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32');
+  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag');
   const lines: string[] = [
     '# frozen_string_literal: true',
     '',
@@ -450,6 +461,45 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('check_datetime_iso')) {
+    lines.push('  def self.check_datetime_iso(s)');
+    lines.push('    return false unless s.is_a?(String) && s.length >= 10');
+    lines.push("    (0...4).each { |i| return false unless s[i] >= '0' && s[i] <= '9' }");
+    lines.push("    return false unless s[4] == '-'");
+    lines.push("    (5...7).each { |i| return false unless s[i] >= '0' && s[i] <= '9' }");
+    lines.push("    return false unless s[7] == '-'");
+    lines.push("    (8...10).each { |i| return false unless s[i] >= '0' && s[i] <= '9' }");
+    lines.push('    return true if s.length == 10');
+    lines.push("    return false unless s[10] == 'T' && s.length >= 16");
+    lines.push("    (11...13).each { |i| return false unless s[i] >= '0' && s[i] <= '9' }");
+    lines.push("    return false unless s[13] == ':'");
+    lines.push("    (14...16).each { |i| return false unless s[i] >= '0' && s[i] <= '9' }");
+    lines.push('    pos = 16');
+    lines.push('    return true if pos == s.length');
+    lines.push("    if s[pos] == ':'");
+    lines.push('      return false if pos + 3 > s.length');
+    lines.push("      return false unless s[pos+1] >= '0' && s[pos+1] <= '9' && s[pos+2] >= '0' && s[pos+2] <= '9'");
+    lines.push('      pos += 3');
+    lines.push('    end');
+    lines.push('    return true if pos == s.length');
+    lines.push("    if s[pos] == '.'");
+    lines.push('      pos += 1');
+    lines.push("      return false if pos >= s.length || !(s[pos] >= '0' && s[pos] <= '9')");
+    lines.push("      pos += 1 while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
+    lines.push('    end');
+    lines.push('    return true if pos == s.length');
+    lines.push("    return pos + 1 == s.length if s[pos] == 'Z'");
+    lines.push("    if s[pos] == '+' || s[pos] == '-'");
+    lines.push('      return false unless pos + 6 == s.length');
+    lines.push("      return false unless s[pos+1] >= '0' && s[pos+1] <= '9' && s[pos+2] >= '0' && s[pos+2] <= '9'");
+    lines.push("      return false unless s[pos+3] == ':'");
+    lines.push("      return s[pos+4] >= '0' && s[pos+4] <= '9' && s[pos+5] >= '0' && s[pos+5] <= '9'");
+    lines.push('    end');
+    lines.push('    false');
+    lines.push('  end');
+    lines.push('');
+  }
+
   if (helpers.has('check_decimal')) {
     lines.push('  def self.check_decimal(s)');
     lines.push('    return false unless s.is_a?(String) && !s.empty?');
@@ -462,6 +512,15 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push("      i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
     lines.push('    end');
     lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+    lines.push('  def self.check_dot_tail(s, pos)');
+    lines.push('    return false if pos >= s.length');
+    lines.push('    (pos...s.length).each { |j| return false if s[j] == "\\n" }');
+    lines.push('    true');
     lines.push('  end');
     lines.push('');
   }
@@ -488,10 +547,34 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('      return false if pos == port_start');
     lines.push('    end');
     lines.push("    if pos < s.length && s[pos] == '/'");
-    lines.push('      (pos + 1...s.length).each { |j| return false if s[j] == "\\n" } # Regexp . excludes \\n only');
-    lines.push('      return true');
+    lines.push('      return check_dot_tail(s, pos + 1) || pos + 1 == s.length');
     lines.push('    end');
     lines.push('    pos == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_a_tag')) {
+    lines.push('  HEX_LOWER = Set.new("0123456789abcdef".chars).freeze');
+    lines.push('');
+    lines.push('  def self.check_a_tag(s, kinds = nil)');
+    lines.push('    return false unless s.is_a?(String) && s.length >= 68');
+    lines.push('    pos = 0');
+    lines.push("    return false unless s[pos] >= '0' && s[pos] <= '9'");
+    lines.push('    kind = 0');
+    lines.push("    while pos < s.length && s[pos] >= '0' && s[pos] <= '9'");
+    lines.push("      kind = kind * 10 + (s[pos].ord - '0'.ord)");
+    lines.push('      pos += 1');
+    lines.push('    end');
+    lines.push("    return false unless pos < s.length && s[pos] == ':'");
+    lines.push('    return false if kinds && !kinds.include?(kind)');
+    lines.push('    pos += 1');
+    lines.push('    return false if pos + 64 >= s.length');
+    lines.push('    (0...64).each { |i| return false unless HEX_LOWER.include?(s[pos + i]) }');
+    lines.push('    pos += 64');
+    lines.push("    return false unless pos < s.length && s[pos] == ':'");
+    lines.push('    pos += 1');
+    lines.push('    check_dot_tail(s, pos)');
     lines.push('  end');
     lines.push('');
   }

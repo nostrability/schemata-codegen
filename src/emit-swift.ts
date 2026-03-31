@@ -75,9 +75,20 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('checkRelayUrl');
       return { expr: `checkRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('checkATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `checkATag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+      }
+      return { expr: `checkATag(${varExpr}, nil)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('checkDateIso');
       return { expr: `checkDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('checkDatetimeIso');
+      return { expr: `checkDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('checkDecimal');
@@ -478,6 +489,23 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+    lines.push('// Swift . excludes \\n, \\r, NEL (\\u{0085}), LS (\\u{2028}), PS (\\u{2029})');
+    lines.push('private func checkDotTail(_ u: [UInt8], _ pos: Int) -> Bool {');
+    lines.push('    if pos >= u.count { return false }');
+    lines.push('    var j = pos');
+    lines.push('    while j < u.count {');
+    lines.push('        let b = u[j]');
+    lines.push('        if b == 0x0A || b == 0x0D { return false }');
+    lines.push('        if b == 0xC2 && j + 1 < u.count && u[j + 1] == 0x85 { return false }');
+    lines.push('        if b == 0xE2 && j + 2 < u.count && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9) { return false }');
+    lines.push('        j += 1');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('checkRelayUrl')) {
     lines.push('private func checkRelayUrl(_ s: String) -> Bool {');
     lines.push('    let u = Array(s.utf8)');
@@ -499,17 +527,76 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        if pos == portStart { return false }');
     lines.push('    }');
     lines.push('    if pos < u.count && u[pos] == 0x2F {');
-    lines.push('        var j = pos + 1');
-    lines.push('        while j < u.count {');
-    lines.push('            let b = u[j]');
-    lines.push('            if b == 0x0A || b == 0x0D { return false }');
-    lines.push('            if b == 0xC2 && j + 1 < u.count && u[j + 1] == 0x85 { return false }');
-    lines.push('            if b == 0xE2 && j + 2 < u.count && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9) { return false }');
-    lines.push('            j += 1');
-    lines.push('        }');
-    lines.push('        return true');
+    lines.push('        return checkDotTail(u, pos + 1) || pos + 1 == u.count');
     lines.push('    }');
     lines.push('    return pos == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkATag')) {
+    lines.push('private func checkATag(_ s: String, _ kinds: [Int]?) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.count < 68 { return false }');
+    lines.push('    var pos = 0');
+    lines.push('    if u[pos] < 0x30 || u[pos] > 0x39 { return false }');
+    lines.push('    var kind = 0');
+    lines.push('    while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 {');
+    lines.push('        kind = kind * 10 + Int(u[pos] - 0x30)');
+    lines.push('        pos += 1');
+    lines.push('    }');
+    lines.push('    if pos >= u.count || u[pos] != 0x3A { return false }');
+    lines.push('    if let ks = kinds, !ks.contains(kind) { return false }');
+    lines.push('    pos += 1');
+    lines.push('    if pos + 64 >= u.count { return false }');
+    lines.push('    for i in 0..<64 {');
+    lines.push('        let c = u[pos + i]');
+    lines.push('        if !((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66)) { return false }');
+    lines.push('    }');
+    lines.push('    pos += 64');
+    lines.push('    if pos >= u.count || u[pos] != 0x3A { return false }');
+    lines.push('    pos += 1');
+    lines.push('    return checkDotTail(u, pos)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDatetimeIso')) {
+    lines.push('private func checkDatetimeIso(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.count < 10 { return false }');
+    lines.push('    for i in 0..<4 { if u[i] < 0x30 || u[i] > 0x39 { return false } }');
+    lines.push('    if u[4] != 0x2D { return false }');
+    lines.push('    for i in 5..<7 { if u[i] < 0x30 || u[i] > 0x39 { return false } }');
+    lines.push('    if u[7] != 0x2D { return false }');
+    lines.push('    for i in 8..<10 { if u[i] < 0x30 || u[i] > 0x39 { return false } }');
+    lines.push('    if u.count == 10 { return true }');
+    lines.push('    if u[10] != 0x54 || u.count < 16 { return false }');
+    lines.push('    for i in 11..<13 { if u[i] < 0x30 || u[i] > 0x39 { return false } }');
+    lines.push('    if u[13] != 0x3A { return false }');
+    lines.push('    for i in 14..<16 { if u[i] < 0x30 || u[i] > 0x39 { return false } }');
+    lines.push('    var pos = 16');
+    lines.push('    if pos == u.count { return true }');
+    lines.push('    if u[pos] == 0x3A {');
+    lines.push('        if pos + 3 > u.count { return false }');
+    lines.push('        if u[pos+1] < 0x30 || u[pos+1] > 0x39 || u[pos+2] < 0x30 || u[pos+2] > 0x39 { return false }');
+    lines.push('        pos += 3');
+    lines.push('    }');
+    lines.push('    if pos == u.count { return true }');
+    lines.push('    if u[pos] == 0x2E {');
+    lines.push('        pos += 1');
+    lines.push('        if pos >= u.count || u[pos] < 0x30 || u[pos] > 0x39 { return false }');
+    lines.push('        while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('    }');
+    lines.push('    if pos == u.count { return true }');
+    lines.push('    if u[pos] == 0x5A { return pos + 1 == u.count }');
+    lines.push('    if u[pos] == 0x2B || u[pos] == 0x2D {');
+    lines.push('        if pos + 6 != u.count { return false }');
+    lines.push('        if u[pos+1] < 0x30 || u[pos+1] > 0x39 || u[pos+2] < 0x30 || u[pos+2] > 0x39 { return false }');
+    lines.push('        if u[pos+3] != 0x3A { return false }');
+    lines.push('        return u[pos+4] >= 0x30 && u[pos+4] <= 0x39 && u[pos+5] >= 0x30 && u[pos+5] <= 0x39');
+    lines.push('    }');
+    lines.push('    return false');
     lines.push('}');
     lines.push('');
   }

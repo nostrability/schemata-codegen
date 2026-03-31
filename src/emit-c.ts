@@ -181,9 +181,21 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_relay_url');
       return { expr: `schemata_check_relay_url(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('schemata_check_a_tag');
+      if (check.kinds && check.kinds.length > 0) {
+        const arr = check.kinds.join(', ');
+        return { expr: `schemata_check_a_tag(${varExpr}, (const int[]){${arr}}, ${check.kinds.length})`, helpers };
+      }
+      return { expr: `schemata_check_a_tag(${varExpr}, NULL, 0)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('schemata_check_date_iso');
       return { expr: `schemata_check_date_iso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('schemata_check_datetime_iso');
+      return { expr: `schemata_check_datetime_iso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('schemata_check_decimal');
@@ -740,6 +752,18 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('');
   }
 
+  // Shared dot-tail helper: checks remaining string has >=1 char and no C/POSIX line terminators
+  if (helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag')) {
+    lines.push('static int schemata_check_dot_tail(const char *s, size_t pos, size_t len) {');
+    lines.push('    if (pos >= len) return 0;');
+    lines.push('    for (size_t i = pos; i < len; i++) {');
+    lines.push("        if (s[i] == '\\n') return 0;  /* POSIX . excludes \\n only */");
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('schemata_check_relay_url')) {
     lines.push('static int schemata_check_relay_url(const char *s) {');
     lines.push('    if (!s) return 0;');
@@ -762,14 +786,85 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('        if (pos == port_start) return 0;');
     lines.push('    }');
     lines.push("    if (s[pos] == '/') {");
-    lines.push('        pos++;');
-    lines.push("        while (s[pos]) {");
-    lines.push("            if (s[pos] == '\\n') return 0;  /* POSIX . excludes \\n only */");
-    lines.push('            pos++;');
-    lines.push('        }');
-    lines.push('        return 1;');
+    lines.push('        return schemata_check_dot_tail(s, pos + 1, len) || (pos + 1 == len);');
     lines.push('    }');
     lines.push("    return s[pos] == '\\0';");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_a_tag')) {
+    lines.push('static int schemata_check_a_tag(const char *s, const int *kinds, int num_kinds) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 68) return 0;  /* min: 1 digit + : + 64 hex + : + 1 char */');
+    lines.push('    size_t pos = 0;');
+    lines.push("    if (s[pos] < '0' || s[pos] > '9') return 0;");
+    lines.push('    int kind = 0;');
+    lines.push("    while (pos < len && s[pos] >= '0' && s[pos] <= '9') {");
+    lines.push('        kind = kind * 10 + (s[pos] - \'0\');');
+    lines.push('        pos++;');
+    lines.push('    }');
+    lines.push("    if (pos >= len || s[pos] != ':') return 0;");
+    lines.push('    if (kinds && num_kinds > 0) {');
+    lines.push('        int found = 0;');
+    lines.push('        for (int i = 0; i < num_kinds; i++) {');
+    lines.push('            if (kinds[i] == kind) { found = 1; break; }');
+    lines.push('        }');
+    lines.push('        if (!found) return 0;');
+    lines.push('    }');
+    lines.push('    pos++;  /* skip : */');
+    lines.push('    if (pos + 64 >= len) return 0;');
+    lines.push('    for (size_t i = 0; i < 64; i++) {');
+    lines.push("        char c = s[pos + i];");
+    lines.push("        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;");
+    lines.push('    }');
+    lines.push('    pos += 64;');
+    lines.push("    if (pos >= len || s[pos] != ':') return 0;");
+    lines.push('    pos++;');
+    lines.push('    return schemata_check_dot_tail(s, pos, len);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_datetime_iso')) {
+    lines.push('static int schemata_check_datetime_iso(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 10) return 0;');
+    lines.push('    for (int i = 0; i < 4; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push("    if (s[4] != '-') return 0;");
+    lines.push('    for (int i = 5; i < 7; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push("    if (s[7] != '-') return 0;");
+    lines.push('    for (int i = 8; i < 10; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push('    if (len == 10) return 1;');
+    lines.push("    if (s[10] != 'T' || len < 16) return 0;");
+    lines.push('    for (int i = 11; i < 13; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push("    if (s[13] != ':') return 0;");
+    lines.push('    for (int i = 14; i < 16; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push('    size_t pos = 16;');
+    lines.push('    if (pos == len) return 1;');
+    lines.push("    if (s[pos] == ':') {");
+    lines.push('        if (pos + 3 > len) return 0;');
+    lines.push('        for (size_t i = pos + 1; i < pos + 3; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push('        pos += 3;');
+    lines.push('    }');
+    lines.push('    if (pos == len) return 1;');
+    lines.push("    if (s[pos] == '.') {");
+    lines.push('        pos++;');
+    lines.push("        if (pos >= len || s[pos] < '0' || s[pos] > '9') return 0;");
+    lines.push("        while (pos < len && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('    }');
+    lines.push('    if (pos == len) return 1;');
+    lines.push("    if (s[pos] == 'Z') return pos + 1 == len;");
+    lines.push("    if (s[pos] == '+' || s[pos] == '-') {");
+    lines.push('        if (pos + 6 != len) return 0;');
+    lines.push('        for (size_t i = pos + 1; i < pos + 3; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push("        if (s[pos + 3] != ':') return 0;");
+    lines.push('        for (size_t i = pos + 4; i < pos + 6; i++) if (s[i] < \'0\' || s[i] > \'9\') return 0;');
+    lines.push('        return 1;');
+    lines.push('    }');
+    lines.push('    return 0;');
     lines.push('}');
     lines.push('');
   }

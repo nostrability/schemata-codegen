@@ -135,9 +135,20 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_relay_url');
       return { expr: `check_relay_url(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('check_a_tag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `check_a_tag(${varExpr}, &[${check.kinds.join(', ')}])`, helpers };
+      }
+      return { expr: `check_a_tag(${varExpr}, &[])`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('check_datetime_iso');
+      return { expr: `check_datetime_iso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('check_decimal');
@@ -535,6 +546,14 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  // Shared dot-tail helper: checks remaining bytes have >=1 byte and no \n (Rust regex . excludes \n only)
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+    lines.push('fn check_dot_tail(b: &[u8], pos: usize) -> bool {');
+    lines.push("    pos < b.len() && b[pos..].iter().all(|&c| c != b'\\n')");
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('check_relay_url')) {
     lines.push('fn check_relay_url(s: &str) -> bool {');
     lines.push('    let b = s.as_bytes();');
@@ -553,9 +572,70 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        if i == port_start { return false; }');
     lines.push('    }');
     lines.push("    if i < b.len() && b[i] == b'/' {");
-    lines.push("        return b[i+1..].iter().all(|&c| c != b'\\n'); // regex crate . excludes \\n only");
+    lines.push('        return check_dot_tail(b, i + 1) || i + 1 == b.len();');
     lines.push('    }');
     lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_a_tag')) {
+    lines.push('fn check_a_tag(s: &str, kinds: &[u32]) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.len() < 68 { return false; }');
+    lines.push('    let mut pos = 0;');
+    lines.push('    if !b[pos].is_ascii_digit() { return false; }');
+    lines.push('    let mut kind: u32 = 0;');
+    lines.push('    while pos < b.len() && b[pos].is_ascii_digit() {');
+    lines.push("        kind = kind * 10 + (b[pos] - b'0') as u32;");
+    lines.push('        pos += 1;');
+    lines.push('    }');
+    lines.push("    if pos >= b.len() || b[pos] != b':' { return false; }");
+    lines.push('    if !kinds.is_empty() && !kinds.contains(&kind) { return false; }');
+    lines.push('    pos += 1;');
+    lines.push('    if pos + 64 >= b.len() { return false; }');
+    lines.push("    if !b[pos..pos+64].iter().all(|&c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) { return false; }");
+    lines.push('    pos += 64;');
+    lines.push("    if pos >= b.len() || b[pos] != b':' { return false; }");
+    lines.push('    pos += 1;');
+    lines.push('    check_dot_tail(b, pos)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_datetime_iso')) {
+    lines.push('fn check_datetime_iso(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.len() < 10 { return false; }');
+    lines.push("    if !b[..4].iter().all(|c| c.is_ascii_digit()) || b[4] != b'-' { return false; }");
+    lines.push("    if !b[5..7].iter().all(|c| c.is_ascii_digit()) || b[7] != b'-' { return false; }");
+    lines.push('    if !b[8..10].iter().all(|c| c.is_ascii_digit()) { return false; }');
+    lines.push('    if b.len() == 10 { return true; }');
+    lines.push("    if b[10] != b'T' || b.len() < 16 { return false; }");
+    lines.push("    if !b[11..13].iter().all(|c| c.is_ascii_digit()) || b[13] != b':' { return false; }");
+    lines.push('    if !b[14..16].iter().all(|c| c.is_ascii_digit()) { return false; }');
+    lines.push('    let mut pos = 16;');
+    lines.push('    if pos == b.len() { return true; }');
+    lines.push("    if b[pos] == b':' {");
+    lines.push('        if pos + 3 > b.len() { return false; }');
+    lines.push('        if !b[pos+1..pos+3].iter().all(|c| c.is_ascii_digit()) { return false; }');
+    lines.push('        pos += 3;');
+    lines.push('    }');
+    lines.push('    if pos == b.len() { return true; }');
+    lines.push("    if b[pos] == b'.' {");
+    lines.push('        pos += 1;');
+    lines.push('        if pos >= b.len() || !b[pos].is_ascii_digit() { return false; }');
+    lines.push('        while pos < b.len() && b[pos].is_ascii_digit() { pos += 1; }');
+    lines.push('    }');
+    lines.push('    if pos == b.len() { return true; }');
+    lines.push("    if b[pos] == b'Z' { return pos + 1 == b.len(); }");
+    lines.push("    if b[pos] == b'+' || b[pos] == b'-' {");
+    lines.push('        if pos + 6 != b.len() { return false; }');
+    lines.push('        if !b[pos+1..pos+3].iter().all(|c| c.is_ascii_digit()) { return false; }');
+    lines.push("        if b[pos+3] != b':' { return false; }");
+    lines.push('        return b[pos+4..pos+6].iter().all(|c| c.is_ascii_digit());');
+    lines.push('    }');
+    lines.push('    false');
     lines.push('}');
     lines.push('');
   }

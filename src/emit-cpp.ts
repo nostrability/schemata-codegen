@@ -76,9 +76,20 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_relay_url');
       return { expr: `check_relay_url(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('check_a_tag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `check_a_tag(${varExpr}, {${check.kinds.join(', ')}})`, helpers };
+      }
+      return { expr: `check_a_tag(${varExpr}, {})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('check_date_iso');
       return { expr: `check_date_iso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('check_datetime_iso');
+      return { expr: `check_datetime_iso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('check_decimal');
@@ -461,6 +472,45 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('check_datetime_iso')) {
+    lines.push('inline bool check_datetime_iso(const std::string& s) {');
+    lines.push('    if (s.size() < 10) return false;');
+    lines.push("    for (int i = 0; i < 4; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    if (s[4] != '-') return false;");
+    lines.push("    for (int i = 5; i < 7; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    if (s[7] != '-') return false;");
+    lines.push("    for (int i = 8; i < 10; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('    if (s.size() == 10) return true;');
+    lines.push("    if (s[10] != 'T' || s.size() < 16) return false;");
+    lines.push("    for (int i = 11; i < 13; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    if (s[13] != ':') return false;");
+    lines.push("    for (int i = 14; i < 16; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('    std::size_t pos = 16;');
+    lines.push('    if (pos == s.size()) return true;');
+    lines.push("    if (s[pos] == ':') {");
+    lines.push('        if (pos + 3 > s.size()) return false;');
+    lines.push("        if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false;");
+    lines.push('        pos += 3;');
+    lines.push('    }');
+    lines.push('    if (pos == s.size()) return true;');
+    lines.push("    if (s[pos] == '.') {");
+    lines.push('        pos++;');
+    lines.push("        if (pos >= s.size() || s[pos] < '0' || s[pos] > '9') return false;");
+    lines.push("        while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('    }');
+    lines.push('    if (pos == s.size()) return true;');
+    lines.push("    if (s[pos] == 'Z') return pos + 1 == s.size();");
+    lines.push("    if (s[pos] == '+' || s[pos] == '-') {");
+    lines.push('        if (pos + 6 != s.size()) return false;');
+    lines.push("        if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false;");
+    lines.push("        if (s[pos+3] != ':') return false;");
+    lines.push("        return s[pos+4] >= '0' && s[pos+4] <= '9' && s[pos+5] >= '0' && s[pos+5] <= '9';");
+    lines.push('    }');
+    lines.push('    return false;');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('check_decimal')) {
     lines.push('inline bool check_decimal(const std::string& s) {');
     lines.push('    if (s.empty()) return false;');
@@ -473,6 +523,17 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push("        while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
     lines.push('    }');
     lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_relay_url') || helpers.has('check_a_tag')) {
+    lines.push('inline bool check_dot_tail(const std::string& s, size_t pos) {');
+    lines.push('    if (pos >= s.size()) return false;');
+    lines.push('    for (size_t j = pos; j < s.size(); j++) {');
+    lines.push("        if (s[j] == '\\n' || s[j] == '\\r') return false;");
+    lines.push('    }');
+    lines.push('    return true;');
     lines.push('}');
     lines.push('');
   }
@@ -497,12 +558,35 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('        if (pos == port_start) return false;');
     lines.push('    }');
     lines.push("    if (pos < s.size() && s[pos] == '/') {");
-    lines.push('        for (size_t j = pos + 1; j < s.size(); j++) {');
-    lines.push("            if (s[j] == '\\n' || s[j] == '\\r') return false; // std::regex on std::string is byte-oriented; \\u2028/\\u2029 UTF-8 bytes don't match \\n or \\r");
-    lines.push('        }');
-    lines.push('        return true;');
+    lines.push('        return check_dot_tail(s, pos + 1) || pos + 1 == s.size();');
     lines.push('    }');
     lines.push('    return pos == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_a_tag')) {
+    lines.push('inline bool check_a_tag(const std::string& s, const std::vector<int>& kinds) {');
+    lines.push('    if (s.size() < 68) return false;');
+    lines.push('    std::size_t pos = 0;');
+    lines.push("    if (s[pos] < '0' || s[pos] > '9') return false;");
+    lines.push('    int kind = 0;');
+    lines.push("    while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') {");
+    lines.push("        kind = kind * 10 + (s[pos] - '0');");
+    lines.push('        pos++;');
+    lines.push('    }');
+    lines.push("    if (pos >= s.size() || s[pos] != ':') return false;");
+    lines.push('    if (!kinds.empty() && std::find(kinds.begin(), kinds.end(), kind) == kinds.end()) return false;');
+    lines.push('    pos++;');
+    lines.push('    if (pos + 64 >= s.size()) return false;');
+    lines.push('    for (std::size_t i = 0; i < 64; i++) {');
+    lines.push('        char c = s[pos + i];');
+    lines.push("        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('    }');
+    lines.push('    pos += 64;');
+    lines.push("    if (pos >= s.size() || s[pos] != ':') return false;");
+    lines.push('    pos++;');
+    lines.push('    return check_dot_tail(s, pos);');
     lines.push('}');
     lines.push('');
   }

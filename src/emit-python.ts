@@ -76,9 +76,20 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       helpers.add('_check_relay_url');
       return { expr: `_check_relay_url(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('_check_a_tag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `_check_a_tag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+      }
+      return { expr: `_check_a_tag(${varExpr})`, helpers };
+    }
     case 'date_iso': {
       helpers.add('_check_date_iso');
       return { expr: `_check_date_iso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('_check_datetime_iso');
+      return { expr: `_check_datetime_iso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('_check_decimal');
@@ -455,6 +466,64 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    return True');
   }
 
+  if (helpers.has('_check_datetime_iso')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_datetime_iso(s: str) -> bool:');
+    lines.push('    if len(s) < 10:');
+    lines.push('        return False');
+    lines.push("    if not all('0' <= s[i] <= '9' for i in range(4)):");
+    lines.push('        return False');
+    lines.push("    if s[4] != '-':");
+    lines.push('        return False');
+    lines.push("    if not all('0' <= s[i] <= '9' for i in range(5, 7)):");
+    lines.push('        return False');
+    lines.push("    if s[7] != '-':");
+    lines.push('        return False');
+    lines.push("    if not all('0' <= s[i] <= '9' for i in range(8, 10)):");
+    lines.push('        return False');
+    lines.push('    if len(s) == 10:');
+    lines.push('        return True');
+    lines.push("    if s[10] != 'T' or len(s) < 16:");
+    lines.push('        return False');
+    lines.push("    if not all('0' <= s[i] <= '9' for i in range(11, 13)):");
+    lines.push('        return False');
+    lines.push("    if s[13] != ':':");
+    lines.push('        return False');
+    lines.push("    if not all('0' <= s[i] <= '9' for i in range(14, 16)):");
+    lines.push('        return False');
+    lines.push('    pos = 16');
+    lines.push('    if pos == len(s):');
+    lines.push('        return True');
+    lines.push("    if s[pos] == ':':");
+    lines.push('        if pos + 3 > len(s):');
+    lines.push('            return False');
+    lines.push("        if not ('0' <= s[pos+1] <= '9' and '0' <= s[pos+2] <= '9'):");
+    lines.push('            return False');
+    lines.push('        pos += 3');
+    lines.push('    if pos == len(s):');
+    lines.push('        return True');
+    lines.push("    if s[pos] == '.':");
+    lines.push('        pos += 1');
+    lines.push("        if pos >= len(s) or not ('0' <= s[pos] <= '9'):");
+    lines.push('            return False');
+    lines.push("        while pos < len(s) and '0' <= s[pos] <= '9':");
+    lines.push('            pos += 1');
+    lines.push('    if pos == len(s):');
+    lines.push('        return True');
+    lines.push("    if s[pos] == 'Z':");
+    lines.push('        return pos + 1 == len(s)');
+    lines.push("    if s[pos] in ('+', '-'):");
+    lines.push('        if pos + 6 != len(s):');
+    lines.push('            return False');
+    lines.push("        if not ('0' <= s[pos+1] <= '9' and '0' <= s[pos+2] <= '9'):");
+    lines.push('            return False');
+    lines.push("        if s[pos+3] != ':':");
+    lines.push('            return False');
+    lines.push("        return '0' <= s[pos+4] <= '9' and '0' <= s[pos+5] <= '9'");
+    lines.push('    return False');
+  }
+
   if (helpers.has('_check_decimal')) {
     if (lines.length > 0) lines.push('');
     lines.push('');
@@ -473,6 +542,13 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("        while i < len(s) and s[i].isdigit():");
     lines.push('            i += 1');
     lines.push('    return i == len(s)');
+  }
+
+  if (helpers.has('_check_relay_url') || helpers.has('_check_a_tag')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_dot_tail(s: str, pos: int) -> bool:');
+    lines.push("    return pos < len(s) and '\\n' not in s[pos:]");
   }
 
   if (helpers.has('_check_relay_url')) {
@@ -498,8 +574,40 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('        if pos == port_start:');
     lines.push('            return False');
     lines.push("    if pos < len(s) and s[pos] == '/':");
-    lines.push("        return '\\n' not in s[pos+1:]  # re . excludes \\n only");
+    lines.push("        return _check_dot_tail(s, pos + 1) or pos + 1 == len(s)");
     lines.push('    return pos == len(s)');
+  }
+
+  if (helpers.has('_check_a_tag')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('_HEX_LOWER = set("0123456789abcdef")');
+    lines.push('');
+    lines.push('');
+    lines.push('def _check_a_tag(s: str, kinds: list[int] | None = None) -> bool:');
+    lines.push('    if len(s) < 68:');
+    lines.push('        return False');
+    lines.push('    pos = 0');
+    lines.push("    if not ('0' <= s[pos] <= '9'):");
+    lines.push('        return False');
+    lines.push('    kind = 0');
+    lines.push("    while pos < len(s) and '0' <= s[pos] <= '9':");
+    lines.push("        kind = kind * 10 + (ord(s[pos]) - ord('0'))");
+    lines.push('        pos += 1');
+    lines.push("    if pos >= len(s) or s[pos] != ':':");
+    lines.push('        return False');
+    lines.push('    if kinds is not None and kind not in kinds:');
+    lines.push('        return False');
+    lines.push('    pos += 1');
+    lines.push('    if pos + 64 >= len(s):');
+    lines.push('        return False');
+    lines.push('    if not all(c in _HEX_LOWER for c in s[pos:pos+64]):');
+    lines.push('        return False');
+    lines.push('    pos += 64');
+    lines.push("    if pos >= len(s) or s[pos] != ':':");
+    lines.push('        return False');
+    lines.push('    pos += 1');
+    lines.push('    return _check_dot_tail(s, pos)');
   }
 
   if (helpers.has('_check_bech32')) {

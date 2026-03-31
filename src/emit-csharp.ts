@@ -73,9 +73,20 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('CheckRelayUrl');
       return { expr: `CheckRelayUrl(${varExpr})`, helpers };
     }
+    case 'a_tag': {
+      helpers.add('CheckATag');
+      if (check.kinds && check.kinds.length > 0) {
+        return { expr: `CheckATag(${varExpr}, new[]{${check.kinds.join(', ')}})`, helpers };
+      }
+      return { expr: `CheckATag(${varExpr}, null)`, helpers };
+    }
     case 'date_iso': {
       helpers.add('CheckDateIso');
       return { expr: `CheckDateIso(${varExpr})`, helpers };
+    }
+    case 'datetime_iso': {
+      helpers.add('CheckDatetimeIso');
+      return { expr: `CheckDatetimeIso(${varExpr})`, helpers };
     }
     case 'decimal': {
       helpers.add('CheckDecimal');
@@ -446,6 +457,46 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('CheckDatetimeIso')) {
+    lines.push('        private static bool CheckDatetimeIso(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null || s.Length < 10) return false;');
+    lines.push("            for (int i = 0; i < 4; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            if (s[4] != '-') return false;");
+    lines.push("            for (int i = 5; i < 7; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            if (s[7] != '-') return false;");
+    lines.push("            for (int i = 8; i < 10; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('            if (s.Length == 10) return true;');
+    lines.push("            if (s[10] != 'T' || s.Length < 16) return false;");
+    lines.push("            for (int i = 11; i < 13; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            if (s[13] != ':') return false;");
+    lines.push("            for (int i = 14; i < 16; i++) if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push('            int pos = 16;');
+    lines.push('            if (pos == s.Length) return true;');
+    lines.push("            if (s[pos] == ':') {");
+    lines.push('                if (pos + 3 > s.Length) return false;');
+    lines.push("                if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false;");
+    lines.push('                pos += 3;');
+    lines.push('            }');
+    lines.push('            if (pos == s.Length) return true;');
+    lines.push("            if (s[pos] == '.') {");
+    lines.push('                pos++;');
+    lines.push("                if (pos >= s.Length || s[pos] < '0' || s[pos] > '9') return false;");
+    lines.push("                while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('            }');
+    lines.push('            if (pos == s.Length) return true;');
+    lines.push("            if (s[pos] == 'Z') return pos + 1 == s.Length;");
+    lines.push("            if (s[pos] == '+' || s[pos] == '-') {");
+    lines.push('                if (pos + 6 != s.Length) return false;');
+    lines.push("                if (s[pos+1] < '0' || s[pos+1] > '9' || s[pos+2] < '0' || s[pos+2] > '9') return false;");
+    lines.push("                if (s[pos+3] != ':') return false;");
+    lines.push("                return s[pos+4] >= '0' && s[pos+4] <= '9' && s[pos+5] >= '0' && s[pos+5] <= '9';");
+    lines.push('            }');
+    lines.push('            return false;');
+    lines.push('        }');
+    lines.push('');
+  }
+
   if (helpers.has('CheckDecimal')) {
     lines.push('        private static bool CheckDecimal(string s)');
     lines.push('        {');
@@ -460,6 +511,18 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push("                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
     lines.push('            }');
     lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckRelayUrl') || helpers.has('CheckATag')) {
+    lines.push('        private static bool CheckDotTail(string s, int pos)');
+    lines.push('        {');
+    lines.push('            if (pos >= s.Length) return false;');
+    lines.push('            for (int j = pos; j < s.Length; j++) {');
+    lines.push("                if (s[j] == '\\n') return false;");
+    lines.push('            }');
+    lines.push('            return true;');
     lines.push('        }');
     lines.push('');
   }
@@ -488,12 +551,36 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('                if (pos == portStart) return false;');
     lines.push('            }');
     lines.push("            if (pos < s.Length && s[pos] == '/') {");
-    lines.push('                for (int j = pos + 1; j < s.Length; j++) {');
-    lines.push("                    if (s[j] == '\\n') return false; // .NET Regex . excludes \\n only");
-    lines.push('                }');
-    lines.push('                return true;');
+    lines.push('                return CheckDotTail(s, pos + 1) || pos + 1 == s.Length;');
     lines.push('            }');
     lines.push('            return pos == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckATag')) {
+    lines.push('        private static bool CheckATag(string s, int[] kinds)');
+    lines.push('        {');
+    lines.push('            if (s == null || s.Length < 68) return false;');
+    lines.push('            int pos = 0;');
+    lines.push("            if (s[pos] < '0' || s[pos] > '9') return false;");
+    lines.push('            int kind = 0;');
+    lines.push("            while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') {");
+    lines.push("                kind = kind * 10 + (s[pos] - '0');");
+    lines.push('                pos++;');
+    lines.push('            }');
+    lines.push("            if (pos >= s.Length || s[pos] != ':') return false;");
+    lines.push('            if (kinds != null && !kinds.Contains(kind)) return false;');
+    lines.push('            pos++;');
+    lines.push('            if (pos + 64 >= s.Length) return false;');
+    lines.push('            for (int i = 0; i < 64; i++) {');
+    lines.push('                char c = s[pos + i];');
+    lines.push("                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;");
+    lines.push('            }');
+    lines.push('            pos += 64;');
+    lines.push("            if (pos >= s.Length || s[pos] != ':') return false;");
+    lines.push('            pos++;');
+    lines.push('            return CheckDotTail(s, pos);');
     lines.push('        }');
     lines.push('');
   }

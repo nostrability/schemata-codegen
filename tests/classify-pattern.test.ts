@@ -120,13 +120,14 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
-  it('classifies ^[A-Za-z]{3,}$ as chars_in', () => {
+  it('classifies ^[A-Za-z]{3,}$ as chars_in with unbounded max', () => {
     const r = classifyRegex('^[A-Za-z]{3,}$');
-    // This won't match {3,} without max — but the regex has a comma without max
-    // Let's check what actually happens
-    if (r.op === 'chars_in') {
-      assert.strictEqual(r.charset, 'A-Za-z');
-    }
+    assert.strictEqual(r.op, 'chars_in');
+    assert.ok(r.op === 'chars_in');
+    assert.strictEqual(r.charset, 'A-Za-z');
+    assert.strictEqual(r.min, 3);
+    assert.strictEqual(r.max, undefined);
+    assert.ok(isNativeCheck(r));
   });
 
   it('classifies ^[A-Za-z]{3,6}$ as chars_in', () => {
@@ -220,9 +221,39 @@ describe('classifyRegex', () => {
     assert.strictEqual(r.op, 'regex');
   });
 
-  it('falls back to regex for ISO 8601 datetime', () => {
+  it('classifies ISO 8601 datetime as datetime_iso', () => {
     const r = classifyRegex('^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})?)?$');
-    assert.strictEqual(r.op, 'regex');
+    assert.deepStrictEqual(r, { op: 'datetime_iso' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- a_tag ---
+
+  it('classifies generic event coordinate as a_tag', () => {
+    const r = classifyRegex('^\\d+:[a-f0-9]{64}:.+$');
+    assert.deepStrictEqual(r, { op: 'a_tag' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies single-kind coordinate as a_tag with kinds', () => {
+    const r = classifyRegex('^30311:[a-f0-9]{64}:.+$');
+    assert.deepStrictEqual(r, { op: 'a_tag', kinds: [30311] });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies multi-kind coordinate as a_tag with kinds', () => {
+    const r = classifyRegex('^(31922|31923):[a-f0-9]{64}:.+$');
+    assert.deepStrictEqual(r, { op: 'a_tag', kinds: [31922, 31923] });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('isNativeCheck returns true for a_tag', () => {
+    assert.ok(isNativeCheck({ op: 'a_tag' }));
+    assert.ok(isNativeCheck({ op: 'a_tag', kinds: [30311] }));
+  });
+
+  it('isNativeCheck returns true for datetime_iso', () => {
+    assert.ok(isNativeCheck({ op: 'datetime_iso' }));
   });
 
   // --- isNativeCheck ---
@@ -289,7 +320,11 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^-----BEGIN PGP SIGNATURE-----[\\s\\S]*-----END PGP SIGNATURE-----$',
     '^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\\s*;\\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$',
     '^\\d+:[a-f0-9]{64}:.+$',
+    '^30311:[a-f0-9]{64}:.+$',
+    '^30312:[a-f0-9]{64}:.+$',
     '^(31922|31923):[a-f0-9]{64}:.+$',
+    '^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})?)?$',
+    '^[A-Za-z]{3,}$',
     '^npub1[02-9ac-hj-np-z]{58}$',
     '^note1[02-9ac-hj-np-z]{58}$',
     '^nprofile1[02-9ac-hj-np-z]+$',
@@ -470,6 +505,201 @@ describe('check_relay_url behavioral correctness', () => {
     for (const input of inputs) {
       const regexResult = regex.test(input);
       const nativeResult = checkRelayUrl(input);
+      assert.strictEqual(nativeResult, regexResult,
+        `Mismatch for "${input}": native=${nativeResult}, regex=${regexResult}`);
+    }
+  });
+});
+
+describe('check_a_tag behavioral correctness', () => {
+  // Reference implementation matching JS regex semantics.
+  // Pattern: ^\d+:[a-f0-9]{64}:.+$
+  // JS . excludes \n, \r, \u2028, \u2029 but NOT \u0085 (NEL)
+  function checkATag(s: string, kinds?: number[]): boolean {
+    if (s.length < 68) return false;
+    let pos = 0;
+    if (s[pos] < '0' || s[pos] > '9') return false;
+    let kind = 0;
+    while (pos < s.length && s[pos] >= '0' && s[pos] <= '9') {
+      kind = kind * 10 + (s.charCodeAt(pos) - 0x30);
+      pos++;
+    }
+    if (pos >= s.length || s[pos] !== ':') return false;
+    if (kinds && kinds.length > 0 && !kinds.includes(kind)) return false;
+    pos++;
+    if (pos + 64 >= s.length) return false;
+    for (let i = 0; i < 64; i++) {
+      const c = s[pos + i];
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    pos += 64;
+    if (pos >= s.length || s[pos] !== ':') return false;
+    pos++;
+    // .+ means >=1 char, no JS line terminators
+    if (pos >= s.length) return false;
+    for (let j = pos; j < s.length; j++) {
+      const c = s[j];
+      if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
+    }
+    return true;
+  }
+
+  const hex64 = 'a'.repeat(64);
+
+  // --- Valid ---
+  it('accepts generic coordinate', () => assert.ok(checkATag(`1:${hex64}:d-id`)));
+  it('accepts kind 30023', () => assert.ok(checkATag(`30023:${hex64}:slug`)));
+  it('accepts single char d-id', () => assert.ok(checkATag(`0:${hex64}:x`)));
+  it('accepts d-id with spaces', () => assert.ok(checkATag(`1:${hex64}:hello world`)));
+  it('accepts d-id with special chars', () => assert.ok(checkATag(`1:${hex64}:a/b?c=1&d=2`)));
+  it('accepts d-id with NEL (valid in JS)', () => assert.ok(checkATag(`1:${hex64}:\u0085id`)));
+  it('accepts with kinds filter matching', () => assert.ok(checkATag(`30311:${hex64}:test`, [30311])));
+  it('accepts with multi-kinds filter', () => assert.ok(checkATag(`31922:${hex64}:test`, [31922, 31923])));
+
+  // --- Invalid ---
+  it('rejects empty string', () => assert.ok(!checkATag('')));
+  it('rejects too short', () => assert.ok(!checkATag('1:abc:d')));
+  it('rejects missing kind digits', () => assert.ok(!checkATag(`:${hex64}:d-id`)));
+  it('rejects non-digit kind', () => assert.ok(!checkATag(`abc:${hex64}:d-id`)));
+  it('rejects missing first colon', () => assert.ok(!checkATag(`1${hex64}:d-id`)));
+  it('rejects short hex', () => assert.ok(!checkATag(`1:${'a'.repeat(63)}:d-id`)));
+  it('rejects uppercase hex', () => assert.ok(!checkATag(`1:${'A'.repeat(64)}:d-id`)));
+  it('rejects missing second colon', () => assert.ok(!checkATag(`1:${hex64}d-id`)));
+  it('rejects empty d-id', () => assert.ok(!checkATag(`1:${hex64}:`)));
+  it('rejects newline in d-id', () => assert.ok(!checkATag(`1:${hex64}:d\nid`)));
+  it('rejects \\r in d-id', () => assert.ok(!checkATag(`1:${hex64}:d\rid`)));
+  it('rejects wrong kind with filter', () => assert.ok(!checkATag(`30312:${hex64}:test`, [30311])));
+  it('rejects wrong kind with multi-filter', () => assert.ok(!checkATag(`30000:${hex64}:test`, [31922, 31923])));
+
+  // --- Regex equivalence ---
+  it('reference matches regex for generic pattern', () => {
+    const regex = new RegExp('^\\d+:[a-f0-9]{64}:.+$');
+    const inputs = [
+      `1:${hex64}:d-id`,
+      `30023:${hex64}:slug`,
+      `0:${hex64}:x`,
+      `1:${hex64}:hello world`,
+      '',
+      'short',
+      `:${hex64}:d-id`,
+      `abc:${hex64}:d-id`,
+      `1:${hex64}:`,
+      `1:${hex64}:d\nid`,
+      `1:${hex64}:d\rid`,
+      `1:${hex64}:\u0085id`,
+      `1:${'A'.repeat(64)}:d-id`,
+      `1:${'a'.repeat(63)}:d-id`,
+    ];
+    for (const input of inputs) {
+      const regexResult = regex.test(input);
+      const nativeResult = checkATag(input);
+      assert.strictEqual(nativeResult, regexResult,
+        `Mismatch for ${JSON.stringify(input)}: native=${nativeResult}, regex=${regexResult}`);
+    }
+  });
+});
+
+describe('check_datetime_iso behavioral correctness', () => {
+  // Reference implementation matching the regex:
+  // ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$
+  function checkDatetimeIso(s: string): boolean {
+    if (s.length < 10) return false;
+    for (let i = 0; i < 4; i++) if (s[i] < '0' || s[i] > '9') return false;
+    if (s[4] !== '-') return false;
+    for (let i = 5; i < 7; i++) if (s[i] < '0' || s[i] > '9') return false;
+    if (s[7] !== '-') return false;
+    for (let i = 8; i < 10; i++) if (s[i] < '0' || s[i] > '9') return false;
+    if (s.length === 10) return true;
+    if (s[10] !== 'T' || s.length < 16) return false;
+    for (let i = 11; i < 13; i++) if (s[i] < '0' || s[i] > '9') return false;
+    if (s[13] !== ':') return false;
+    for (let i = 14; i < 16; i++) if (s[i] < '0' || s[i] > '9') return false;
+    let pos = 16;
+    if (pos === s.length) return true;
+    if (s[pos] === ':') {
+      if (pos + 3 > s.length) return false;
+      if (s[pos + 1] < '0' || s[pos + 1] > '9' || s[pos + 2] < '0' || s[pos + 2] > '9') return false;
+      pos += 3;
+    }
+    if (pos === s.length) return true;
+    if (s[pos] === '.') {
+      pos++;
+      if (pos >= s.length || s[pos] < '0' || s[pos] > '9') return false;
+      while (pos < s.length && s[pos] >= '0' && s[pos] <= '9') pos++;
+    }
+    if (pos === s.length) return true;
+    if (s[pos] === 'Z') return pos + 1 === s.length;
+    if (s[pos] === '+' || s[pos] === '-') {
+      if (pos + 6 !== s.length) return false;
+      if (s[pos + 1] < '0' || s[pos + 1] > '9' || s[pos + 2] < '0' || s[pos + 2] > '9') return false;
+      if (s[pos + 3] !== ':') return false;
+      return s[pos + 4] >= '0' && s[pos + 4] <= '9' && s[pos + 5] >= '0' && s[pos + 5] <= '9';
+    }
+    return false;
+  }
+
+  // --- Valid ---
+  it('accepts date only', () => assert.ok(checkDatetimeIso('2024-01-15')));
+  it('accepts date + time', () => assert.ok(checkDatetimeIso('2024-01-15T10:30')));
+  it('accepts date + time + seconds', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45')));
+  it('accepts date + time + fractional', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45.123')));
+  it('accepts date + time + Z', () => assert.ok(checkDatetimeIso('2024-01-15T10:30Z')));
+  it('accepts date + time + seconds + Z', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45Z')));
+  it('accepts date + time + fractional + Z', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45.123Z')));
+  it('accepts positive offset', () => assert.ok(checkDatetimeIso('2024-01-15T10:30+05:30')));
+  it('accepts negative offset', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45-08:00')));
+  it('accepts fractional + offset', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45.9+00:00')));
+  it('accepts long fractional', () => assert.ok(checkDatetimeIso('2024-01-15T10:30:45.123456789Z')));
+
+  // --- Invalid ---
+  it('rejects empty', () => assert.ok(!checkDatetimeIso('')));
+  it('rejects too short', () => assert.ok(!checkDatetimeIso('2024-01-1')));
+  it('rejects alpha in year', () => assert.ok(!checkDatetimeIso('20X4-01-15')));
+  it('rejects wrong separator', () => assert.ok(!checkDatetimeIso('2024/01/15')));
+  it('rejects T without time', () => assert.ok(!checkDatetimeIso('2024-01-15T')));
+  it('rejects T with incomplete time', () => assert.ok(!checkDatetimeIso('2024-01-15T10')));
+  it('rejects T with partial time', () => assert.ok(!checkDatetimeIso('2024-01-15T10:3')));
+  it('rejects trailing garbage', () => assert.ok(!checkDatetimeIso('2024-01-15X')));
+  it('rejects incomplete seconds', () => assert.ok(!checkDatetimeIso('2024-01-15T10:30:4')));
+  it('rejects dot without digits', () => assert.ok(!checkDatetimeIso('2024-01-15T10:30:45.')));
+  it('rejects incomplete offset', () => assert.ok(!checkDatetimeIso('2024-01-15T10:30+05')));
+  it('rejects offset wrong format', () => assert.ok(!checkDatetimeIso('2024-01-15T10:30+0530')));
+  it('rejects Z with trailing', () => assert.ok(!checkDatetimeIso('2024-01-15T10:30Zx')));
+
+  // --- Regex equivalence ---
+  it('reference matches regex on all test inputs', () => {
+    const regex = new RegExp('^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})?)?$');
+    const inputs = [
+      '2024-01-15',
+      '2024-01-15T10:30',
+      '2024-01-15T10:30:45',
+      '2024-01-15T10:30:45.123',
+      '2024-01-15T10:30Z',
+      '2024-01-15T10:30:45Z',
+      '2024-01-15T10:30:45.123Z',
+      '2024-01-15T10:30+05:30',
+      '2024-01-15T10:30:45-08:00',
+      '2024-01-15T10:30:45.9+00:00',
+      '2024-01-15T10:30:45.123456789Z',
+      '',
+      '2024-01-1',
+      '20X4-01-15',
+      '2024/01/15',
+      '2024-01-15T',
+      '2024-01-15T10',
+      '2024-01-15T10:3',
+      '2024-01-15X',
+      '2024-01-15T10:30:4',
+      '2024-01-15T10:30:45.',
+      '2024-01-15T10:30+05',
+      '2024-01-15T10:30+0530',
+      '2024-01-15T10:30Zx',
+      '2024-01-15T10:30:45.Z',
+      '2024-01-15T10:30:45+25:00',
+    ];
+    for (const input of inputs) {
+      const regexResult = regex.test(input);
+      const nativeResult = checkDatetimeIso(input);
       assert.strictEqual(nativeResult, regexResult,
         `Mismatch for "${input}": native=${nativeResult}, regex=${regexResult}`);
     }
