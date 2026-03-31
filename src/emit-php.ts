@@ -142,6 +142,7 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
     }
     case 'content_type': {
       helpers.add('schemata_check_content_type');
+      helpers.add('schemata_is_ecma_ws');
       return { expr: `schemata_check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -724,7 +725,6 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    for ($i = 0; $i < $kLen; $i++) {');
     lines.push("        if ($kindStr[$i] < '0' || $kindStr[$i] > '9') { return false; }");
     lines.push('    }');
-    lines.push("    if ($kLen > 1 && $kindStr[0] === '0') { return false; }");
     lines.push('    if ($kinds !== null && !in_array($kindStr, $kinds, true)) { return false; }');
     lines.push('    $pos = $colonPos + 1;');
     lines.push('    if ($pos + 64 >= strlen($s)) { return false; }');
@@ -967,10 +967,10 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    while ($i < strlen($s) && schemata_is_subtype_char($s[$i])) { $i++; }');
     lines.push('    while ($i < strlen($s)) {');
     lines.push('        $j = $i;');
-    lines.push("        while ($j < strlen($s) && ($s[$j] === ' ' || $s[$j] === \"\\t\")) { $j++; }");
+    lines.push("        while (($__adv = schemata_is_ecma_ws($s, $j)) > 0) { $j += $__adv; }");
     lines.push("        if ($j >= strlen($s) || $s[$j] !== ';') { return false; }");
     lines.push('        $j++;');
-    lines.push("        while ($j < strlen($s) && ($s[$j] === ' ' || $s[$j] === \"\\t\")) { $j++; }");
+    lines.push("        while (($__adv = schemata_is_ecma_ws($s, $j)) > 0) { $j += $__adv; }");
     lines.push('        $start = $j;');
     lines.push('        while ($j < strlen($s) && schemata_is_subtype_char($s[$j])) { $j++; }');
     lines.push('        if ($j === $start) { return false; }');

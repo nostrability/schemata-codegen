@@ -148,6 +148,8 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
     }
     case 'content_type': {
       helpers.add('checkContentType');
+      helpers.add('isEcmaWs');
+      helpers.add('utf8');
       return { expr: `checkContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -512,6 +514,9 @@ function emitGoFile(
   if (helpers.has('regexp')) {
     imports.push('"regexp"');
   }
+  if (helpers.has('utf8')) {
+    imports.push('"unicode/utf8"');
+  }
   if (imports.length > 0) {
     if (imports.length === 1) {
       lines.push(`import ${imports[0]}`);
@@ -855,7 +860,6 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t}');
     lines.push("\tif colonPos >= len(s) || s[colonPos] != ':' { return false }");
     lines.push('\tkindStr := s[:colonPos]');
-    lines.push("\tif len(kindStr) > 1 && kindStr[0] == '0' { return false }");
     lines.push('\tif len(kinds) > 0 {');
     lines.push('\t\tfound := false');
     lines.push('\t\tfor _, k := range kinds {');
@@ -1176,8 +1180,10 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\ti++');
     lines.push('\t}');
     lines.push('\tfor i < len(s) {');
-    lines.push("\t\tfor i < len(s) && (s[i] == ' ' || s[i] == '\\t') {");
-    lines.push('\t\t\ti++');
+    lines.push('\t\tfor i < len(s) {');
+    lines.push('\t\t\tr, sz := utf8.DecodeRuneInString(s[i:])');
+    lines.push('\t\t\tif !isEcmaWs(r) { break }');
+    lines.push('\t\t\ti += sz');
     lines.push('\t\t}');
     lines.push('\t\tif i >= len(s) {');
     lines.push('\t\t\treturn false');
@@ -1186,8 +1192,10 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\t\treturn false');
     lines.push('\t\t}');
     lines.push('\t\ti++');
-    lines.push("\t\tfor i < len(s) && (s[i] == ' ' || s[i] == '\\t') {");
-    lines.push('\t\t\ti++');
+    lines.push('\t\tfor i < len(s) {');
+    lines.push('\t\t\tr, sz := utf8.DecodeRuneInString(s[i:])');
+    lines.push('\t\t\tif !isEcmaWs(r) { break }');
+    lines.push('\t\t\ti += sz');
     lines.push('\t\t}');
     lines.push('\t\tstart := i');
     lines.push('\t\tfor i < len(s) && isSubtypeChar(s[i]) {');

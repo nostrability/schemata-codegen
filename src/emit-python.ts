@@ -138,6 +138,7 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
     }
     case 'content_type': {
       helpers.add('_check_content_type');
+      helpers.add('_is_ecma_ws');
       return { expr: `_check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -668,8 +669,6 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("    if pos >= len(s) or s[pos] != ':':");
     lines.push('        return False');
     lines.push('    kind_str = s[:pos]');
-    lines.push('    if len(kind_str) > 1 and kind_str[0] == "0":');
-    lines.push('        return False');
     lines.push('    if kinds is not None and kind_str not in kinds:');
     lines.push('        return False');
     lines.push('    pos += 1');
@@ -872,14 +871,14 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('        i += 1');
     lines.push('    while i < len(s):');
     lines.push("        j = i");
-    lines.push("        while j < len(s) and s[j] in ' \\t':");
+    lines.push("        while j < len(s) and _is_ecma_ws(s[j]):");
     lines.push("            j += 1");
     lines.push("        if j >= len(s):");
     lines.push('            return False');
     lines.push("        if s[j] != ';':");
     lines.push('            break');
     lines.push('        j += 1');
-    lines.push("        while j < len(s) and s[j] in ' \\t':");
+    lines.push("        while j < len(s) and _is_ecma_ws(s[j]):");
     lines.push("            j += 1");
     lines.push('        start = j');
     lines.push('        while j < len(s) and _is_subtype_char(s[j]):');

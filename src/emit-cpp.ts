@@ -140,6 +140,7 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     }
     case 'content_type': {
       helpers.add('check_content_type');
+      helpers.add('is_ecma_ws');
       return { expr: `check_content_type(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -654,8 +655,6 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push("    while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push('    std::size_t kind_len = pos - kind_start;');
     lines.push("    if (pos >= s.size() || s[pos] != ':') return false;");
-    lines.push('    /* reject leading zeros: "0" ok, "0N..." not ok */');
-    lines.push("    if (kind_len > 1 && s[kind_start] == '0') return false;");
     lines.push('    if (!kinds.empty()) {');
     lines.push('        bool found = false;');
     lines.push('        for (const auto& k : kinds) {');
@@ -862,11 +861,11 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    i++;');
     lines.push('    while (i < s.size() && is_subtype_char(s[i])) i++;');
     lines.push('    while (i < s.size()) {');
-    lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("        { int adv; while (i < s.size() && (adv = is_ecma_ws(s, i)) > 0) i += adv; }");
     lines.push('        if (i >= s.size()) return false;  /* trailing OWS not allowed */');
     lines.push("        if (s[i] != ';') return false;");
     lines.push('        i++;');
-    lines.push("        while (i < s.size() && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("        { int adv; while (i < s.size() && (adv = is_ecma_ws(s, i)) > 0) i += adv; }");
     lines.push('        size_t param_start = i;');
     lines.push('        while (i < s.size() && is_subtype_char(s[i])) i++;');
     lines.push('        if (i == param_start) return false;');
@@ -912,7 +911,9 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('        if (pos == dstart) return false;');
     lines.push("        if (pos < s.size() && s[pos] == '.') {");
     lines.push('            pos++;');
+    lines.push('            size_t fstart = pos;');
     lines.push("            while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('            if (pos == fstart) return false;');
     lines.push('        }');
     lines.push('    }');
     lines.push('    return pos == s.size();');

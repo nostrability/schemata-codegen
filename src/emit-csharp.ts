@@ -137,6 +137,7 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
     }
     case 'content_type': {
       helpers.add('CheckContentType');
+      helpers.add('IsEcmaWs');
       return { expr: `CheckContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -838,11 +839,11 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            i++;');
     lines.push('            while (i < s.Length && IsSubtypeChar(s[i])) i++;');
     lines.push('            while (i < s.Length) {');
-    lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("                while (i < s.Length && IsEcmaWs(s[i])) i++;");
     lines.push('                if (i >= s.Length) return false;');
     lines.push("                if (s[i] != ';') return false;");
     lines.push('                i++;');
-    lines.push("                while (i < s.Length && (s[i] == ' ' || s[i] == '\\t')) i++;");
+    lines.push("                while (i < s.Length && IsEcmaWs(s[i])) i++;");
     lines.push('                int nameStart = i;');
     lines.push('                while (i < s.Length && IsSubtypeChar(s[i])) i++;');
     lines.push('                if (i == nameStart) return false;');

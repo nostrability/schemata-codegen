@@ -134,6 +134,7 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'content_type': {
       helpers.add('_checkContentType');
+      helpers.add('_isEcmaWs');
       return { expr: `_checkContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -632,7 +633,6 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('    pos++;');
     lines.push('  }');
     lines.push('  final kindLen = pos - kindStart;');
-    lines.push('  if (kindLen > 1 && s.codeUnitAt(kindStart) == 48) return false;');
     lines.push("  if (pos >= s.length || s[pos] != ':') return false;");
     lines.push('  if (kinds != null) {');
     lines.push('    final kindStr = s.substring(kindStart, pos);');
@@ -825,11 +825,11 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  i++;');
     lines.push('  while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
     lines.push('  while (i < s.length) {');
-    lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
+    lines.push('    while (i < s.length && _isEcmaWs(s.codeUnitAt(i))) i++;');
     lines.push('    if (i >= s.length) return false;');
     lines.push('    if (s.codeUnitAt(i) != 59) return false;');
     lines.push('    i++;');
-    lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
+    lines.push('    while (i < s.length && _isEcmaWs(s.codeUnitAt(i))) i++;');
     lines.push('    final nameStart = i;');
     lines.push('    while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
     lines.push('    if (i == nameStart) return false;');

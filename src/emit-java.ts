@@ -142,6 +142,7 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'content_type': {
       helpers.add('checkContentType');
+      helpers.add('isEcmaWs');
       return { expr: `checkContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -657,7 +658,6 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("        if (pos >= s.length() || s.charAt(pos) != ':') return false;");
     lines.push('        int colonPos = pos;');
     lines.push('        int kindLen = colonPos - kindStart;');
-    lines.push("        if (kindLen > 1 && s.charAt(kindStart) == '0') return false;");
     lines.push('        if (kinds != null) {');
     lines.push('            String kindStr = s.substring(kindStart, colonPos);');
     lines.push('            boolean found = false;');
@@ -885,10 +885,10 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        while (i < s.length() && isSubtypeChar(s.charAt(i))) i++;');
     lines.push('        while (i < s.length()) {');
     lines.push('            int j = i;');
-    lines.push("            while (j < s.length() && (s.charAt(j) == ' ' || s.charAt(j) == '\\t')) j++;");
+    lines.push("            while (j < s.length() && isEcmaWs(s.charAt(j))) j++;");
     lines.push("            if (j >= s.length() || s.charAt(j) != ';') break;");
     lines.push('            j++;');
-    lines.push("            while (j < s.length() && (s.charAt(j) == ' ' || s.charAt(j) == '\\t')) j++;");
+    lines.push("            while (j < s.length() && isEcmaWs(s.charAt(j))) j++;");
     lines.push('            if (j >= s.length()) return false;');
     lines.push('            int start = j;');
     lines.push('            while (j < s.length() && isSubtypeChar(s.charAt(j))) j++;');

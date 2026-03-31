@@ -140,6 +140,7 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
     }
     case 'content_type': {
       helpers.add('checkContentType');
+      helpers.add('isEcmaWs');
       return { expr: `checkContentType(${varExpr})`, helpers };
     }
     case 'doi': {
@@ -620,7 +621,6 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    let kindStart = pos');
     lines.push('    while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
     lines.push('    let kindLen = pos - kindStart');
-    lines.push('    if kindLen > 1 && u[kindStart] == 0x30 { return false }');
     lines.push('    if pos >= u.count || u[pos] != 0x3A { return false }');
     lines.push('    if let ks = kinds {');
     lines.push('        let kindStr = String(s[s.index(s.startIndex, offsetBy: kindStart)..<s.index(s.startIndex, offsetBy: pos)])');
@@ -850,11 +850,25 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    if i >= u.count || !((u[i] >= 0x61 && u[i] <= 0x7A) || (u[i] >= 0x41 && u[i] <= 0x5A) || (u[i] >= 0x30 && u[i] <= 0x39) || u[i] == 0x2A) { return false }');
     lines.push('    i += 1');
     lines.push('    while i < u.count && isSubtypeChar(u[i]) { i += 1 }');
-    lines.push('    while i < u.count && (u[i] == 0x20 || u[i] == 0x09 || u[i] == 0x3B) {');
-    lines.push('        while i < u.count && (u[i] == 0x20 || u[i] == 0x09) { i += 1 }');
+    lines.push('    let utf8 = s.utf8');
+    lines.push('    while i < u.count {');
+    lines.push('        let byteIdx = utf8.index(utf8.startIndex, offsetBy: i)');
+    lines.push('        guard let ci = byteIdx.samePosition(in: s) else { break }');
+    lines.push('        if !isEcmaWs(s[ci]) && s[ci] != ";" { break }');
+    lines.push('        // skip OWS before semicolon');
+    lines.push('        while i < u.count {');
+    lines.push('            let bi = utf8.index(utf8.startIndex, offsetBy: i)');
+    lines.push('            guard let si = bi.samePosition(in: s), isEcmaWs(s[si]) else { break }');
+    lines.push('            i = utf8.distance(from: utf8.startIndex, to: s.index(after: si))');
+    lines.push('        }');
     lines.push('        if i >= u.count || u[i] != 0x3B { return false }');
     lines.push('        i += 1');
-    lines.push('        while i < u.count && (u[i] == 0x20 || u[i] == 0x09) { i += 1 }');
+    lines.push('        // skip OWS after semicolon');
+    lines.push('        while i < u.count {');
+    lines.push('            let bi = utf8.index(utf8.startIndex, offsetBy: i)');
+    lines.push('            guard let si = bi.samePosition(in: s), isEcmaWs(s[si]) else { break }');
+    lines.push('            i = utf8.distance(from: utf8.startIndex, to: s.index(after: si))');
+    lines.push('        }');
     lines.push('        let paramStart = i');
     lines.push('        while i < u.count && isSubtypeChar(u[i]) { i += 1 }');
     lines.push('        if i == paramStart { return false }');
@@ -905,7 +919,9 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        if pos == dstart { return false }');
     lines.push('        if pos < u.count && u[pos] == 0x2E {');
     lines.push('            pos += 1');
+    lines.push('            let fstart = pos');
     lines.push('            while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('            if pos == fstart { return false }');
     lines.push('        }');
     lines.push('    }');
     lines.push('    return pos == u.count');
