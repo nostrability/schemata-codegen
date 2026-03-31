@@ -456,7 +456,7 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push("    if (i < s.length && s[i] == '/') {");
     lines.push("        for (j in (i + 1) until s.length) {");
-    lines.push("            if (s[j] == '\\n' || s[j] == '\\r') return false");
+    lines.push("            if (s[j] == '\\n' || s[j] == '\\r' || s[j] == '\\u0085' || s[j] == '\\u2028' || s[j] == '\\u2029') return false");
     lines.push('        }');
     lines.push('        return true');
     lines.push('    }');

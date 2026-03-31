@@ -387,10 +387,11 @@ describe('check_relay_url behavioral correctness', () => {
       while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
       if (i === portStart) return false; // colon but no digits
     }
-    // Optional path: '/' followed by any chars except \n and \r (matches regex /.*/)
+    // Optional path: '/' followed by chars matching JS regex `.` (excludes JS LineTerminators)
     if (i < s.length && s[i] === '/') {
       for (let j = i + 1; j < s.length; j++) {
-        if (s[j] === '\n' || s[j] === '\r') return false;
+        const c = s[j];
+        if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
       }
       return true;
     }
@@ -424,6 +425,10 @@ describe('check_relay_url behavioral correctness', () => {
   it('rejects wss://relay.example.com/\\npath (newline in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/\npath')));
   // \r rejection is JS-specific; Python/Ruby/C/C#/Go/Rust/PHP accept \r (their . matches it)
   it('rejects wss://relay.example.com/path\\r\\n (CRLF in path, JS semantics)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/path\r\n')));
+  it('rejects wss://relay.example.com/\\u2028path (LS in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/\u2028path')));
+  it('rejects wss://relay.example.com/\\u2029path (PS in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/\u2029path')));
+  // \u0085 is NOT a JS LineTerminator — JS . matches it (but Java/Kotlin/Swift reject it)
+  it('accepts wss://relay.example.com/\\u0085path (NEL, valid in JS)', () => assert.ok(checkRelayUrl('wss://relay.example.com/\u0085path')));
 
   // --- Regex-vs-native equivalence ---
   it('reference implementation matches regex on all test inputs', () => {
@@ -458,6 +463,9 @@ describe('check_relay_url behavioral correctness', () => {
       'wss://relay.example.com/\npath',
       'wss://relay.example.com/path\r\n',
       'wss://relay.example.com/\rpath',
+      'wss://relay.example.com/\u2028path',
+      'wss://relay.example.com/\u2029path',
+      'wss://relay.example.com/\u0085path',  // NEL: JS . matches, Java/Swift . does not
     ];
     for (const input of inputs) {
       const regexResult = regex.test(input);

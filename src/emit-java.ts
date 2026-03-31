@@ -545,7 +545,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("        if (pos < s.length() && s.charAt(pos) == '/') {");
     lines.push('            for (int j = pos + 1; j < s.length(); j++) {');
     lines.push("                char ch = s.charAt(j);");
-    lines.push("                if (ch == '\\n' || ch == '\\r') return false;");
+    lines.push("                if (ch == '\\n' || ch == '\\r' || ch == '\\u0085' || ch == '\\u2028' || ch == '\\u2029') return false;");
     lines.push('            }');
     lines.push('            return true;');
     lines.push('        }');

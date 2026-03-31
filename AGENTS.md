@@ -99,9 +99,11 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER double-collect tag constraints** — `unwrapTagSchema` already merges `structural.allOf` contains into `extraAllOf`
 - **NEVER skip constrained optional positions in validation** — `emitTagMatcher` skips optional positions for existence checks, but constrained optional positions need a separate `validate_optional_positions` action
 - **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
-- **NEVER treat regex `.` as "any character"** — `.` always excludes `\n`, but `\r` handling varies by language. A native shortcut like "if slash, accept remainder" silently widens the accepted set. After any delimiter, scan remaining characters and reject the correct line terminators for the target language:
-  - **Reject `\n` only**: C (POSIX), C# (.NET), Go, Rust, Python, Ruby, PHP (PCRE)
-  - **Reject `\n` + `\r`**: Java, Kotlin, Swift (ICU), Dart, C++ (ECMAScript mode)
+- **NEVER treat regex `.` as "any character"** — `.` excludes language-specific line terminators. A native shortcut like "if slash, accept remainder" silently widens the accepted set. After any delimiter, scan remaining characters and reject the correct set for the target language:
+  - **`\n` only**: C (POSIX), C# (.NET), Go, Rust, Python, Ruby, PHP (PCRE)
+  - **`\n` `\r` `\u2028` `\u2029`**: Dart, C++ (ECMAScript mode)
+  - **`\n` `\r` `\u0085` `\u2028` `\u2029`**: Java, Kotlin, Swift (ICU)
+  - Note: `\u0085` (NEL) is Java/Kotlin/Swift-specific. `\u2028`/`\u2029` require multi-byte UTF-8 detection in byte-oriented languages (C, C++, Swift UTF-8 view).
 - **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
 - **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.
 - **NEVER add runtime dependencies** — zero dependencies (Node builtins only)

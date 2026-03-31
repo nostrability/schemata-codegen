@@ -479,7 +479,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push("  if (pos < s.length && s[pos] == '/') {");
     lines.push('    for (var j = pos + 1; j < s.length; j++) {');
     lines.push('      final c = s.codeUnitAt(j);');
-    lines.push('      if (c == 0x0A || c == 0x0D) return false;');
+    lines.push('      if (c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029) return false;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('  }');

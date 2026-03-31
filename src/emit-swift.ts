@@ -499,8 +499,13 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        if pos == portStart { return false }');
     lines.push('    }');
     lines.push('    if pos < u.count && u[pos] == 0x2F {');
-    lines.push('        for j in (pos + 1)..<u.count {');
-    lines.push('            if u[j] == 0x0A || u[j] == 0x0D { return false }');
+    lines.push('        var j = pos + 1');
+    lines.push('        while j < u.count {');
+    lines.push('            let b = u[j]');
+    lines.push('            if b == 0x0A || b == 0x0D { return false }');
+    lines.push('            if b == 0xC2 && j + 1 < u.count && u[j + 1] == 0x85 { return false }');
+    lines.push('            if b == 0xE2 && j + 2 < u.count && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9) { return false }');
+    lines.push('            j += 1');
     lines.push('        }');
     lines.push('        return true');
     lines.push('    }');
