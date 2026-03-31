@@ -498,12 +498,7 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push("    if (pos < s.size() && s[pos] == '/') {");
     lines.push('        for (size_t j = pos + 1; j < s.size(); j++) {');
-    lines.push("            unsigned char c = static_cast<unsigned char>(s[j]);");
-    lines.push("            if (c == '\\n' || c == '\\r') return false;");
-    lines.push("            if (c == 0xE2 && j + 2 < s.size() && static_cast<unsigned char>(s[j+1]) == 0x80) {");
-    lines.push("                unsigned char c3 = static_cast<unsigned char>(s[j+2]);");
-    lines.push("                if (c3 == 0xA8 || c3 == 0xA9) return false;");
-    lines.push("            }");
+    lines.push("            if (s[j] == '\\n' || s[j] == '\\r') return false; // std::regex on std::string is byte-oriented; \\u2028/\\u2029 UTF-8 bytes don't match \\n or \\r");
     lines.push('        }');
     lines.push('        return true;');
     lines.push('    }');

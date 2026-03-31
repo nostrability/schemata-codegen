@@ -101,9 +101,9 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
 - **NEVER treat regex `.` as "any character"** — `.` excludes language-specific line terminators. A native shortcut like "if slash, accept remainder" silently widens the accepted set. After any delimiter, scan remaining characters and reject the correct set for the target language:
   - **`\n` only**: C (POSIX), C# (.NET), Go, Rust, Python, Ruby, PHP (PCRE)
-  - **`\n` `\r` `\u2028` `\u2029`**: Dart, C++ (ECMAScript mode)
-  - **`\n` `\r` `\u0085` `\u2028` `\u2029`**: Java, Kotlin, Swift (ICU)
-  - Note: `\u0085` (NEL) is Java/Kotlin/Swift-specific. `\u2028`/`\u2029` require multi-byte UTF-8 detection in byte-oriented languages (C, C++, Swift UTF-8 view).
+  - **`\n` `\r` only**: C++ — `std::regex` on `std::string` is byte-oriented; the ECMAScript spec says `.` excludes `\u2028`/`\u2029`, but the UTF-8 bytes (E2 80 A8/A9) don't individually match `\n`/`\r`, so `std::regex` accepts them
+  - **`\n` `\r` `\u2028` `\u2029`**: Dart (16-bit code units, detects LS/PS directly)
+  - **`\n` `\r` `\u0085` `\u2028` `\u2029`**: Java, Kotlin (16-bit chars), Swift (ICU — uses UTF-8 byte sequence detection: C2 85, E2 80 A8/A9)
 - **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
 - **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.
 - **NEVER add runtime dependencies** — zero dependencies (Node builtins only)
