@@ -611,8 +611,6 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    const unsigned char* u = reinterpret_cast<const unsigned char*>(s.data());');
     lines.push('    for (size_t j = pos; j < s.size(); j++) {');
     lines.push("        if (u[j] == 0x0A || u[j] == 0x0D) return false;");
-    lines.push('        /* U+2028 (E2 80 A8) and U+2029 (E2 80 A9) */');
-    lines.push('        if (u[j] == 0xE2 && j + 2 < s.size() && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9)) return false;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
@@ -950,8 +948,6 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    const unsigned char* u = reinterpret_cast<const unsigned char*>(s.data());');
     lines.push('    for (size_t j = i; j < s.size(); j++) {');
     lines.push("        if (u[j] == 0x0A || u[j] == 0x0D) return false;");
-    lines.push('        /* U+2028 (E2 80 A8) and U+2029 (E2 80 A9) */');
-    lines.push('        if (u[j] == 0xE2 && j + 2 < s.size() && u[j + 1] == 0x80 && (u[j + 2] == 0xA8 || u[j + 2] == 0xA9)) return false;');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
