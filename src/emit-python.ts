@@ -498,7 +498,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('        if pos == port_start:');
     lines.push('            return False');
     lines.push("    if pos < len(s) and s[pos] == '/':");
-    lines.push("        return '\\n' not in s[pos+1:] and '\\r' not in s[pos+1:]");
+    lines.push("        return '\\n' not in s[pos+1:]  # re . excludes \\n only");
     lines.push('    return pos == len(s)');
   }
 

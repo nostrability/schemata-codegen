@@ -764,7 +764,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("    if (s[pos] == '/') {");
     lines.push('        pos++;');
     lines.push("        while (s[pos]) {");
-    lines.push("            if (s[pos] == '\\n' || s[pos] == '\\r') return 0;");
+    lines.push("            if (s[pos] == '\\n') return 0;  /* POSIX . excludes \\n only */");
     lines.push('            pos++;');
     lines.push('        }');
     lines.push('        return 1;');

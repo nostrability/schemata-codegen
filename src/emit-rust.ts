@@ -553,7 +553,7 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('        if i == port_start { return false; }');
     lines.push('    }');
     lines.push("    if i < b.len() && b[i] == b'/' {");
-    lines.push("        return b[i+1..].iter().all(|&c| c != b'\\n' && c != b'\\r');");
+    lines.push("        return b[i+1..].iter().all(|&c| c != b'\\n'); // regex crate . excludes \\n only");
     lines.push('    }');
     lines.push('    i == b.len()');
     lines.push('}');

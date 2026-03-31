@@ -489,7 +489,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            }');
     lines.push("            if (pos < s.Length && s[pos] == '/') {");
     lines.push('                for (int j = pos + 1; j < s.Length; j++) {');
-    lines.push("                    if (s[j] == '\\n' || s[j] == '\\r') return false;");
+    lines.push("                    if (s[j] == '\\n') return false; // .NET Regex . excludes \\n only");
     lines.push('                }');
     lines.push('                return true;');
     lines.push('            }');

@@ -603,7 +603,7 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push("    if ($pos < strlen($s) && $s[$pos] === '/') {");
     lines.push('        for ($j = $pos + 1; $j < strlen($s); $j++) {');
-    lines.push('            if ($s[$j] === "\\n" || $s[$j] === "\\r") { return false; }');
+    lines.push('            if ($s[$j] === "\\n") { return false; }  // PCRE . excludes \\n only');
     lines.push('        }');
     lines.push('        return true;');
     lines.push('    }');

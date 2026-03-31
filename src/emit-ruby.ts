@@ -481,7 +481,7 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('      return false if pos == port_start');
     lines.push('    end');
     lines.push("    if pos < s.length && s[pos] == '/'");
-    lines.push('      (pos + 1...s.length).each { |j| return false if s[j] == "\\n" || s[j] == "\\r" }');
+    lines.push('      (pos + 1...s.length).each { |j| return false if s[j] == "\\n" } # Regexp . excludes \\n only');
     lines.push('      return true');
     lines.push('    end');
     lines.push('    pos == s.length');

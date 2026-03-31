@@ -347,12 +347,15 @@ describe('check_decimal behavioral correctness', () => {
 });
 
 describe('check_relay_url behavioral correctness', () => {
-  // Reference implementation matching the emitted code logic across all 12 languages.
+  // Reference implementation using JS semantics (. excludes \n AND \r).
+  // NOTE: \r handling is language-specific — see AGENTS.md. JS/Java/Kotlin/Swift/Dart/C++
+  // exclude \r from `.`; Python/Ruby/C/C#/Go/Rust/PHP do not. Each emitter matches its
+  // target language's regex engine. This reference impl + equivalence test verify JS only.
   // Algorithm:
   //   1. Check starts with "wss://" (pos=6) or "ws://" (pos=5), else fail
   //   2. Hostname: consume [a-zA-Z0-9._-]+, must have >=1 char
   //   3. Optional port: if ':', consume [0-9]+, must have >=1 digit
-  //   4. Optional path: if '/', scan remainder rejecting \n and \r (regex . doesn't match newlines)
+  //   4. Optional path: if '/', scan remainder rejecting \n and \r (JS regex . semantics)
   //   5. Must be at end of string
   function checkRelayUrl(s: string): boolean {
     let i = 0;
@@ -419,7 +422,8 @@ describe('check_relay_url behavioral correctness', () => {
   it('rejects plain text', () => assert.ok(!checkRelayUrl('not a url')));
   it('rejects wss (no colon-slash-slash)', () => assert.ok(!checkRelayUrl('wss')));
   it('rejects wss://relay.example.com/\\npath (newline in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/\npath')));
-  it('rejects wss://relay.example.com/path\\r\\n (CRLF in path)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/path\r\n')));
+  // \r rejection is JS-specific; Python/Ruby/C/C#/Go/Rust/PHP accept \r (their . matches it)
+  it('rejects wss://relay.example.com/path\\r\\n (CRLF in path, JS semantics)', () => assert.ok(!checkRelayUrl('wss://relay.example.com/path\r\n')));
 
   // --- Regex-vs-native equivalence ---
   it('reference implementation matches regex on all test inputs', () => {
