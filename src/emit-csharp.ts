@@ -645,8 +645,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push("            while (pos < s.Length && s[pos] >= '0' && s[pos] <= '9') pos++;");
     lines.push("            if (pos >= s.Length || s[pos] != ':') return false;");
     lines.push("            var kindStr = s.Substring(kindStart, pos - kindStart);");
-    lines.push("            if (kindStr.Length > 1 && kindStr[0] == '0') return false;");
-    lines.push('            if (kinds != null && System.Array.IndexOf(kinds, kindStr) < 0) return false;');
+    lines.push("            if (kinds != null && System.Array.IndexOf(kinds, kindStr) < 0) return false;");
     lines.push('            pos++;');
     lines.push('            if (pos + 64 >= s.Length) return false;');
     lines.push('            for (int i = 0; i < 64; i++) {');
