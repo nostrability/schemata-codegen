@@ -79,7 +79,7 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
     case 'a_tag': {
       helpers.add('_check_a_tag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `_check_a_tag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+        return { expr: `_check_a_tag(${varExpr}, [${check.kinds.map(k => JSON.stringify(k)).join(', ')}])`, helpers };
       }
       return { expr: `_check_a_tag(${varExpr})`, helpers };
     }
@@ -100,8 +100,9 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       return { expr: `${varExpr} in (${vals}${check.values.length === 1 ? ',' : ''})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('_check_dot_tail');
       return {
-        expr: `(${varExpr}.startswith(${JSON.stringify(check.prefix)}) and len(${varExpr}) > ${check.prefix.length})`,
+        expr: `(${varExpr}.startswith(${JSON.stringify(check.prefix)}) and _check_dot_tail(${varExpr}, ${check.prefix.length}))`,
         helpers,
       };
     }
@@ -127,12 +128,12 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
     }
     case 'email_like': {
       helpers.add('_check_email_like');
-      helpers.add('_is_ascii_ws');
+      helpers.add('_is_ecma_ws');
       return { expr: `_check_email_like(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('_check_git_clone_url');
-      helpers.add('_is_ascii_ws');
+      helpers.add('_is_ecma_ws');
       return { expr: `_check_git_clone_url(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -149,7 +150,7 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
     }
     case 'prefix_no_whitespace': {
       helpers.add('_check_no_ws_tail');
-      helpers.add('_is_ascii_ws');
+      helpers.add('_is_ecma_ws');
       const checks = check.prefixes.map(p =>
         `(${varExpr}.startswith(${JSON.stringify(p)}) and _check_no_ws_tail(${varExpr}, ${p.length}))`
       );
@@ -501,7 +502,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     if (lines.length > 0) lines.push('');
     lines.push('');
     lines.push('def _check_digits(s: str) -> bool:');
-    lines.push('    return len(s) > 0 and s.isdigit()');
+    lines.push("    return len(s) > 0 and all('0' <= c <= '9' for c in s)");
   }
 
   if (helpers.has('_check_signed_int')) {
@@ -509,7 +510,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('');
     lines.push('def _check_signed_int(s: str) -> bool:');
     lines.push('    v = s.lstrip("-")');
-    lines.push('    return len(v) > 0 and (len(s) - len(v)) <= 1 and v.isdigit()');
+    lines.push("    return len(v) > 0 and (len(s) - len(v)) <= 1 and all('0' <= c <= '9' for c in v)");
   }
 
   if (helpers.has('_check_chars_in')) {
@@ -533,7 +534,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    for i in range(10):');
     lines.push('        if i == 4 or i == 7:');
     lines.push('            continue');
-    lines.push("        if not s[i].isdigit():");
+    lines.push("        if not ('0' <= s[i] <= '9'):");
     lines.push('            return False');
     lines.push('    return True');
   }
@@ -603,20 +604,20 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    if not s:');
     lines.push('        return False');
     lines.push('    i = 0');
-    lines.push("    while i < len(s) and s[i].isdigit():");
+    lines.push("    while i < len(s) and '0' <= s[i] <= '9':");
     lines.push('        i += 1');
     lines.push('    if i == 0:');
     lines.push('        return False');
     lines.push("    if i < len(s) and s[i] == '.':");
     lines.push('        i += 1');
-    lines.push('        if i >= len(s) or not s[i].isdigit():');
+    lines.push("        if i >= len(s) or not ('0' <= s[i] <= '9'):");
     lines.push('            return False');
-    lines.push("        while i < len(s) and s[i].isdigit():");
+    lines.push("        while i < len(s) and '0' <= s[i] <= '9':");
     lines.push('            i += 1');
     lines.push('    return i == len(s)');
   }
 
-  if (helpers.has('_check_relay_url') || helpers.has('_check_a_tag')) {
+  if (helpers.has('_check_relay_url') || helpers.has('_check_a_tag') || helpers.has('_check_dot_tail')) {
     if (lines.length > 0) lines.push('');
     lines.push('');
     lines.push('def _check_dot_tail(s: str, pos: int) -> bool:');
@@ -656,19 +657,20 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('_HEX_LOWER = set("0123456789abcdef")');
     lines.push('');
     lines.push('');
-    lines.push('def _check_a_tag(s: str, kinds: list[int] | None = None) -> bool:');
+    lines.push('def _check_a_tag(s: str, kinds: list[str] | None = None) -> bool:');
     lines.push('    if len(s) < 68:');
     lines.push('        return False');
     lines.push('    pos = 0');
     lines.push("    if not ('0' <= s[pos] <= '9'):");
     lines.push('        return False');
-    lines.push('    kind = 0');
     lines.push("    while pos < len(s) and '0' <= s[pos] <= '9':");
-    lines.push("        kind = kind * 10 + (ord(s[pos]) - ord('0'))");
     lines.push('        pos += 1');
     lines.push("    if pos >= len(s) or s[pos] != ':':");
     lines.push('        return False');
-    lines.push('    if kinds is not None and kind not in kinds:');
+    lines.push('    kind_str = s[:pos]');
+    lines.push('    if len(kind_str) > 1 and kind_str[0] == "0":');
+    lines.push('        return False');
+    lines.push('    if kinds is not None and kind_str not in kinds:');
     lines.push('        return False');
     lines.push('    pos += 1');
     lines.push('    if pos + 64 >= len(s):');
@@ -726,11 +728,14 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('        i += 1');
   }
 
-  if (helpers.has('_is_ascii_ws')) {
+  if (helpers.has('_is_ecma_ws')) {
     if (lines.length > 0) lines.push('');
     lines.push('');
-    lines.push('def _is_ascii_ws(c: str) -> bool:');
-    lines.push("    return c == ' ' or c == '\\t' or c == '\\n' or c == '\\r' or c == '\\x0b' or c == '\\x0c'");
+    lines.push('def _is_ecma_ws(c: str) -> bool:');
+    lines.push("    return c in (' ', '\\t', '\\n', '\\r', '\\x0b', '\\x0c', '\\xa0', '\\u1680',");
+    lines.push("               '\\u2000', '\\u2001', '\\u2002', '\\u2003', '\\u2004', '\\u2005',");
+    lines.push("               '\\u2006', '\\u2007', '\\u2008', '\\u2009', '\\u200a',");
+    lines.push("               '\\u2028', '\\u2029', '\\u202f', '\\u205f', '\\u3000', '\\ufeff')");
   }
 
   if (helpers.has('_check_ln_invoice')) {
@@ -802,16 +807,16 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('');
     lines.push('def _check_email_like(s: str) -> bool:');
     lines.push('    i = 0');
-    lines.push("    if i >= len(s) or _is_ascii_ws(s[i]) or s[i] == '@':");
+    lines.push("    if i >= len(s) or _is_ecma_ws(s[i]) or s[i] == '@':");
     lines.push('        return False');
-    lines.push("    while i < len(s) and not _is_ascii_ws(s[i]) and s[i] != '@':");
+    lines.push("    while i < len(s) and not _is_ecma_ws(s[i]) and s[i] != '@':");
     lines.push('        i += 1');
     lines.push("    if i >= len(s) or s[i] != '@':");
     lines.push('        return False');
     lines.push('    i += 1');
-    lines.push("    if i >= len(s) or _is_ascii_ws(s[i]) or s[i] == '@':");
+    lines.push("    if i >= len(s) or _is_ecma_ws(s[i]) or s[i] == '@':");
     lines.push('        return False');
-    lines.push("    while i < len(s) and not _is_ascii_ws(s[i]) and s[i] != '@':");
+    lines.push("    while i < len(s) and not _is_ecma_ws(s[i]) and s[i] != '@':");
     lines.push('        i += 1');
     lines.push('    return i == len(s)');
   }
@@ -834,7 +839,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    if pos >= len(s):');
     lines.push('        return False');
     lines.push('    for i in range(pos, len(s)):');
-    lines.push('        if _is_ascii_ws(s[i]):');
+    lines.push('        if _is_ecma_ws(s[i]):');
     lines.push('            return False');
     lines.push('    return True');
   }
@@ -843,7 +848,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     if (lines.length > 0) lines.push('');
     lines.push('');
     lines.push('def _is_type_char(c: str) -> bool:');
-    lines.push("    return c.isalpha() or c.isdigit() or c in '!#$&^_-'");
+    lines.push("    return ('a' <= c <= 'z') or ('A' <= c <= 'Z') or ('0' <= c <= '9') or c in '!#$&^_-'");
     lines.push('');
     lines.push('');
     lines.push('def _is_subtype_char(c: str) -> bool:');
@@ -852,7 +857,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('');
     lines.push('def _check_content_type(s: str) -> bool:');
     lines.push('    i = 0');
-    lines.push('    if i >= len(s) or not s[i].isalpha():');
+    lines.push("    if i >= len(s) or not (('a' <= s[i] <= 'z') or ('A' <= s[i] <= 'Z')):");
     lines.push('        return False');
     lines.push('    i += 1');
     lines.push('    while i < len(s) and _is_type_char(s[i]):');
@@ -860,7 +865,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("    if i >= len(s) or s[i] != '/':");
     lines.push('        return False');
     lines.push('    i += 1');
-    lines.push("    if i >= len(s) or not (s[i].isalpha() or s[i].isdigit() or s[i] == '*'):");
+    lines.push("    if i >= len(s) or not (('a' <= s[i] <= 'z') or ('A' <= s[i] <= 'Z') or ('0' <= s[i] <= '9') or s[i] == '*'):");
     lines.push('        return False');
     lines.push('    i += 1');
     lines.push('    while i < len(s) and _is_subtype_char(s[i]):');
@@ -869,7 +874,9 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("        j = i");
     lines.push("        while j < len(s) and s[j] in ' \\t':");
     lines.push("            j += 1");
-    lines.push("        if j >= len(s) or s[j] != ';':");
+    lines.push("        if j >= len(s):");
+    lines.push('            return False');
+    lines.push("        if s[j] != ';':");
     lines.push('            break');
     lines.push('        j += 1');
     lines.push("        while j < len(s) and s[j] in ' \\t':");
@@ -894,7 +901,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
   if (helpers.has('_check_doi')) {
     // doi uses _check_dot_tail which is emitted when _check_relay_url or _check_a_tag is present
     // but doi may appear without those, so emit dot_tail unconditionally if doi is present
-    if (!helpers.has('_check_relay_url') && !helpers.has('_check_a_tag')) {
+    if (!helpers.has('_check_relay_url') && !helpers.has('_check_a_tag') && !helpers.has('_check_dot_tail')) {
       if (lines.length > 0) lines.push('');
       lines.push('');
       lines.push('def _check_dot_tail(s: str, pos: int) -> bool:');
@@ -924,7 +931,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('def _check_annotate_user(s: str) -> bool:');
     lines.push("    if not s.startswith('annotate-user '):");
     lines.push('        return False');
-    lines.push('    i = 15');
+    lines.push('    i = 14');
     lines.push('    if i + 64 > len(s):');
     lines.push('        return False');
     lines.push('    for j in range(64):');
@@ -956,7 +963,7 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    if offset >= len(s):');
     lines.push('        return False');
     lines.push('    for i in range(offset, len(s)):');
-    lines.push('        if _is_ascii_ws(s[i]):');
+    lines.push('        if _is_ecma_ws(s[i]):');
     lines.push('            return False');
     lines.push('    return True');
   }
@@ -973,7 +980,9 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("    if i >= len(s) or s[i] != ':':");
     lines.push('        return False');
     lines.push('    i += 1');
-    lines.push('    return i < len(s)');
+    lines.push('    if i >= len(s):');
+    lines.push('        return False');
+    lines.push("    return '\\n' not in s[i:]");
   }
 
   if (helpers.has('_check_package_id')) {
@@ -982,19 +991,19 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('def _check_package_id(s: str) -> bool:');
     lines.push("    if s == '#':");
     lines.push('        return True');
-    lines.push("    if not s or not (s[0].isalpha() or s[0].isdigit()):");
+    lines.push("    if not s or not (('a' <= s[0] <= 'z') or ('A' <= s[0] <= 'Z') or ('0' <= s[0] <= '9')):");
     lines.push('        return False');
     lines.push('    i = 1');
-    lines.push("    while i < len(s) and (s[i].isalpha() or s[i].isdigit() or s[i] in '._+-'):");
+    lines.push("    while i < len(s) and (('a' <= s[i] <= 'z') or ('A' <= s[i] <= 'Z') or ('0' <= s[i] <= '9') or s[i] in '._+-'):");
     lines.push('        i += 1');
     lines.push('    while i < len(s):');
     lines.push("        if s[i] != ':':");
     lines.push('            return False');
     lines.push('        i += 1');
-    lines.push("        if i >= len(s) or not (s[i].isalpha() or s[i].isdigit()):");
+    lines.push("        if i >= len(s) or not (('a' <= s[i] <= 'z') or ('A' <= s[i] <= 'Z') or ('0' <= s[i] <= '9')):");
     lines.push('            return False');
     lines.push('        i += 1');
-    lines.push("        while i < len(s) and (s[i].isalpha() or s[i].isdigit() or s[i] in '._+-'):");
+    lines.push("        while i < len(s) and (('a' <= s[i] <= 'z') or ('A' <= s[i] <= 'Z') or ('0' <= s[i] <= '9') or s[i] in '._+-'):");
     lines.push('            i += 1');
     lines.push('    return i == len(s)');
   }

@@ -39,7 +39,7 @@ export type PatternCheck =
   | { op: 'chars_in'; charset: string; min?: number; max?: number }
   | { op: 'bech32'; hrp: string; dataLen?: number }
   | { op: 'relay_url' }
-  | { op: 'a_tag'; kinds?: number[] }
+  | { op: 'a_tag'; kinds?: string[] }
   | { op: 'date_iso' }
   | { op: 'datetime_iso' }
   | { op: 'decimal' }
@@ -89,7 +89,7 @@ export function classifyRegex(pattern: string): PatternCheck {
 
   // Hex with literal prefix: ^0x[0-9a-f]{4}$ or ^x [a-f0-9]{64}$
   {
-    const m = pattern.match(/^\^([^[\\]+)\[(?:0-9a-f|a-f0-9)\]\{(\d+)\}\$$/);
+    const m = pattern.match(/^\^([a-zA-Z0-9 _:\-]+)\[(?:0-9a-f|a-f0-9)\]\{(\d+)\}\$$/);
     if (m) {
       return { op: 'hex_prefixed', prefix: m[1], hexLen: parseInt(m[2], 10), case: 'lower' };
     }
@@ -146,7 +146,7 @@ export function classifyRegex(pattern: string): PatternCheck {
   {
     const m = pattern.match(/^\^\[([A-Za-z0-9_.+\-\/:#]+)\](\+|\{(\d+)(?:,(\d+)?)?\})\$$/);
     if (m) {
-      const charset = m[1];
+      const charset = expandCharset(m[1]);
       if (m[2] === '+') {
         return { op: 'chars_in', charset, min: 1 };
       }
@@ -179,7 +179,7 @@ export function classifyRegex(pattern: string): PatternCheck {
   {
     const m = pattern.match(/^\^(\d+):\[a-f0-9\]\{64\}:\.\+\$$/);
     if (m) {
-      return { op: 'a_tag', kinds: [parseInt(m[1], 10)] };
+      return { op: 'a_tag', kinds: [m[1]] };
     }
   }
 
@@ -187,7 +187,7 @@ export function classifyRegex(pattern: string): PatternCheck {
   {
     const m = pattern.match(/^\^\((\d+(?:\|\d+)*)\):\[a-f0-9\]\{64\}:\.\+\$$/);
     if (m) {
-      return { op: 'a_tag', kinds: m[1].split('|').map(k => parseInt(k, 10)) };
+      return { op: 'a_tag', kinds: m[1].split('|') };
     }
   }
 
@@ -240,7 +240,7 @@ export function classifyRegex(pattern: string): PatternCheck {
   {
     const m = pattern.match(/^\^\[([A-Za-z0-9_-]+)\]\+\(,\[([A-Za-z0-9_-]+)\]\+\)\*\$$/);
     if (m && m[1] === m[2]) {
-      return { op: 'csv_list', itemCharset: m[1] };
+      return { op: 'csv_list', itemCharset: expandCharset(m[1]) };
     }
   }
 
@@ -442,6 +442,48 @@ function expandLiteralGroup(s: string): string[] | undefined {
     }
   }
   return alternatives.flat();
+}
+
+/**
+ * ECMAScript whitespace code points.
+ * These are the characters that `\s` matches in a JavaScript regex.
+ * Each emitter renders the appropriate check for its target language.
+ */
+export const ECMA_WHITESPACE: readonly number[] = [
+  0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, // ASCII
+  0xA0, 0x1680, // Latin
+  0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, // General punctuation
+  0x2028, 0x2029, 0x202F, 0x205F, // Separators
+  0x3000, // CJK
+  0xFEFF, // BOM
+] as const;
+
+/**
+ * Expand a charset range specification (e.g. "A-Za-z0-9_") into a string of
+ * all individual characters. This eliminates the need for range expansion at
+ * runtime in each of the 12 language emitters.
+ *
+ * Examples:
+ *   "A-Za-z0-9_" → "ABCDEFGHIJKLMNOPQRSTUVWXYZ...0123456789_"
+ *   "0-9" → "0123456789"
+ */
+export function expandCharset(rangeSpec: string): string {
+  let result = '';
+  let i = 0;
+  while (i < rangeSpec.length) {
+    if (i + 2 < rangeSpec.length && rangeSpec[i + 1] === '-') {
+      const from = rangeSpec.charCodeAt(i);
+      const to = rangeSpec.charCodeAt(i + 2);
+      for (let c = from; c <= to; c++) {
+        result += String.fromCharCode(c);
+      }
+      i += 3;
+    } else {
+      result += rangeSpec[i];
+      i++;
+    }
+  }
+  return result;
 }
 
 /**

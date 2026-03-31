@@ -78,7 +78,8 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
     case 'a_tag': {
       helpers.add('checkATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `checkATag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `checkATag(${varExpr}, [${arr}])`, helpers };
       }
       return { expr: `checkATag(${varExpr}, nil)`, helpers };
     }
@@ -100,8 +101,9 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
     }
     case 'prefix_nonempty': {
       const len = check.prefix.length;
+      helpers.add('checkDotTail');
       return {
-        expr: `(${varExpr}.hasPrefix(${JSON.stringify(check.prefix)}) && ${varExpr}.count > ${len})`,
+        expr: `(${varExpr}.hasPrefix(${JSON.stringify(check.prefix)}) && ${varExpr}.count > ${len} && checkDotTail(Array(${varExpr}.utf8), ${len}))`,
         helpers,
       };
     }
@@ -128,12 +130,12 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
     }
     case 'email_like': {
       helpers.add('checkEmailLike');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('checkGitCloneUrl');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -151,7 +153,7 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
     }
     case 'prefix_no_whitespace': {
       helpers.add('checkNoWsTail');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       const checks = check.prefixes.map(p =>
         `(${varExpr}.hasPrefix(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -564,7 +566,7 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDotTail') || helpers.has('checkExternalIdentity')) {
     lines.push('// Swift . excludes \\n, \\r, NEL (\\u{0085}), LS (\\u{2028}), PS (\\u{2029})');
     lines.push('private func checkDotTail(_ u: [UInt8], _ pos: Int) -> Bool {');
     lines.push('    if pos >= u.count { return false }');
@@ -610,18 +612,20 @@ function emitSwiftHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('checkATag')) {
-    lines.push('private func checkATag(_ s: String, _ kinds: [Int]?) -> Bool {');
+    lines.push('private func checkATag(_ s: String, _ kinds: [String]?) -> Bool {');
     lines.push('    let u = Array(s.utf8)');
     lines.push('    if u.count < 68 { return false }');
     lines.push('    var pos = 0');
     lines.push('    if u[pos] < 0x30 || u[pos] > 0x39 { return false }');
-    lines.push('    var kind = 0');
-    lines.push('    while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 {');
-    lines.push('        kind = kind * 10 + Int(u[pos] - 0x30)');
-    lines.push('        pos += 1');
-    lines.push('    }');
+    lines.push('    let kindStart = pos');
+    lines.push('    while pos < u.count && u[pos] >= 0x30 && u[pos] <= 0x39 { pos += 1 }');
+    lines.push('    let kindLen = pos - kindStart');
+    lines.push('    if kindLen > 1 && u[kindStart] == 0x30 { return false }');
     lines.push('    if pos >= u.count || u[pos] != 0x3A { return false }');
-    lines.push('    if let ks = kinds, !ks.contains(kind) { return false }');
+    lines.push('    if let ks = kinds {');
+    lines.push('        let kindStr = String(s[s.index(s.startIndex, offsetBy: kindStart)..<s.index(s.startIndex, offsetBy: pos)])');
+    lines.push('        if !ks.contains(kindStr) { return false }');
+    lines.push('    }');
     lines.push('    pos += 1');
     lines.push('    if pos + 64 >= u.count { return false }');
     lines.push('    for i in 0..<64 {');
@@ -683,9 +687,18 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('isAsciiWs')) {
-    lines.push('private func isAsciiWs(_ c: UInt8) -> Bool {');
-    lines.push('    c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x0B || c == 0x0C');
+  if (helpers.has('isEcmaWs')) {
+    lines.push('private func isEcmaWs(_ c: Character) -> Bool {');
+    lines.push('    switch c {');
+    lines.push('    case "\\t", "\\n", "\\u{000B}", "\\u{000C}", "\\r", " ",');
+    lines.push('         "\\u{00A0}", "\\u{1680}",');
+    lines.push('         "\\u{2000}"..."\\u{200A}",');
+    lines.push('         "\\u{2028}", "\\u{2029}", "\\u{202F}", "\\u{205F}",');
+    lines.push('         "\\u{3000}", "\\u{FEFF}":');
+    lines.push('        return true');
+    lines.push('    default:');
+    lines.push('        return false');
+    lines.push('    }');
     lines.push('}');
     lines.push('');
   }
@@ -776,16 +789,16 @@ function emitSwiftHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkEmailLike')) {
     lines.push('private func checkEmailLike(_ s: String) -> Bool {');
-    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let chars = Array(s)');
     lines.push('    var i = 0');
-    lines.push('    while i < u.count && !isAsciiWs(u[i]) && u[i] != 0x40 { i += 1 }');
+    lines.push('    while i < chars.count && !isEcmaWs(chars[i]) && chars[i] != "@" { i += 1 }');
     lines.push('    if i == 0 { return false }');
-    lines.push('    if i >= u.count || u[i] != 0x40 { return false }');
+    lines.push('    if i >= chars.count || chars[i] != "@" { return false }');
     lines.push('    i += 1');
     lines.push('    let afterAt = i');
-    lines.push('    while i < u.count && !isAsciiWs(u[i]) && u[i] != 0x40 { i += 1 }');
+    lines.push('    while i < chars.count && !isEcmaWs(chars[i]) && chars[i] != "@" { i += 1 }');
     lines.push('    if i == afterAt { return false }');
-    lines.push('    return i == u.count');
+    lines.push('    return i == chars.count');
     lines.push('}');
     lines.push('');
   }
@@ -807,8 +820,10 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        pos += 3');
     lines.push('    }');
     lines.push('    if pos >= u.count { return false }');
-    lines.push('    for j in pos..<u.count {');
-    lines.push('        if isAsciiWs(u[j]) { return false }');
+    lines.push('    // pos is a byte offset but prefix is all ASCII so it equals character offset');
+    lines.push('    let tail = s[s.index(s.startIndex, offsetBy: pos)...]');
+    lines.push('    for c in tail {');
+    lines.push('        if isEcmaWs(c) { return false }');
     lines.push('    }');
     lines.push('    return true');
     lines.push('}');
@@ -873,15 +888,15 @@ function emitSwiftHelpers(helpers: Set<string>): string {
   if (helpers.has('checkAnnotateUser')) {
     lines.push('private func checkAnnotateUser(_ s: String) -> Bool {');
     lines.push('    let u = Array(s.utf8)');
-    lines.push('    // "annotate-user " (15 bytes) + 64 hex + ":" + digit + ":" + digit = min 83');
-    lines.push('    if u.count < 83 { return false }');
+    lines.push('    // "annotate-user " (14 bytes) + 64 hex + ":" + digit + ":" + digit = min 82');
+    lines.push('    if u.count < 82 { return false }');
     lines.push('    let pfx: [UInt8] = Array("annotate-user ".utf8)');
     lines.push('    for j in 0..<pfx.count { if u[j] != pfx[j] { return false } }');
-    lines.push('    for j in 15..<79 {');
+    lines.push('    for j in 14..<78 {');
     lines.push('        let c = u[j]');
     lines.push('        if !((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66)) { return false }');
     lines.push('    }');
-    lines.push('    var pos = 79');
+    lines.push('    var pos = 78');
     lines.push('    for _ in 0..<2 {');
     lines.push('        if pos >= u.count || u[pos] != 0x3A { return false }');
     lines.push('        pos += 1');
@@ -900,10 +915,10 @@ function emitSwiftHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkNoWsTail')) {
     lines.push('private func checkNoWsTail(_ s: String, _ offset: Int) -> Bool {');
-    lines.push('    let u = Array(s.utf8)');
-    lines.push('    if offset >= u.count { return false }');
-    lines.push('    for j in offset..<u.count {');
-    lines.push('        if isAsciiWs(u[j]) { return false }');
+    lines.push('    if offset >= s.count { return false }');
+    lines.push('    let tail = s[s.index(s.startIndex, offsetBy: offset)...]');
+    lines.push('    for c in tail {');
+    lines.push('        if isEcmaWs(c) { return false }');
     lines.push('    }');
     lines.push('    return true');
     lines.push('}');
@@ -921,7 +936,7 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    if i == 0 { return false }');
     lines.push('    if i >= u.count || u[i] != 0x3A { return false }');
-    lines.push('    return i + 1 < u.count');
+    lines.push('    return checkDotTail(u, i + 1)');
     lines.push('}');
     lines.push('');
   }

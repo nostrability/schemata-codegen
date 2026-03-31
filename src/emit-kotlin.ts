@@ -74,7 +74,8 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     case 'a_tag': {
       helpers.add('checkATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `checkATag(${varExpr}, listOf(${check.kinds.join(', ')}))`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `checkATag(${varExpr}, arrayOf(${arr}))`, helpers };
       }
       return { expr: `checkATag(${varExpr}, null)`, helpers };
     }
@@ -96,8 +97,9 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     }
     case 'prefix_nonempty': {
       const len = check.prefix.length;
+      helpers.add('checkDotTail');
       return {
-        expr: `(${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && ${varExpr}.length > ${len})`,
+        expr: `(${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && checkDotTail(${varExpr}, ${len}))`,
         helpers,
       };
     }
@@ -124,12 +126,12 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     }
     case 'email_like': {
       helpers.add('checkEmailLike');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('checkGitCloneUrl');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -147,7 +149,7 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     }
     case 'prefix_no_whitespace': {
       helpers.add('checkNoWsTail');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       const checks = check.prefixes.map(p =>
         `(${varExpr}.startsWith(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -521,7 +523,7 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDotTail')) {
     lines.push('private fun checkDotTail(s: String, pos: Int): Boolean {');
     lines.push('    if (pos >= s.length) return false');
     lines.push('    for (j in pos until s.length) {');
@@ -560,17 +562,15 @@ function emitKotlinHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('checkATag')) {
-    lines.push('private fun checkATag(s: String, kinds: List<Int>?): Boolean {');
+    lines.push('private fun checkATag(s: String, kinds: Array<String>?): Boolean {');
     lines.push('    if (s.length < 68) return false');
     lines.push('    var pos = 0');
     lines.push("    if (s[pos] < '0' || s[pos] > '9') return false");
-    lines.push('    var kind = 0');
-    lines.push("    while (pos < s.length && s[pos] in '0'..'9') {");
-    lines.push("        kind = kind * 10 + (s[pos] - '0')");
-    lines.push('        pos++');
-    lines.push('    }');
+    lines.push("    while (pos < s.length && s[pos] in '0'..'9') pos++");
     lines.push("    if (pos >= s.length || s[pos] != ':') return false");
-    lines.push('    if (kinds != null && kind !in kinds) return false');
+    lines.push('    val kindStr = s.substring(0, pos)');
+    lines.push("    if (kindStr.length > 1 && kindStr[0] == '0') return false");
+    lines.push('    if (kinds != null && kindStr !in kinds) return false');
     lines.push('    pos++');
     lines.push('    if (pos + 64 >= s.length) return false');
     lines.push('    for (i in 0 until 64) {');
@@ -641,9 +641,15 @@ function emitKotlinHelpers(helpers: Set<string>): string {
   // Note: regex helper is not needed as a standalone function in Kotlin;
   // we inline Regex(pattern).matches(s) directly.
 
-  if (helpers.has('isAsciiWs')) {
-    lines.push('private fun isAsciiWs(c: Char): Boolean =');
-    lines.push("    c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\u000B' || c == '\\u000C'");
+  if (helpers.has('isEcmaWs')) {
+    lines.push('private fun isEcmaWs(c: Char): Boolean = when (c) {');
+    lines.push("    '\\t', '\\n', '\\u000B', '\\u000C', '\\r', ' ',");
+    lines.push("    '\\u00A0', '\\u1680',");
+    lines.push("    in '\\u2000'..'\\u200A',");
+    lines.push("    '\\u2028', '\\u2029', '\\u202F', '\\u205F',");
+    lines.push("    '\\u3000', '\\uFEFF' -> true");
+    lines.push('    else -> false');
+    lines.push('}');
     lines.push('');
   }
 
@@ -725,12 +731,12 @@ function emitKotlinHelpers(helpers: Set<string>): string {
   if (helpers.has('checkEmailLike')) {
     lines.push('private fun checkEmailLike(s: String): Boolean {');
     lines.push('    var i = 0');
-    lines.push("    while (i < s.length && !isAsciiWs(s[i]) && s[i] != '@') i++");
+    lines.push("    while (i < s.length && !isEcmaWs(s[i]) && s[i] != '@') i++");
     lines.push('    if (i == 0) return false');
     lines.push("    if (i >= s.length || s[i] != '@') return false");
     lines.push('    i++');
     lines.push('    val afterAt = i');
-    lines.push("    while (i < s.length && !isAsciiWs(s[i]) && s[i] != '@') i++");
+    lines.push("    while (i < s.length && !isEcmaWs(s[i]) && s[i] != '@') i++");
     lines.push('    if (i == afterAt) return false');
     lines.push('    return i == s.length');
     lines.push('}');
@@ -754,7 +760,7 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    if (pos >= s.length) return false');
     lines.push('    for (j in pos until s.length) {');
-    lines.push('        if (isAsciiWs(s[j])) return false');
+    lines.push('        if (isEcmaWs(s[j])) return false');
     lines.push('    }');
     lines.push('    return true');
     lines.push('}');
@@ -783,6 +789,7 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push("        if (i >= s.length || s[i] != ';') return false");
     lines.push('        i++');
     lines.push("        while (i < s.length && (s[i] == ' ' || s[i] == '\\t')) i++");
+    lines.push('        if (i >= s.length) return false');
     lines.push('        val paramStart = i');
     lines.push('        while (i < s.length && isSubtypeChar(s[i])) i++');
     lines.push('        if (i == paramStart) return false');
@@ -814,13 +821,13 @@ function emitKotlinHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkAnnotateUser')) {
     lines.push('private fun checkAnnotateUser(s: String): Boolean {');
-    lines.push('    // "annotate-user " (15 chars) + 64 hex + ":" + digit + ":" + digit = min 83');
-    lines.push('    if (s.length < 83 || !s.startsWith("annotate-user ")) return false');
-    lines.push('    for (j in 15 until 79) {');
+    lines.push('    // "annotate-user " (14 chars) + 64 hex + ":" + digit + ":" + digit = min 82');
+    lines.push('    if (s.length < 82 || !s.startsWith("annotate-user ")) return false');
+    lines.push('    for (j in 14 until 78) {');
     lines.push('        val c = s[j]');
     lines.push("        if (!((c in '0'..'9') || (c in 'a'..'f'))) return false");
     lines.push('    }');
-    lines.push('    var pos = 79');
+    lines.push('    var pos = 78');
     lines.push('    for (coord in 0 until 2) {');
     lines.push("        if (pos >= s.length || s[pos] != ':') return false");
     lines.push('        pos++');
@@ -841,7 +848,7 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('private fun checkNoWsTail(s: String, offset: Int): Boolean {');
     lines.push('    if (offset >= s.length) return false');
     lines.push('    for (j in offset until s.length) {');
-    lines.push('        if (isAsciiWs(s[j])) return false');
+    lines.push('        if (isEcmaWs(s[j])) return false');
     lines.push('    }');
     lines.push('    return true');
     lines.push('}');
@@ -858,7 +865,13 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    if (i == 0) return false');
     lines.push("    if (i >= s.length || s[i] != ':') return false");
-    lines.push('    return i + 1 < s.length');
+    lines.push('    i++');
+    lines.push('    if (i >= s.length) return false');
+    lines.push('    for (j in i until s.length) {');
+    lines.push('        val c2 = s[j]');
+    lines.push("        if (c2 == '\\n' || c2 == '\\r' || c2 == '\\u0085' || c2 == '\\u2028' || c2 == '\\u2029') return false");
+    lines.push('    }');
+    lines.push('    return true');
     lines.push('}');
     lines.push('');
   }

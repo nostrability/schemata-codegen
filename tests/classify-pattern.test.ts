@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyRegex, isNativeCheck, type PatternCheck } from '../src/classify-pattern.js';
+import { classifyRegex, isNativeCheck, expandCharset, type PatternCheck } from '../src/classify-pattern.js';
 
 describe('classifyRegex', () => {
   // --- Hex fixed-length ---
@@ -111,11 +111,19 @@ describe('classifyRegex', () => {
 
   // --- chars_in ---
 
-  it('classifies ^[a-z0-9._-]+$ as chars_in', () => {
+  it('classifies ^[a-z0-9._-]+$ as chars_in with expanded charset', () => {
     const r = classifyRegex('^[a-z0-9._-]+$');
     assert.strictEqual(r.op, 'chars_in');
     assert.ok(r.op === 'chars_in');
-    assert.strictEqual(r.charset, 'a-z0-9._-');
+    // Charset is now expanded: 'a-z0-9._-' → all individual chars
+    assert.ok(r.charset.includes('a'));
+    assert.ok(r.charset.includes('z'));
+    assert.ok(r.charset.includes('0'));
+    assert.ok(r.charset.includes('9'));
+    assert.ok(r.charset.includes('.'));
+    assert.ok(r.charset.includes('_'));
+    assert.ok(r.charset.includes('-'));
+    assert.ok(!r.charset.includes('A')); // lowercase only
     assert.strictEqual(r.min, 1);
     assert.ok(isNativeCheck(r));
   });
@@ -124,7 +132,10 @@ describe('classifyRegex', () => {
     const r = classifyRegex('^[A-Za-z]{3,}$');
     assert.strictEqual(r.op, 'chars_in');
     assert.ok(r.op === 'chars_in');
-    assert.strictEqual(r.charset, 'A-Za-z');
+    assert.ok(r.charset.includes('A'));
+    assert.ok(r.charset.includes('Z'));
+    assert.ok(r.charset.includes('a'));
+    assert.ok(r.charset.includes('z'));
     assert.strictEqual(r.min, 3);
     assert.strictEqual(r.max, undefined);
     assert.ok(isNativeCheck(r));
@@ -134,7 +145,8 @@ describe('classifyRegex', () => {
     const r = classifyRegex('^[A-Za-z]{3,6}$');
     assert.strictEqual(r.op, 'chars_in');
     assert.ok(r.op === 'chars_in');
-    assert.strictEqual(r.charset, 'A-Za-z');
+    assert.ok(r.charset.includes('A'));
+    assert.ok(r.charset.includes('a'));
     assert.strictEqual(r.min, 3);
     assert.strictEqual(r.max, 6);
   });
@@ -143,7 +155,8 @@ describe('classifyRegex', () => {
     const r = classifyRegex('^[A-Za-z]+$');
     assert.strictEqual(r.op, 'chars_in');
     assert.ok(r.op === 'chars_in');
-    assert.strictEqual(r.charset, 'A-Za-z');
+    assert.ok(r.charset.includes('A'));
+    assert.ok(r.charset.includes('a'));
     assert.strictEqual(r.min, 1);
   });
 
@@ -259,15 +272,28 @@ describe('classifyRegex', () => {
 
   // --- csv_list ---
 
-  it('classifies comma-separated IDs as csv_list', () => {
+  it('classifies comma-separated IDs as csv_list with expanded charset', () => {
     const r = classifyRegex('^[A-Za-z0-9_]+(,[A-Za-z0-9_]+)*$');
-    assert.deepStrictEqual(r, { op: 'csv_list', itemCharset: 'A-Za-z0-9_' });
+    assert.strictEqual(r.op, 'csv_list');
+    assert.ok(r.op === 'csv_list');
+    // Expanded: contains actual chars, not range notation
+    assert.ok(r.itemCharset.includes('A'));
+    assert.ok(r.itemCharset.includes('Z'));
+    assert.ok(r.itemCharset.includes('a'));
+    assert.ok(r.itemCharset.includes('z'));
+    assert.ok(r.itemCharset.includes('0'));
+    assert.ok(r.itemCharset.includes('9'));
+    assert.ok(r.itemCharset.includes('_'));
     assert.ok(isNativeCheck(r));
   });
 
-  it('classifies comma-separated ints as csv_list', () => {
+  it('classifies comma-separated ints as csv_list with expanded charset', () => {
     const r = classifyRegex('^[0-9]+(,[0-9]+)*$');
-    assert.deepStrictEqual(r, { op: 'csv_list', itemCharset: '0-9' });
+    assert.strictEqual(r.op, 'csv_list');
+    assert.ok(r.op === 'csv_list');
+    assert.ok(r.itemCharset.includes('0'));
+    assert.ok(r.itemCharset.includes('9'));
+    assert.strictEqual(r.itemCharset.length, 10);
   });
 
   // --- prefix_no_whitespace ---
@@ -398,21 +424,21 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
-  it('classifies single-kind coordinate as a_tag with kinds', () => {
+  it('classifies single-kind coordinate as a_tag with string kinds', () => {
     const r = classifyRegex('^30311:[a-f0-9]{64}:.+$');
-    assert.deepStrictEqual(r, { op: 'a_tag', kinds: [30311] });
+    assert.deepStrictEqual(r, { op: 'a_tag', kinds: ['30311'] });
     assert.ok(isNativeCheck(r));
   });
 
-  it('classifies multi-kind coordinate as a_tag with kinds', () => {
+  it('classifies multi-kind coordinate as a_tag with string kinds', () => {
     const r = classifyRegex('^(31922|31923):[a-f0-9]{64}:.+$');
-    assert.deepStrictEqual(r, { op: 'a_tag', kinds: [31922, 31923] });
+    assert.deepStrictEqual(r, { op: 'a_tag', kinds: ['31922', '31923'] });
     assert.ok(isNativeCheck(r));
   });
 
   it('isNativeCheck returns true for a_tag', () => {
     assert.ok(isNativeCheck({ op: 'a_tag' }));
-    assert.ok(isNativeCheck({ op: 'a_tag', kinds: [30311] }));
+    assert.ok(isNativeCheck({ op: 'a_tag', kinds: ['30311'] }));
   });
 
   it('isNativeCheck returns true for datetime_iso', () => {
@@ -1267,4 +1293,406 @@ describe('isNativeCheck for new ops', () => {
   it('returns true for prefix_no_whitespace', () => assert.ok(isNativeCheck({ op: 'prefix_no_whitespace', prefixes: ['x'] })));
   it('returns true for external_identity', () => assert.ok(isNativeCheck({ op: 'external_identity' })));
   it('returns true for package_id', () => assert.ok(isNativeCheck({ op: 'package_id' })));
+});
+
+// --- B11: Missing equivalence tests for new ops ---
+
+describe('expandCharset', () => {
+  it('expands A-Z', () => {
+    const r = expandCharset('A-Z');
+    assert.strictEqual(r.length, 26);
+    assert.ok(r.startsWith('A'));
+    assert.ok(r.endsWith('Z'));
+    assert.ok(r.includes('M'));
+  });
+
+  it('expands 0-9', () => {
+    const r = expandCharset('0-9');
+    assert.strictEqual(r, '0123456789');
+  });
+
+  it('expands mixed ranges and literals', () => {
+    const r = expandCharset('A-Za-z0-9_');
+    assert.strictEqual(r.length, 63); // 26 + 26 + 10 + 1
+    assert.ok(r.includes('A'));
+    assert.ok(r.includes('z'));
+    assert.ok(r.includes('0'));
+    assert.ok(r.includes('_'));
+  });
+
+  it('passes through non-range chars', () => {
+    const r = expandCharset('._-');
+    assert.strictEqual(r, '._-');
+  });
+});
+
+describe('check_prefix_nonempty behavioral correctness (B4)', () => {
+  // Reference: ^<prefix>.+$ — prefix + >=1 char matching JS `.` (no line terminators)
+  function checkPrefixNonempty(s: string, prefix: string): boolean {
+    if (!s.startsWith(prefix)) return false;
+    if (s.length <= prefix.length) return false;
+    // .+ means >=1 char, no JS line terminators in tail
+    for (let i = prefix.length; i < s.length; i++) {
+      const c = s[i];
+      if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
+    }
+    return true;
+  }
+
+  it('accepts prefix + content', () => assert.ok(checkPrefixNonempty('alt hello', 'alt ')));
+  it('accepts prefix + single char', () => assert.ok(checkPrefixNonempty('alt x', 'alt ')));
+  it('accepts prefix + special chars', () => assert.ok(checkPrefixNonempty('alt !@#$%', 'alt ')));
+  it('accepts prefix + NEL (valid in JS)', () => assert.ok(checkPrefixNonempty('alt \u0085x', 'alt ')));
+  it('rejects prefix only', () => assert.ok(!checkPrefixNonempty('alt ', 'alt ')));
+  it('rejects wrong prefix', () => assert.ok(!checkPrefixNonempty('foo bar', 'alt ')));
+  it('rejects empty', () => assert.ok(!checkPrefixNonempty('', 'alt ')));
+  it('rejects newline in tail', () => assert.ok(!checkPrefixNonempty('alt hel\nlo', 'alt ')));
+  it('rejects \\r in tail', () => assert.ok(!checkPrefixNonempty('alt hel\rlo', 'alt ')));
+  it('rejects LS in tail', () => assert.ok(!checkPrefixNonempty('alt hel\u2028lo', 'alt ')));
+  it('rejects PS in tail', () => assert.ok(!checkPrefixNonempty('alt hel\u2029lo', 'alt ')));
+
+  it('matches regex for ^alt .+$', () => {
+    const regex = new RegExp('^alt .+$');
+    const inputs = [
+      'alt hello', 'alt x', 'alt !@#$%', 'alt ', '', 'foo bar',
+      'alt hel\nlo', 'alt hel\rlo', 'alt \u0085x',
+      'alt hel\u2028lo', 'alt hel\u2029lo',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkPrefixNonempty(input, 'alt '), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_wrapped behavioral correctness', () => {
+  function checkWrapped(s: string, prefix: string, suffix: string): boolean {
+    return s.length >= prefix.length + suffix.length && s.startsWith(prefix) && s.endsWith(suffix);
+  }
+
+  const pfx = '-----BEGIN PGP SIGNATURE-----';
+  const sfx = '-----END PGP SIGNATURE-----';
+
+  it('accepts prefix+suffix only', () => assert.ok(checkWrapped(pfx + sfx, pfx, sfx)));
+  it('accepts with content between', () => assert.ok(checkWrapped(pfx + '\ndata\n' + sfx, pfx, sfx)));
+  it('rejects empty', () => assert.ok(!checkWrapped('', pfx, sfx)));
+  it('rejects prefix only', () => assert.ok(!checkWrapped(pfx, pfx, sfx)));
+  it('rejects suffix only', () => assert.ok(!checkWrapped(sfx, pfx, sfx)));
+  it('rejects wrong prefix', () => assert.ok(!checkWrapped('XXX' + sfx, pfx, sfx)));
+
+  it('matches regex', () => {
+    const regex = /^-----BEGIN PGP SIGNATURE-----[\s\S]*-----END PGP SIGNATURE-----$/;
+    const inputs = [pfx + sfx, pfx + '\ndata\n' + sfx, '', pfx, sfx, 'XXX' + sfx];
+    for (const input of inputs) {
+      assert.strictEqual(checkWrapped(input, pfx, sfx), regex.test(input),
+        `Mismatch for ${JSON.stringify(input.slice(0, 40))}...`);
+    }
+  });
+});
+
+describe('check_content_type behavioral correctness (B6)', () => {
+  // Reference: ^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\s*;\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$
+  function isTypeChar(c: string): boolean {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+           '!#$&^_-'.includes(c);
+  }
+  function isSubtypeChar(c: string): boolean {
+    return isTypeChar(c) || c === '.' || c === '+';
+  }
+  function checkContentType(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return false;
+    i++;
+    while (i < s.length && isTypeChar(s[i])) i++;
+    if (i >= s.length || s[i] !== '/') return false;
+    i++;
+    if (i >= s.length) return false;
+    if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9') || s[i] === '*')) return false;
+    i++;
+    while (i < s.length && isSubtypeChar(s[i])) i++;
+    // params: (\s*;\s*token=token)*
+    while (i < s.length) {
+      while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+      if (i >= s.length) return false; // B6: trailing OWS must fail (not break)
+      if (s[i] !== ';') return false;
+      i++;
+      while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+      const start = i;
+      while (i < s.length && isSubtypeChar(s[i])) i++;
+      if (i === start) return false;
+      if (i >= s.length || s[i] !== '=') return false;
+      i++;
+      const vstart = i;
+      while (i < s.length && isSubtypeChar(s[i])) i++;
+      if (i === vstart) return false;
+    }
+    return i === s.length;
+  }
+
+  it('accepts text/plain', () => assert.ok(checkContentType('text/plain')));
+  it('accepts text/html', () => assert.ok(checkContentType('text/html')));
+  it('accepts application/json', () => assert.ok(checkContentType('application/json')));
+  it('accepts text/plain;charset=utf-8', () => assert.ok(checkContentType('text/plain;charset=utf-8')));
+  it('accepts text/plain ; charset=utf-8', () => assert.ok(checkContentType('text/plain ; charset=utf-8')));
+  it('accepts with multiple params', () => assert.ok(checkContentType('text/plain;charset=utf-8;boundary=something')));
+  it('accepts with * subtype', () => assert.ok(checkContentType('text/*')));
+  it('rejects empty', () => assert.ok(!checkContentType('')));
+  it('rejects no subtype', () => assert.ok(!checkContentType('text/')));
+  it('rejects no slash', () => assert.ok(!checkContentType('textplain')));
+  it('B6: rejects trailing space', () => assert.ok(!checkContentType('text/plain ')));
+  it('B6: rejects trailing tab', () => assert.ok(!checkContentType('text/plain\t')));
+  it('B6: rejects trailing OWS after param', () => assert.ok(!checkContentType('text/plain;charset=utf-8 ')));
+
+  it('matches regex', () => {
+    const regex = new RegExp('^[a-zA-Z][a-zA-Z0-9!#$&^_-]*/[a-zA-Z0-9*][a-zA-Z0-9!#$&^_.+-]*(\\s*;\\s*[a-zA-Z0-9!#$&^_.+-]+=[a-zA-Z0-9!#$&^_.+-]+)*$');
+    const inputs = [
+      'text/plain', 'text/html', 'application/json',
+      'text/plain;charset=utf-8', 'text/plain ; charset=utf-8',
+      'text/plain;charset=utf-8;boundary=something',
+      'text/*', '', 'text/', 'textplain',
+      'text/plain ', 'text/plain\t', 'text/plain;charset=utf-8 ',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkContentType(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_prefix_no_whitespace behavioral correctness (B9)', () => {
+  // Reference: ^<prefix>\S+$ where \S is ECMAScript non-whitespace
+  // \s in JS matches: \t \n \v \f \r space \u00A0 \u1680 \u2000-\u200A \u2028 \u2029 \u202F \u205F \u3000 \uFEFF
+  function isEcmaWs(c: string): boolean {
+    const cp = c.codePointAt(0)!;
+    return cp === 0x09 || cp === 0x0A || cp === 0x0B || cp === 0x0C || cp === 0x0D || cp === 0x20 ||
+           cp === 0xA0 || cp === 0x1680 ||
+           (cp >= 0x2000 && cp <= 0x200A) ||
+           cp === 0x2028 || cp === 0x2029 || cp === 0x202F || cp === 0x205F ||
+           cp === 0x3000 || cp === 0xFEFF;
+  }
+  function checkPrefixNoWhitespace(s: string, prefixes: string[]): boolean {
+    for (const p of prefixes) {
+      if (s.startsWith(p)) {
+        if (p.length >= s.length) return false;
+        for (let i = p.length; i < s.length; i++) {
+          if (isEcmaWs(s[i])) return false;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  it('accepts url http://example.com', () => assert.ok(checkPrefixNoWhitespace('url http://example.com', ['url http://', 'url https://'])));
+  it('accepts url https://example.com', () => assert.ok(checkPrefixNoWhitespace('url https://example.com', ['url http://', 'url https://'])));
+  it('rejects prefix only', () => assert.ok(!checkPrefixNoWhitespace('url http://', ['url http://', 'url https://'])));
+  it('rejects with space in tail', () => assert.ok(!checkPrefixNoWhitespace('url http://example .com', ['url http://', 'url https://'])));
+  it('rejects with tab in tail', () => assert.ok(!checkPrefixNoWhitespace('url http://\texample', ['url http://', 'url https://'])));
+  it('B9: rejects with NBSP in tail', () => assert.ok(!checkPrefixNoWhitespace('url http://\u00A0example', ['url http://', 'url https://'])));
+  it('B9: rejects with FEFF in tail', () => assert.ok(!checkPrefixNoWhitespace('url http://\uFEFFexample', ['url http://', 'url https://'])));
+
+  it('matches regex for ^url https?://\\S+$', () => {
+    const regex = new RegExp('^url https?://\\S+$');
+    const inputs = [
+      'url http://example.com', 'url https://example.com',
+      'url http://', 'url https://',
+      'url http://example .com', 'url http://\texample',
+      'url http://\u00A0example', 'url http://\uFEFFexample',
+      '', 'url ftp://example.com',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkPrefixNoWhitespace(input, ['url http://', 'url https://']), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_git_clone_url behavioral correctness (B9)', () => {
+  function isEcmaWs(c: string): boolean {
+    const cp = c.codePointAt(0)!;
+    return cp === 0x09 || cp === 0x0A || cp === 0x0B || cp === 0x0C || cp === 0x0D || cp === 0x20 ||
+           cp === 0xA0 || cp === 0x1680 ||
+           (cp >= 0x2000 && cp <= 0x200A) ||
+           cp === 0x2028 || cp === 0x2029 || cp === 0x202F || cp === 0x205F ||
+           cp === 0x3000 || cp === 0xFEFF;
+  }
+  function checkGitCloneUrl(s: string): boolean {
+    if (s.length === 0) return false;
+    let i: number;
+    if (s.startsWith('git@')) {
+      i = 4;
+    } else {
+      if (!(s[0] >= 'a' && s[0] <= 'z')) return false;
+      i = 1;
+      while (i < s.length && ((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] === '+' || s[i] === '.' || s[i] === '-')) i++;
+      if (i + 3 > s.length || s[i] !== ':' || s[i+1] !== '/' || s[i+2] !== '/') return false;
+      i += 3;
+    }
+    if (i >= s.length) return false;
+    for (let j = i; j < s.length; j++) {
+      if (isEcmaWs(s[j])) return false;
+    }
+    return true;
+  }
+
+  it('accepts https://github.com/user/repo.git', () => assert.ok(checkGitCloneUrl('https://github.com/user/repo.git')));
+  it('accepts git@github.com:user/repo.git', () => assert.ok(checkGitCloneUrl('git@github.com:user/repo.git')));
+  it('accepts ssh://git@example.com/repo', () => assert.ok(checkGitCloneUrl('ssh://git@example.com/repo')));
+  it('rejects empty', () => assert.ok(!checkGitCloneUrl('')));
+  it('rejects no path after scheme', () => assert.ok(!checkGitCloneUrl('https://')));
+  it('rejects no path after git@', () => assert.ok(!checkGitCloneUrl('git@')));
+  it('B9: rejects NBSP in URL', () => assert.ok(!checkGitCloneUrl('https://\u00A0example.com')));
+
+  it('matches regex', () => {
+    const regex = new RegExp('^(([a-z][a-z0-9+\\.-]*://)|git@)[^\\s]+$');
+    const inputs = [
+      'https://github.com/user/repo.git', 'git@github.com:user/repo.git',
+      'ssh://git@example.com/repo', '', 'https://', 'git@',
+      'https://\u00A0example.com', 'https://example.com',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkGitCloneUrl(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_imeta_dim behavioral correctness', () => {
+  function checkImetaDim(s: string): boolean {
+    if (s.length < 7) return false;
+    if (!s.startsWith('dim ')) return false;
+    let i = 4;
+    let dc = 0;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') { i++; dc++; }
+    if (dc < 1 || dc > 5) return false;
+    if (i >= s.length || s[i] !== 'x') return false;
+    i++; dc = 0;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') { i++; dc++; }
+    if (dc < 1 || dc > 5) return false;
+    return i === s.length;
+  }
+
+  it('accepts dim 100x200', () => assert.ok(checkImetaDim('dim 100x200')));
+  it('accepts dim 1x1', () => assert.ok(checkImetaDim('dim 1x1')));
+  it('accepts dim 99999x99999', () => assert.ok(checkImetaDim('dim 99999x99999')));
+  it('rejects empty', () => assert.ok(!checkImetaDim('')));
+  it('rejects no dim prefix', () => assert.ok(!checkImetaDim('100x200')));
+  it('rejects missing x', () => assert.ok(!checkImetaDim('dim 100200')));
+  it('rejects 0 digits width', () => assert.ok(!checkImetaDim('dim x200')));
+  it('rejects 6 digits width', () => assert.ok(!checkImetaDim('dim 123456x200')));
+  it('rejects trailing chars', () => assert.ok(!checkImetaDim('dim 100x200px')));
+
+  it('matches regex', () => {
+    const regex = /^dim [0-9]{1,5}x[0-9]{1,5}$/;
+    const inputs = [
+      'dim 100x200', 'dim 1x1', 'dim 99999x99999', '',
+      '100x200', 'dim 100200', 'dim x200', 'dim 123456x200',
+      'dim 100x200px', 'dim 0x0',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkImetaDim(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_a_tag string kinds (B1/B2)', () => {
+  // Reference: string-based kind comparison, no integer overflow, no leading-zero acceptance
+  function checkATagStr(s: string, kinds?: string[]): boolean {
+    if (s.length < 68) return false;
+    let pos = 0;
+    if (s[pos] < '0' || s[pos] > '9') return false;
+    const kindStart = pos;
+    while (pos < s.length && s[pos] >= '0' && s[pos] <= '9') pos++;
+    const kindStr = s.slice(kindStart, pos);
+    if (pos >= s.length || s[pos] !== ':') return false;
+    if (kinds && kinds.length > 0 && !kinds.includes(kindStr)) return false;
+    pos++;
+    if (pos + 64 >= s.length) return false;
+    for (let i = 0; i < 64; i++) {
+      const c = s[pos + i];
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    pos += 64;
+    if (pos >= s.length || s[pos] !== ':') return false;
+    pos++;
+    if (pos >= s.length) return false;
+    for (let j = pos; j < s.length; j++) {
+      const c = s[j];
+      if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
+    }
+    return true;
+  }
+
+  const hex64 = 'a'.repeat(64);
+
+  // B1: Leading zeros — "030311" must NOT match kind "30311"
+  it('B1: rejects leading-zero kind with filter', () => {
+    assert.ok(!checkATagStr(`030311:${hex64}:test`, ['30311']));
+  });
+
+  it('B1: accepts exact kind match without leading zeros', () => {
+    assert.ok(checkATagStr(`30311:${hex64}:test`, ['30311']));
+  });
+
+  // B2: Overflow — extremely long digit strings don't cause issues
+  it('B2: handles very long kind number gracefully', () => {
+    const longKind = '9'.repeat(100);
+    // Should accept when no kinds filter
+    assert.ok(checkATagStr(`${longKind}:${hex64}:test`));
+    // Should reject when kinds filter doesn't include the long number
+    assert.ok(!checkATagStr(`${longKind}:${hex64}:test`, ['30311']));
+    // Should accept when kinds filter includes the exact string
+    assert.ok(checkATagStr(`${longKind}:${hex64}:test`, [longKind]));
+  });
+
+  it('B2: handles max-JS-int kind', () => {
+    const bigKind = '9007199254740992'; // > Number.MAX_SAFE_INTEGER
+    assert.ok(checkATagStr(`${bigKind}:${hex64}:test`));
+    assert.ok(checkATagStr(`${bigKind}:${hex64}:test`, [bigKind]));
+    // Would fail with integer comparison due to precision loss
+    assert.ok(!checkATagStr(`${bigKind}:${hex64}:test`, ['9007199254740993']));
+  });
+});
+
+describe('check_external_identity dot-tail (B10)', () => {
+  // Reference: ^[a-z0-9._\-/]+:.+ — the .+ means >=1 char after colon,
+  // and the first char after colon must not be a line terminator
+  function checkExternalIdentity(s: string): boolean {
+    let i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '.' || c === '_' || c === '-' || c === '/') i++;
+      else break;
+    }
+    if (i === 0 || i >= s.length || s[i] !== ':') return false;
+    i++;
+    // .+ tail — at least 1 char, no line terminators (JS . semantics)
+    if (i >= s.length) return false;
+    for (let j = i; j < s.length; j++) {
+      const c = s[j];
+      if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
+    }
+    return true;
+  }
+
+  it('accepts github:user', () => assert.ok(checkExternalIdentity('github:user')));
+  it('accepts github: followed by space', () => assert.ok(checkExternalIdentity('github: user')));
+  it('B10: rejects github: followed by newline', () => assert.ok(!checkExternalIdentity('github:\nuser')));
+  it('B10: rejects github: followed by \\r', () => assert.ok(!checkExternalIdentity('github:\ruser')));
+  it('B10: rejects github: followed by LS', () => assert.ok(!checkExternalIdentity('github:\u2028user')));
+
+  it('matches regex (unanchored — no $ anchor)', () => {
+    // Note: ^[a-z0-9._\-/]+:.+ has no $ anchor in the original pattern
+    const regex = new RegExp('^[a-z0-9._\\-/]+:.+');
+    const inputs = [
+      'github:user', 'github:', 'github:\nuser', 'github:\ruser',
+      'github:\u2028user', 'github: user', '',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkExternalIdentity(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
 });

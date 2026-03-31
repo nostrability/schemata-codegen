@@ -82,7 +82,8 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
     case 'a_tag': {
       helpers.add('checkATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `checkATag(${varExpr}, List.of(${check.kinds.join(', ')}))`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `checkATag(${varExpr}, new String[]{${arr}})`, helpers };
       }
       return { expr: `checkATag(${varExpr}, null)`, helpers };
     }
@@ -103,8 +104,9 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       return { expr: checks.length === 1 ? checks[0] : `(${checks.join(' || ')})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('checkDotTail');
       return {
-        expr: `(${varExpr} != null && ${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && ${varExpr}.length() > ${check.prefix.length})`,
+        expr: `(${varExpr} != null && ${varExpr}.startsWith(${JSON.stringify(check.prefix)}) && checkDotTail(${varExpr}, ${check.prefix.length}))`,
         helpers,
       };
     }
@@ -130,12 +132,12 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'email_like': {
       helpers.add('checkEmailLike');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('checkGitCloneUrl');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       return { expr: `checkGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -152,7 +154,7 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'prefix_no_whitespace': {
       helpers.add('checkNoWsTail');
-      helpers.add('isAsciiWs');
+      helpers.add('isEcmaWs');
       const checks = check.prefixes.map(p =>
         `(${varExpr} != null && ${varExpr}.startsWith(${JSON.stringify(p)}) && checkNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -605,7 +607,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('checkRelayUrl') || helpers.has('checkATag')) {
+  if (helpers.has('checkRelayUrl') || helpers.has('checkATag') || helpers.has('checkDotTail')) {
     lines.push('    private static boolean checkDotTail(String s, int pos) {');
     lines.push('        if (pos >= s.length()) return false;');
     lines.push('        for (int j = pos; j < s.length(); j++) {');
@@ -646,18 +648,23 @@ function emitJavaHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('checkATag')) {
-    lines.push('    private static boolean checkATag(String s, java.util.List<Integer> kinds) {');
+    lines.push('    private static boolean checkATag(String s, String[] kinds) {');
     lines.push('        if (s == null || s.length() < 68) return false;');
+    lines.push('        int kindStart = 0;');
+    lines.push("        if (s.charAt(0) < '0' || s.charAt(0) > '9') return false;");
     lines.push('        int pos = 0;');
-    lines.push("        if (s.charAt(pos) < '0' || s.charAt(pos) > '9') return false;");
-    lines.push('        int kind = 0;');
-    lines.push("        while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') {");
-    lines.push("            kind = kind * 10 + (s.charAt(pos) - '0');");
-    lines.push('            pos++;');
-    lines.push('        }');
+    lines.push("        while (pos < s.length() && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;");
     lines.push("        if (pos >= s.length() || s.charAt(pos) != ':') return false;");
-    lines.push('        if (kinds != null && !kinds.contains(kind)) return false;');
-    lines.push('        pos++;');
+    lines.push('        int colonPos = pos;');
+    lines.push('        int kindLen = colonPos - kindStart;');
+    lines.push("        if (kindLen > 1 && s.charAt(kindStart) == '0') return false;");
+    lines.push('        if (kinds != null) {');
+    lines.push('            String kindStr = s.substring(kindStart, colonPos);');
+    lines.push('            boolean found = false;');
+    lines.push('            for (String k : kinds) { if (kindStr.equals(k)) { found = true; break; } }');
+    lines.push('            if (!found) return false;');
+    lines.push('        }');
+    lines.push('        pos = colonPos + 1;');
     lines.push('        if (pos + 64 >= s.length()) return false;');
     lines.push('        for (int i = 0; i < 64; i++) {');
     lines.push('            char c = s.charAt(pos + i);');
@@ -748,9 +755,13 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('isAsciiWs')) {
-    lines.push('    private static boolean isAsciiWs(char c) {');
-    lines.push("        return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == 0x0B || c == 0x0C;");
+  if (helpers.has('isEcmaWs')) {
+    lines.push('    private static boolean isEcmaWs(char c) {');
+    lines.push("        return c == '\\t' || c == '\\n' || c == '\\u000B' || c == '\\f' || c == '\\r' || c == ' '");
+    lines.push("            || c == '\\u00A0' || c == '\\u1680'");
+    lines.push("            || (c >= '\\u2000' && c <= '\\u200A')");
+    lines.push("            || c == '\\u2028' || c == '\\u2029' || c == '\\u202F' || c == '\\u205F'");
+    lines.push("            || c == '\\u3000' || c == '\\uFEFF';");
     lines.push('    }');
     lines.push('');
   }
@@ -817,12 +828,12 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('    private static boolean checkEmailLike(String s) {');
     lines.push('        if (s == null || s.isEmpty()) return false;');
     lines.push('        int i = 0;');
-    lines.push("        if (isAsciiWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
-    lines.push("        while (i < s.length() && !isAsciiWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
+    lines.push("        if (isEcmaWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
+    lines.push("        while (i < s.length() && !isEcmaWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
     lines.push("        if (i >= s.length() || s.charAt(i) != '@') return false;");
     lines.push('        i++;');
-    lines.push("        if (i >= s.length() || isAsciiWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
-    lines.push("        while (i < s.length() && !isAsciiWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
+    lines.push("        if (i >= s.length() || isEcmaWs(s.charAt(i)) || s.charAt(i) == '@') return false;");
+    lines.push("        while (i < s.length() && !isEcmaWs(s.charAt(i)) && s.charAt(i) != '@') i++;");
     lines.push('        return i == s.length();');
     lines.push('    }');
     lines.push('');
@@ -844,7 +855,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        }');
     lines.push('        if (pos >= s.length()) return false;');
     lines.push('        for (int i = pos; i < s.length(); i++) {');
-    lines.push('            if (isAsciiWs(s.charAt(i))) return false;');
+    lines.push('            if (isEcmaWs(s.charAt(i))) return false;');
     lines.push('        }');
     lines.push('        return true;');
     lines.push('    }');
@@ -853,7 +864,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
 
   if (helpers.has('checkContentType')) {
     lines.push('    private static boolean isTypeChar(char c) {');
-    lines.push("        return Character.isLetter(c) || Character.isDigit(c) || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
+    lines.push("        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '-';");
     lines.push('    }');
     lines.push('');
     lines.push('    private static boolean isSubtypeChar(char c) {');
@@ -863,12 +874,13 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('    private static boolean checkContentType(String s) {');
     lines.push('        if (s == null || s.isEmpty()) return false;');
     lines.push('        int i = 0;');
-    lines.push('        if (!Character.isLetter(s.charAt(i))) return false;');
+    lines.push("        char c0 = s.charAt(i); if (!((c0 >= 'a' && c0 <= 'z') || (c0 >= 'A' && c0 <= 'Z'))) return false;");
     lines.push('        i++;');
     lines.push('        while (i < s.length() && isTypeChar(s.charAt(i))) i++;');
     lines.push("        if (i >= s.length() || s.charAt(i) != '/') return false;");
     lines.push('        i++;');
-    lines.push("        if (i >= s.length() || !(Character.isLetter(s.charAt(i)) || Character.isDigit(s.charAt(i)) || s.charAt(i) == '*')) return false;");
+    lines.push("        if (i >= s.length()) return false;");
+    lines.push("        char sc = s.charAt(i); if (!((sc >= 'a' && sc <= 'z') || (sc >= 'A' && sc <= 'Z') || (sc >= '0' && sc <= '9') || sc == '*')) return false;");
     lines.push('        i++;');
     lines.push('        while (i < s.length() && isSubtypeChar(s.charAt(i))) i++;');
     lines.push('        while (i < s.length()) {');
@@ -877,6 +889,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("            if (j >= s.length() || s.charAt(j) != ';') break;");
     lines.push('            j++;');
     lines.push("            while (j < s.length() && (s.charAt(j) == ' ' || s.charAt(j) == '\\t')) j++;");
+    lines.push('            if (j >= s.length()) return false;');
     lines.push('            int start = j;');
     lines.push('            while (j < s.length() && isSubtypeChar(s.charAt(j))) j++;');
     lines.push('            if (j == start) break;');
@@ -893,8 +906,8 @@ function emitJavaHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('checkDoi')) {
-    // doi uses checkDotTail which is emitted when checkRelayUrl or checkATag is present
-    if (!helpers.has('checkRelayUrl') && !helpers.has('checkATag')) {
+    // doi uses checkDotTail which is emitted when checkRelayUrl, checkATag, or checkDotTail is present
+    if (!helpers.has('checkRelayUrl') && !helpers.has('checkATag') && !helpers.has('checkDotTail')) {
       lines.push('    private static boolean checkDotTail(String s, int pos) {');
       lines.push('        if (pos >= s.length()) return false;');
       lines.push('        for (int j = pos; j < s.length(); j++) {');
@@ -921,7 +934,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
   if (helpers.has('checkAnnotateUser')) {
     lines.push('    private static boolean checkAnnotateUser(String s) {');
     lines.push('        if (s == null || !s.startsWith("annotate-user ")) return false;');
-    lines.push('        int i = 15;');
+    lines.push('        int i = 14;');
     lines.push('        if (i + 64 > s.length()) return false;');
     lines.push('        for (int j = 0; j < 64; j++) {');
     lines.push('            char c = s.charAt(i + j);');
@@ -948,7 +961,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('    private static boolean checkNoWsTail(String s, int offset) {');
     lines.push('        if (s == null || offset >= s.length()) return false;');
     lines.push('        for (int i = offset; i < s.length(); i++) {');
-    lines.push('            if (isAsciiWs(s.charAt(i))) return false;');
+    lines.push('            if (isEcmaWs(s.charAt(i))) return false;');
     lines.push('        }');
     lines.push('        return true;');
     lines.push('    }');
@@ -964,7 +977,12 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push("        while (i < s.length()) { c = s.charAt(i); if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/') i++; else break; }");
     lines.push("        if (i >= s.length() || s.charAt(i) != ':') return false;");
     lines.push('        i++;');
-    lines.push('        return i < s.length();');
+    lines.push('        if (i >= s.length()) return false;');
+    lines.push('        for (int j = i; j < s.length(); j++) {');
+    lines.push("            char c2 = s.charAt(j);");
+    lines.push("            if (c2 == '\\n' || c2 == '\\r' || c2 == '\\u0085' || c2 == '\\u2028' || c2 == '\\u2029') return false;");
+    lines.push('        }');
+    lines.push('        return true;');
     lines.push('    }');
     lines.push('');
   }
@@ -991,15 +1009,16 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (s == null || s.isEmpty()) return false;');
     lines.push('        if (s.equals("#")) return true;');
     lines.push('        char c0 = s.charAt(0);');
-    lines.push("        if (!Character.isLetter(c0) && !Character.isDigit(c0)) return false;");
+    lines.push("        if (!((c0 >= 'a' && c0 <= 'z') || (c0 >= 'A' && c0 <= 'Z') || (c0 >= '0' && c0 <= '9'))) return false;");
     lines.push('        int i = 1;');
-    lines.push("        while (i < s.length()) { char c = s.charAt(i); if (Character.isLetter(c) || Character.isDigit(c) || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
+    lines.push("        while (i < s.length()) { char c = s.charAt(i); if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
     lines.push('        while (i < s.length()) {');
     lines.push("            if (s.charAt(i) != ':') return false;");
     lines.push('            i++;');
-    lines.push("            if (i >= s.length() || (!Character.isLetter(s.charAt(i)) && !Character.isDigit(s.charAt(i)))) return false;");
+    lines.push("            if (i >= s.length()) return false;");
+    lines.push("            char ci = s.charAt(i); if (!((ci >= 'a' && ci <= 'z') || (ci >= 'A' && ci <= 'Z') || (ci >= '0' && ci <= '9'))) return false;");
     lines.push('            i++;');
-    lines.push("            while (i < s.length()) { char c = s.charAt(i); if (Character.isLetter(c) || Character.isDigit(c) || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
+    lines.push("            while (i < s.length()) { char c = s.charAt(i); if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-') i++; else break; }");
     lines.push('        }');
     lines.push('        return i == s.length();');
     lines.push('    }');

@@ -184,8 +184,8 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
     case 'a_tag': {
       helpers.add('schemata_check_a_tag');
       if (check.kinds && check.kinds.length > 0) {
-        const arr = check.kinds.join(', ');
-        return { expr: `schemata_check_a_tag(${varExpr}, (const int[]){${arr}}, ${check.kinds.length})`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `schemata_check_a_tag(${varExpr}, (const char*[]){${arr}}, ${check.kinds.length})`, helpers };
       }
       return { expr: `schemata_check_a_tag(${varExpr}, NULL, 0)`, helpers };
     }
@@ -207,8 +207,9 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
     }
     case 'prefix_nonempty': {
       helpers.add('schemata_starts_with');
+      helpers.add('schemata_check_dot_tail');
       return {
-        expr: `(schemata_starts_with(${varExpr}, ${JSON.stringify(check.prefix)}) && strlen(${varExpr}) > ${check.prefix.length})`,
+        expr: `(schemata_starts_with(${varExpr}, ${JSON.stringify(check.prefix)}) && schemata_check_dot_tail(${varExpr}, ${check.prefix.length}, strlen(${varExpr})))`,
         helpers,
       };
     }
@@ -235,12 +236,12 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
     }
     case 'email_like': {
       helpers.add('schemata_check_email_like');
-      helpers.add('schemata_is_ascii_ws');
+      helpers.add('schemata_is_ecma_ws');
       return { expr: `schemata_check_email_like(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('schemata_check_git_clone_url');
-      helpers.add('schemata_is_ascii_ws');
+      helpers.add('schemata_is_ecma_ws');
       return { expr: `schemata_check_git_clone_url(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -258,7 +259,7 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
     case 'prefix_no_whitespace': {
       helpers.add('schemata_starts_with');
       helpers.add('schemata_check_no_ws_tail');
-      helpers.add('schemata_is_ascii_ws');
+      helpers.add('schemata_is_ecma_ws');
       const checks = check.prefixes.map(p =>
         `(schemata_starts_with(${varExpr}, ${JSON.stringify(p)}) && schemata_check_no_ws_tail(${varExpr}, ${p.length}))`
       );
@@ -662,7 +663,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('static int schemata_check_digits(const char *s) {');
     lines.push('    if (!s || !*s) return 0;');
     lines.push('    for (const char *p = s; *p; p++) {');
-    lines.push('        if (!isdigit((unsigned char)*p)) return 0;');
+    lines.push("        if (*p < '0' || *p > '9') return 0;");
     lines.push('    }');
     lines.push('    return 1;');
     lines.push('}');
@@ -675,7 +676,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (*s == \'-\') s++;');
     lines.push('    if (!*s) return 0;');
     lines.push('    for (const char *p = s; *p; p++) {');
-    lines.push('        if (!isdigit((unsigned char)*p)) return 0;');
+    lines.push("        if (*p < '0' || *p > '9') return 0;");
     lines.push('    }');
     lines.push('    return 1;');
     lines.push('}');
@@ -827,12 +828,13 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('');
   }
 
-  // Shared dot-tail helper: checks remaining string has >=1 char and no C/POSIX line terminators
-  if (helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag') || helpers.has('schemata_check_doi')) {
+  // Shared dot-tail helper: checks remaining string has >=1 char and no line terminators (regex `.` semantics)
+  // C regex `.` excludes only \n
+  if (helpers.has('schemata_check_dot_tail') || helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag') || helpers.has('schemata_check_doi')) {
     lines.push('static int schemata_check_dot_tail(const char *s, size_t pos, size_t len) {');
     lines.push('    if (pos >= len) return 0;');
     lines.push('    for (size_t i = pos; i < len; i++) {');
-    lines.push("        if (s[i] == '\\n') return 0;  /* POSIX . excludes \\n only */");
+    lines.push("        if (s[i] == '\\n') return 0;");
     lines.push('    }');
     lines.push('    return 1;');
     lines.push('}');
@@ -869,22 +871,22 @@ function emitHelperFunctions(helpers: Set<string>): string {
   }
 
   if (helpers.has('schemata_check_a_tag')) {
-    lines.push('static int schemata_check_a_tag(const char *s, const int *kinds, int num_kinds) {');
+    lines.push('static int schemata_check_a_tag(const char *s, const char **kinds, int num_kinds) {');
     lines.push('    if (!s) return 0;');
     lines.push('    size_t len = strlen(s);');
     lines.push('    if (len < 68) return 0;  /* min: 1 digit + : + 64 hex + : + 1 char */');
     lines.push('    size_t pos = 0;');
     lines.push("    if (s[pos] < '0' || s[pos] > '9') return 0;");
-    lines.push('    int kind = 0;');
-    lines.push("    while (pos < len && s[pos] >= '0' && s[pos] <= '9') {");
-    lines.push('        kind = kind * 10 + (s[pos] - \'0\');');
-    lines.push('        pos++;');
-    lines.push('    }');
+    lines.push('    size_t kind_start = pos;');
+    lines.push("    while (pos < len && s[pos] >= '0' && s[pos] <= '9') pos++;");
+    lines.push('    size_t kind_len = pos - kind_start;');
     lines.push("    if (pos >= len || s[pos] != ':') return 0;");
+    lines.push('    /* reject leading zeros: "0" ok, "0N..." not ok */');
+    lines.push("    if (kind_len > 1 && s[kind_start] == '0') return 0;");
     lines.push('    if (kinds && num_kinds > 0) {');
     lines.push('        int found = 0;');
     lines.push('        for (int i = 0; i < num_kinds; i++) {');
-    lines.push('            if (kinds[i] == kind) { found = 1; break; }');
+    lines.push('            if (strlen(kinds[i]) == kind_len && strncmp(s + kind_start, kinds[i], kind_len) == 0) { found = 1; break; }');
     lines.push('        }');
     lines.push('        if (!found) return 0;');
     lines.push('    }');
@@ -1061,9 +1063,31 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('schemata_is_ascii_ws')) {
-    lines.push('static int schemata_is_ascii_ws(char c) {');
-    lines.push("    return c == ' ' || c == '\\t' || c == '\\n' || c == '\\r' || c == '\\x0B' || c == '\\x0C';");
+  if (helpers.has('schemata_is_ecma_ws')) {
+    lines.push('/* ECMAScript \\s semantics: full Unicode whitespace set (UTF-8) */');
+    lines.push('static int schemata_is_ecma_ws(const unsigned char *s, size_t len, size_t pos, size_t *advance) {');
+    lines.push('    if (pos >= len) return 0;');
+    lines.push('    unsigned char c = s[pos];');
+    lines.push('    /* ASCII whitespace */');
+    lines.push("    if (c == 0x09 || c == 0x0A || c == 0x0B || c == 0x0C || c == 0x0D || c == 0x20) { *advance = 1; return 1; }");
+    lines.push('    /* 2-byte UTF-8: U+00A0 (C2 A0) */');
+    lines.push('    if (c == 0xC2 && pos + 1 < len && s[pos + 1] == 0xA0) { *advance = 2; return 1; }');
+    lines.push('    /* 3-byte UTF-8 */');
+    lines.push('    if (c == 0xE1 && pos + 2 < len && s[pos + 1] == 0x9A && s[pos + 2] == 0x80) { *advance = 3; return 1; } /* U+1680 */');
+    lines.push('    if (c == 0xE2 && pos + 2 < len) {');
+    lines.push('        unsigned char b1 = s[pos + 1], b2 = s[pos + 2];');
+    lines.push('        /* U+2000-200A: E2 80 80-8A */');
+    lines.push('        if (b1 == 0x80 && b2 >= 0x80 && b2 <= 0x8A) { *advance = 3; return 1; }');
+    lines.push('        /* U+2028: E2 80 A8, U+2029: E2 80 A9 */');
+    lines.push('        if (b1 == 0x80 && (b2 == 0xA8 || b2 == 0xA9)) { *advance = 3; return 1; }');
+    lines.push('        /* U+202F: E2 80 AF */');
+    lines.push('        if (b1 == 0x80 && b2 == 0xAF) { *advance = 3; return 1; }');
+    lines.push('        /* U+205F: E2 81 9F */');
+    lines.push('        if (b1 == 0x81 && b2 == 0x9F) { *advance = 3; return 1; }');
+    lines.push('    }');
+    lines.push('    if (c == 0xE3 && pos + 2 < len && s[pos + 1] == 0x80 && s[pos + 2] == 0x80) { *advance = 3; return 1; } /* U+3000 */');
+    lines.push('    if (c == 0xEF && pos + 2 < len && s[pos + 1] == 0xBB && s[pos + 2] == 0xBF) { *advance = 3; return 1; } /* U+FEFF */');
+    lines.push('    return 0;');
     lines.push('}');
     lines.push('');
   }
@@ -1072,16 +1096,18 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('static int schemata_check_email_like(const char *s) {');
     lines.push('    if (!s || !*s) return 0;');
     lines.push('    size_t len = strlen(s);');
+    lines.push('    const unsigned char *u = (const unsigned char *)s;');
     lines.push('    size_t i = 0;');
     lines.push('    /* local part: [^\\s@]+ */');
     lines.push('    size_t start = i;');
-    lines.push("    while (i < len && !schemata_is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push('    size_t adv;');
+    lines.push("    while (i < len && !schemata_is_ecma_ws(u, len, i, &adv) && s[i] != '@') i++;");
     lines.push('    if (i == start) return 0;');
     lines.push("    if (i >= len || s[i] != '@') return 0;");
     lines.push('    i++;');
     lines.push('    /* domain: [^\\s@]+ */');
     lines.push('    start = i;');
-    lines.push("    while (i < len && !schemata_is_ascii_ws(s[i]) && s[i] != '@') i++;");
+    lines.push("    while (i < len && !schemata_is_ecma_ws(u, len, i, &adv) && s[i] != '@') i++;");
     lines.push('    if (i == start) return 0;');
     lines.push('    return i == len;');
     lines.push('}');
@@ -1092,6 +1118,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('static int schemata_check_git_clone_url(const char *s) {');
     lines.push('    if (!s || !*s) return 0;');
     lines.push('    size_t len = strlen(s);');
+    lines.push('    const unsigned char *u = (const unsigned char *)s;');
     lines.push('    size_t i = 0;');
     lines.push('    if (len >= 4 && strncmp(s, "git@", 4) == 0) {');
     lines.push('        i = 4;');
@@ -1107,10 +1134,11 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push("        if (i + 3 > len || s[i] != ':' || s[i+1] != '/' || s[i+2] != '/') return 0;");
     lines.push('        i += 3;');
     lines.push('    }');
-    lines.push('    /* [^\\s]+ */');
+    lines.push('    /* [^\\s]+ (ECMAScript \\s) */');
     lines.push('    if (i >= len) return 0;');
+    lines.push('    size_t adv;');
     lines.push('    while (i < len) {');
-    lines.push('        if (schemata_is_ascii_ws(s[i])) return 0;');
+    lines.push('        if (schemata_is_ecma_ws(u, len, i, &adv)) return 0;');
     lines.push('        i++;');
     lines.push('    }');
     lines.push('    return 1;');
@@ -1146,7 +1174,7 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    /* params: (\\s*;\\s*token=token)* */');
     lines.push('    while (i < len) {');
     lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
-    lines.push('        if (i >= len) break;');
+    lines.push('        if (i >= len) return 0;  /* trailing whitespace not allowed */');
     lines.push("        if (s[i] != ';') return 0;");
     lines.push('        i++;');
     lines.push("        while (i < len && (s[i] == ' ' || s[i] == '\\t')) i++;");
@@ -1221,9 +1249,12 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('static int schemata_check_no_ws_tail(const char *s, size_t offset) {');
     lines.push('    if (!s) return 0;');
     lines.push('    size_t len = strlen(s);');
+    lines.push('    const unsigned char *u = (const unsigned char *)s;');
     lines.push('    if (offset >= len) return 0;');
-    lines.push('    for (size_t i = offset; i < len; i++) {');
-    lines.push('        if (schemata_is_ascii_ws(s[i])) return 0;');
+    lines.push('    size_t adv;');
+    lines.push('    for (size_t i = offset; i < len; ) {');
+    lines.push('        if (schemata_is_ecma_ws(u, len, i, &adv)) return 0;');
+    lines.push('        i++;');
     lines.push('    }');
     lines.push('    return 1;');
     lines.push('}');
@@ -1244,7 +1275,12 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (i == 0) return 0;');
     lines.push("    if (i >= len || s[i] != ':') return 0;");
     lines.push('    i++;');
-    lines.push('    return i < len;');
+    lines.push('    /* .+ tail: at least one char, no line terminators */');
+    lines.push("    if (i >= len) return 0;");
+    lines.push("    for (size_t j = i; j < len; j++) {");
+    lines.push("        if (s[j] == '\\n') return 0;");
+    lines.push("    }");
+    lines.push('    return 1;');
     lines.push('}');
     lines.push('');
   }

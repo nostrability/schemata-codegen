@@ -73,7 +73,8 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     case 'a_tag': {
       helpers.add('_checkATag');
       if (check.kinds && check.kinds.length > 0) {
-        return { expr: `_checkATag(${varExpr}, [${check.kinds.join(', ')}])`, helpers };
+        const arr = check.kinds.map(k => JSON.stringify(k)).join(', ');
+        return { expr: `_checkATag(${varExpr}, <String>[${arr}])`, helpers };
       }
       return { expr: `_checkATag(${varExpr}, null)`, helpers };
     }
@@ -94,8 +95,9 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       return { expr: `[${vals.join(', ')}].contains(${varExpr})`, helpers };
     }
     case 'prefix_nonempty': {
+      helpers.add('_checkDotTail');
       return {
-        expr: `${varExpr}.startsWith(${dartString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length}`,
+        expr: `${varExpr}.startsWith(${dartString(check.prefix)}) && ${varExpr}.length > ${check.prefix.length} && _checkDotTail(${varExpr}, ${check.prefix.length})`,
         helpers,
       };
     }
@@ -122,12 +124,12 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'email_like': {
       helpers.add('_checkEmailLike');
-      helpers.add('_isAsciiWs');
+      helpers.add('_isEcmaWs');
       return { expr: `_checkEmailLike(${varExpr})`, helpers };
     }
     case 'git_clone_url': {
       helpers.add('_checkGitCloneUrl');
-      helpers.add('_isAsciiWs');
+      helpers.add('_isEcmaWs');
       return { expr: `_checkGitCloneUrl(${varExpr})`, helpers };
     }
     case 'content_type': {
@@ -145,7 +147,7 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'prefix_no_whitespace': {
       helpers.add('_checkNoWsTail');
-      helpers.add('_isAsciiWs');
+      helpers.add('_isEcmaWs');
       const checks = check.prefixes.map(p =>
         `(${varExpr}.startsWith(${dartString(p)}) && _checkNoWsTail(${varExpr}, ${p.length}))`
       );
@@ -621,17 +623,21 @@ function emitDartHelpers(helpers: Set<string>): string {
   }
 
   if (helpers.has('_checkATag')) {
-    lines.push('bool _checkATag(String s, List<int>? kinds) {');
+    lines.push('bool _checkATag(String s, List<String>? kinds) {');
     lines.push('  if (s.length < 68) return false;');
     lines.push('  var pos = 0;');
     lines.push('  if (s.codeUnitAt(pos) < 48 || s.codeUnitAt(pos) > 57) return false;');
-    lines.push('  var kind = 0;');
+    lines.push('  final kindStart = pos;');
     lines.push('  while (pos < s.length && s.codeUnitAt(pos) >= 48 && s.codeUnitAt(pos) <= 57) {');
-    lines.push('    kind = kind * 10 + (s.codeUnitAt(pos) - 48);');
     lines.push('    pos++;');
     lines.push('  }');
+    lines.push('  final kindLen = pos - kindStart;');
+    lines.push('  if (kindLen > 1 && s.codeUnitAt(kindStart) == 48) return false;');
     lines.push("  if (pos >= s.length || s[pos] != ':') return false;");
-    lines.push('  if (kinds != null && !kinds.contains(kind)) return false;');
+    lines.push('  if (kinds != null) {');
+    lines.push('    final kindStr = s.substring(kindStart, pos);');
+    lines.push('    if (!kinds.contains(kindStr)) return false;');
+    lines.push('  }');
     lines.push('  pos++;');
     lines.push('  if (pos + 64 >= s.length) return false;');
     lines.push('  for (var i = 0; i < 64; i++) {');
@@ -739,9 +745,13 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('_isAsciiWs')) {
-    lines.push('bool _isAsciiWs(int c) {');
-    lines.push('  return c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12;');
+  if (helpers.has('_isEcmaWs')) {
+    lines.push('bool _isEcmaWs(int c) {');
+    lines.push('  return c == 0x09 || c == 0x0A || c == 0x0B || c == 0x0C || c == 0x0D || c == 0x20');
+    lines.push('      || c == 0x00A0 || c == 0x1680');
+    lines.push('      || (c >= 0x2000 && c <= 0x200A)');
+    lines.push('      || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F');
+    lines.push('      || c == 0x3000 || c == 0xFEFF;');
     lines.push('}');
     lines.push('');
   }
@@ -751,12 +761,12 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  if (s.isEmpty) return false;');
     lines.push('  int i = 0;');
     lines.push('  final start = i;');
-    lines.push('  while (i < s.length && !_isAsciiWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
+    lines.push('  while (i < s.length && !_isEcmaWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
     lines.push('  if (i == start) return false;');
     lines.push('  if (i >= s.length || s.codeUnitAt(i) != 64) return false;');
     lines.push('  i++;');
     lines.push('  final domStart = i;');
-    lines.push('  while (i < s.length && !_isAsciiWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
+    lines.push('  while (i < s.length && !_isEcmaWs(s.codeUnitAt(i)) && s.codeUnitAt(i) != 64) i++;');
     lines.push('  if (i == domStart) return false;');
     lines.push('  return i == s.length;');
     lines.push('}');
@@ -783,7 +793,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  }');
     lines.push('  if (i >= s.length) return false;');
     lines.push('  while (i < s.length) {');
-    lines.push('    if (_isAsciiWs(s.codeUnitAt(i))) return false;');
+    lines.push('    if (_isEcmaWs(s.codeUnitAt(i))) return false;');
     lines.push('    i++;');
     lines.push('  }');
     lines.push('  return true;');
@@ -816,7 +826,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  while (i < s.length && _isSubtypeChar(s.codeUnitAt(i))) i++;');
     lines.push('  while (i < s.length) {');
     lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
-    lines.push('    if (i >= s.length) break;');
+    lines.push('    if (i >= s.length) return false;');
     lines.push('    if (s.codeUnitAt(i) != 59) return false;');
     lines.push('    i++;');
     lines.push('    while (i < s.length && (s.codeUnitAt(i) == 32 || s.codeUnitAt(i) == 9)) i++;');
@@ -852,9 +862,9 @@ function emitDartHelpers(helpers: Set<string>): string {
 
   if (helpers.has('_checkAnnotateUser')) {
     lines.push('bool _checkAnnotateUser(String s) {');
-    lines.push("  if (s.length < 83) return false;");
+    lines.push("  if (s.length < 82) return false;");
     lines.push("  if (!s.startsWith('annotate-user ')) return false;");
-    lines.push('  int i = 15;');
+    lines.push('  int i = 14;');
     lines.push('  if (i + 64 > s.length) return false;');
     lines.push('  for (var j = 0; j < 64; j++) {');
     lines.push('    final c = s.codeUnitAt(i + j);');
@@ -883,7 +893,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('bool _checkNoWsTail(String s, int offset) {');
     lines.push('  if (offset >= s.length) return false;');
     lines.push('  for (var i = offset; i < s.length; i++) {');
-    lines.push('    if (_isAsciiWs(s.codeUnitAt(i))) return false;');
+    lines.push('    if (_isEcmaWs(s.codeUnitAt(i))) return false;');
     lines.push('  }');
     lines.push('  return true;');
     lines.push('}');
@@ -902,7 +912,12 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  if (i == 0) return false;');
     lines.push("  if (i >= s.length || s.codeUnitAt(i) != 58) return false; // ':'");
     lines.push('  i++;');
-    lines.push('  return i < s.length;');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  for (var j = i; j < s.length; j++) {');
+    lines.push('    final c = s.codeUnitAt(j);');
+    lines.push('    if (c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
     lines.push('}');
     lines.push('');
   }
