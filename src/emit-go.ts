@@ -524,10 +524,13 @@ function emitEventDispatchGo(
   lines.push('\t\t\ttagsValid = true');
   lines.push('\t\t\ttags = make([][]string, 0, len(tt))');
   lines.push('\t\t\tfor i, raw := range tt {');
-  lines.push('\t\t\t\tif arr, ok := raw.([]interface{}); ok {');
+  lines.push('\t\t\t\tswitch inner := raw.(type) {');
+  lines.push('\t\t\t\tcase []string:');
+  lines.push('\t\t\t\t\ttags = append(tags, inner)');
+  lines.push('\t\t\t\tcase []interface{}:');
   lines.push('\t\t\t\t\tvalid := true');
-  lines.push('\t\t\t\t\tstrs := make([]string, len(arr))');
-  lines.push('\t\t\t\t\tfor j, v := range arr {');
+  lines.push('\t\t\t\t\tstrs := make([]string, len(inner))');
+  lines.push('\t\t\t\t\tfor j, v := range inner {');
   lines.push('\t\t\t\t\t\tif s, ok := v.(string); ok {');
   lines.push('\t\t\t\t\t\t\tstrs[j] = s');
   lines.push('\t\t\t\t\t\t} else {');
@@ -541,7 +544,7 @@ function emitEventDispatchGo(
   lines.push('\t\t\t\t\t\terrors = append(errors, ValidationError{Path: fmt.Sprintf("tags[%d]", i), Message: fmt.Sprintf("tags[%d] must be an array of strings", i)})');
   lines.push('\t\t\t\t\t\ttags = append(tags, nil)');
   lines.push('\t\t\t\t\t}');
-  lines.push('\t\t\t\t} else {');
+  lines.push('\t\t\t\tdefault:');
   lines.push('\t\t\t\t\terrors = append(errors, ValidationError{Path: fmt.Sprintf("tags[%d]", i), Message: fmt.Sprintf("tags[%d] must be an array of strings", i)})');
   lines.push('\t\t\t\t\ttags = append(tags, nil)');
   lines.push('\t\t\t\t}');

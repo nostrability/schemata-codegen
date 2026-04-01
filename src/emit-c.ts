@@ -535,15 +535,12 @@ function emitEventFunctionC(
     lines.push('    }');
 
     // Tag dispatch — null-check tags/tag_lens before dispatch
-    lines.push('    if (num_tags > 0 && tags && tag_lens) {');
+    lines.push('    if (num_tags > 0 && (!tags || !tag_lens)) {');
+    lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "tags", "tags is required but pointer is NULL");');
+    lines.push('    } else {');
     lines.push('        int _remaining = max_errs - n;');
     lines.push('        if (_remaining > 0) {');
     lines.push('            n += schemata_validate(kind, tags, tag_lens, num_tags, errs + n, _remaining);');
-    lines.push('        }');
-    lines.push('    } else if (num_tags == 0) {');
-    lines.push('        int _remaining = max_errs - n;');
-    lines.push('        if (_remaining > 0) {');
-    lines.push('            n += schemata_validate(kind, tags, tag_lens, 0, errs + n, _remaining);');
     lines.push('        }');
     lines.push('    }');
   }
