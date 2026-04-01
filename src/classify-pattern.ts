@@ -259,9 +259,6 @@ export function classifyRegex(pattern: string): PatternCheck {
   }
 
   // Relay URL: ^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$
-  // NOTE: only the underscore variant matches — the no-underscore variant
-  // (^wss?://[a-zA-Z0-9.-]+...) has a different hostname charset and MUST NOT
-  // use relay_url (which allows _ in hostnames). See allowlist.
   if (pattern === '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$') {
     return { op: 'relay_url' };
   }

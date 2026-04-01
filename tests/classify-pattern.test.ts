@@ -227,16 +227,6 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
-  it('relay URL without underscore falls back to regex (allowlisted, see #32)', () => {
-    const r = classifyRegex('^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$');
-    assert.strictEqual(r.op, 'regex');
-  });
-
-  it('legacy optional relay URL falls back to regex (allowlisted, see #32)', () => {
-    const r = classifyRegex('^((ws://|wss://).+)?$');
-    assert.strictEqual(r.op, 'regex');
-  });
-
   // --- wrapped ---
 
   it('classifies PGP signature as wrapped', () => {
@@ -736,22 +726,15 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^dim [0-9]{1,5}x[0-9]{1,5}$',
   ];
 
-  // Patterns only in schemata v0.3.0 (fixed upstream, allowlisted until CI bumps past v0.3.0)
-  // See: https://github.com/nostrability/schemata-codegen/issues/32
-  const allowlistedPatterns = [
-    '^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$',  // P2: no-underscore hostname charset
-    '^((ws://|wss://).+)?$',                          // P1: optional group accepts empty string
-  ];
-
   it('processes all schemata patterns without throwing', () => {
-    for (const p of [...patterns, ...allowlistedPatterns]) {
+    for (const p of patterns) {
       const result = classifyRegex(p);
       assert.ok(result, `classifyRegex should return for: ${p}`);
       assert.ok(result.op, `result should have op for: ${p}`);
     }
   });
 
-  it('classifies all non-allowlisted patterns as native (100%)', () => {
+  it('classifies ALL patterns as native (100%)', () => {
     let nativeCount = 0;
     const regexPatterns: string[] = [];
     for (const p of patterns) {
@@ -764,14 +747,6 @@ describe('classifyRegex coverage of schemata patterns', () => {
     }
     assert.strictEqual(nativeCount, patterns.length,
       `Expected 100% native, got ${nativeCount}/${patterns.length}. Regex: ${regexPatterns.join(', ')}`);
-  });
-
-  it('allowlisted patterns fall back to regex', () => {
-    for (const p of allowlistedPatterns) {
-      const r = classifyRegex(p);
-      assert.strictEqual(r.op, 'regex',
-        `Allowlisted pattern should fall back to regex: ${p}`);
-    }
   });
 });
 
