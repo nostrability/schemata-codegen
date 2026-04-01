@@ -259,19 +259,11 @@ export function classifyRegex(pattern: string): PatternCheck {
   }
 
   // Relay URL: ^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$
-  // Also matches charset variant without underscore: [a-zA-Z0-9.-]
-  if (pattern === '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$' ||
-      pattern === '^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$') {
+  // NOTE: only the underscore variant matches — the no-underscore variant
+  // (^wss?://[a-zA-Z0-9.-]+...) has a different hostname charset and MUST NOT
+  // use relay_url (which allows _ in hostnames). See allowlist.
+  if (pattern === '^wss?://[a-zA-Z0-9._-]+(?::[0-9]+)?(?:/.*)?$') {
     return { op: 'relay_url' };
-  }
-
-  // Legacy optional relay URL: ^((ws://|wss://).+)?$
-  // Empty string matches the regex (outer ? makes group optional), but in practice
-  // relay URLs are never empty — optionality is handled by the parent schema's "required".
-  // Classify as starts_with_any which is slightly stricter (rejects empty) but correct
-  // for all real-world relay URL values.
-  if (pattern === '^((ws://|wss://).+)?$') {
-    return { op: 'starts_with_any', prefixes: ['ws://', 'wss://'] };
   }
 
   // ISO 8601 datetime: ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$

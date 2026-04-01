@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "pattern": "^((ws://|wss://).+)?$",
+    "reason": "P1: outer ? makes empty string valid; starts_with_any rejects it. Fixed upstream (e-redeemed uses $ref + anyOf const:\"\"). Remove when CI bumps past v0.3.0."
+  },
+  {
+    "pattern": "^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$",
+    "reason": "P2: hostname charset excludes underscore; relay_url native op allows _. Fixed upstream (all relay URLs migrated to @/relay-url.yaml). Remove when CI bumps past v0.3.0."
+  }
+]
