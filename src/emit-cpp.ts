@@ -332,12 +332,14 @@ function renderContentActionsCpp(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`        if (event.content.size() < ${action.min}) {`);
+        helpers.add('utf8_char_count');
+        lines.push(`        if (utf8_char_count(event.content) < ${action.min}) {`);
         lines.push(`            errors.push_back({"content", "content must be at least ${action.min} character(s)"});`);
         lines.push('        }');
         break;
       case 'check_content_max_length':
-        lines.push(`        if (event.content.size() > ${action.max}) {`);
+        helpers.add('utf8_char_count');
+        lines.push(`        if (utf8_char_count(event.content) > ${action.max}) {`);
         lines.push(`            errors.push_back({"content", "content must be at most ${action.max} character(s)"});`);
         lines.push('        }');
         break;
@@ -627,6 +629,22 @@ function emitCppFile(
 
 function emitCppHelpers(helpers: Set<string>): string {
   const lines: string[] = [];
+
+  if (helpers.has('utf8_char_count')) {
+    lines.push('inline std::size_t utf8_char_count(const std::string& s) {');
+    lines.push('    std::size_t count = 0;');
+    lines.push('    for (std::size_t i = 0; i < s.size(); ) {');
+    lines.push('        auto c = static_cast<unsigned char>(s[i]);');
+    lines.push('        if (c < 0x80) i += 1;');
+    lines.push('        else if ((c & 0xE0) == 0xC0) i += 2;');
+    lines.push('        else if ((c & 0xF0) == 0xE0) i += 3;');
+    lines.push('        else i += 4;');
+    lines.push('        count++;');
+    lines.push('    }');
+    lines.push('    return count;');
+    lines.push('}');
+    lines.push('');
+  }
 
   const hexLengths = new Set<number>();
   const hexMixedLengths = new Set<number>();

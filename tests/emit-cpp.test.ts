@@ -185,7 +185,7 @@ describe('validate_event', () => {
 
   it('validates content for constrained kinds', () => {
     const output = emitCppValidators([kindWithContent]);
-    assert.ok(output.includes('.size() < 1'));
+    assert.ok(output.includes('utf8_char_count(event.content) < 1'));
   });
 
   it('dispatches to validate_kind_tags', () => {

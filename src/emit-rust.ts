@@ -376,6 +376,17 @@ function renderTagMatcherRust(
   return checks.join(' && ');
 }
 
+// --- Rust string escape helper ---
+
+function rustStringEscape(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
 // --- Content validation ---
 
 function renderContentActionsRust(
@@ -399,15 +410,14 @@ function renderContentActionsRust(
         const r = renderPatternCheckRust(action.native, 'content');
         for (const h of r.helpers) helpers.add(h);
         lines.push(`        if !(${r.expr}) {`);
-        lines.push(`            errors.push(ValidationError { path: "content", message: "content must match pattern ${action.regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" });`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must match pattern ${rustStringEscape(action.regex)}" });`);
         lines.push('        }');
         break;
       }
       case 'check_content_enum': {
         const checks = action.values.map(v => `content == ${JSON.stringify(v)}`).join(' || ');
-        const msgVals = action.values.join(', ').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         lines.push(`        if !(${checks}) {`);
-        lines.push(`            errors.push(ValidationError { path: "content", message: "content must be one of: ${msgVals}" });`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must be one of: ${rustStringEscape(action.values.join(', '))}" });`);
         lines.push('        }');
         break;
       }
@@ -486,10 +496,10 @@ function emitEventDispatchRust(
       lines.push("/// Validate an event's content constraints and tag structure.");
       lines.push('pub fn validate_event(event: &Event) -> Vec<ValidationError> {');
       lines.push('    let mut errors = Vec::new();');
-      lines.push('    let kind = event.kind().as_u16() as u32;');
+      lines.push('    let kind = event.kind.as_u16() as u32;');
 
       if (contentKinds.length > 0) {
-        lines.push('    let content = event.content().as_str();');
+        lines.push('    let content = event.content.as_str();');
         lines.push('    match kind {');
         for (const [kindNumber, actions] of contentKinds) {
           lines.push(`        ${kindNumber} => {`);
@@ -500,7 +510,7 @@ function emitEventDispatchRust(
         lines.push('    }');
       }
 
-      lines.push('    errors.extend(validate_kind_tags(kind, event.tags()));');
+      lines.push('    errors.extend(validate_kind_tags(kind, &event.tags));');
     } else {
       // nostrdb
       lines.push("/// Validate an event's content constraints and tag structure.");

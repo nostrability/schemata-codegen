@@ -201,7 +201,7 @@ describe('ValidateEvent', () => {
 
   it('validates content for constrained kinds', () => {
     const output = emitGoValidators([kindWithContent]);
-    assert.ok(output.includes('len(content) < 1'));
+    assert.ok(output.includes('utf8.RuneCountInString(content) < 1'));
   });
 
   it('dispatches to ValidateKindTags', () => {

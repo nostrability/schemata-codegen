@@ -375,7 +375,7 @@ function emitEventDispatchCSharp(
   lines.push('        }');
   lines.push('        int kind;');
   lines.push('        if (kindRaw is int ki) kind = ki;');
-  lines.push('        else if (kindRaw is long kl) kind = (int)kl;');
+  lines.push('        else if (kindRaw is long kl && kl >= int.MinValue && kl <= int.MaxValue) kind = (int)kl;');
   lines.push('        else {');
   lines.push('            errors.Add(new ValidationError("kind", "kind must be an integer"));');
   lines.push('            return errors;');

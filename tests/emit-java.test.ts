@@ -208,7 +208,7 @@ describe('validateEvent', () => {
 
   it('validates content for constrained kinds', () => {
     const output = emitJavaValidators([kindWithContent]);
-    assert.ok(output.includes('.length() < 1'));
+    assert.ok(output.includes('.codePointCount(0, content.length()) < 1'));
   });
 
   it('dispatches to validateKindTags', () => {

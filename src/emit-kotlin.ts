@@ -323,12 +323,12 @@ function renderContentActionsKotlin(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`            if (content.length < ${action.min}) {`);
+        lines.push(`            if (content.codePointCount(0, content.length) < ${action.min}) {`);
         lines.push(`                errors.add(ValidationError("content", "content must be at least ${action.min} character(s)"))`);
         lines.push('            }');
         break;
       case 'check_content_max_length':
-        lines.push(`            if (content.length > ${action.max}) {`);
+        lines.push(`            if (content.codePointCount(0, content.length) > ${action.max}) {`);
         lines.push(`                errors.add(ValidationError("content", "content must be at most ${action.max} character(s)"))`);
         lines.push('            }');
         break;
@@ -369,7 +369,10 @@ function emitEventDispatchKotlin(
   lines.push('    val kindRaw = event["kind"]');
   lines.push('    val kind: Int = when (kindRaw) {');
   lines.push('        is Int -> kindRaw');
-  lines.push('        is Long -> kindRaw.toInt()');
+  lines.push('        is Long -> if (kindRaw in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) kindRaw.toInt() else {');
+  lines.push('            errors.add(ValidationError("kind", "kind must be an integer"))');
+  lines.push('            return errors');
+  lines.push('        }');
   lines.push('        else -> {');
   lines.push('            errors.add(ValidationError("kind", "kind must be an integer"))');
   lines.push('            return errors');

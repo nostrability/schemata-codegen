@@ -346,15 +346,14 @@ function renderContentActionsDart(
         const r = renderPatternCheckDart(action.native, 'content');
         for (const h of r.helpers) helpers.add(h);
         lines.push(`          if (!(${r.expr})) {`);
-        const escaped = action.regex.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\$/g, '\\$');
-        lines.push(`            errors.add(ValidationError(path: 'content', message: 'content must match pattern ${escaped}'));`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: ${dartString('content must match pattern ' + action.regex)}));`);
         lines.push('          }');
         break;
       }
       case 'check_content_enum': {
-        const vals = action.values.map(v => `'${v}'`).join(', ');
+        const vals = action.values.map(v => dartString(v)).join(', ');
         lines.push(`          if (![${vals}].contains(content)) {`);
-        lines.push(`            errors.add(ValidationError(path: 'content', message: 'content must be one of: ${action.values.join(', ')}'));`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: ${dartString('content must be one of: ' + action.values.join(', '))}));`);
         lines.push('          }');
         break;
       }
@@ -414,6 +413,7 @@ function emitEventDispatchDart(
     for (const [kindNumber, actions] of contentKinds) {
       lines.push(`        case ${kindNumber}:`);
       lines.push(...renderContentActionsDart(actions, helpers));
+      lines.push('          break;');
     }
     lines.push('      }');
   }

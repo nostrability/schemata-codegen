@@ -212,7 +212,7 @@ describe('validateEvent (generic)', () => {
 
   it('validates content for constrained kinds', () => {
     const result = emitCValidators([kindWithContent]);
-    assert.ok(result.source.includes('strlen'));
+    assert.ok(result.source.includes('schemata_utf8_char_count'));
   });
 
   it('dispatches to schemata_validate', () => {

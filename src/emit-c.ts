@@ -423,6 +423,17 @@ function renderTagSearchC(
   return { code: lines.join('\n'), helpers };
 }
 
+// --- C string escape helper ---
+
+function cStringEscape(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
 // --- Content validation ---
 
 function renderContentActionsC(
@@ -434,20 +445,22 @@ function renderContentActionsC(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`        if (strlen(${contentVar}) < ${action.min}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at least ${action.min} character(s)");`);
+        helpers.add('schemata_utf8_char_count');
+        lines.push(`        if (schemata_utf8_char_count(${contentVar}) < ${action.min}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at least ${action.min} character(s)");`);
         break;
       case 'check_content_max_length':
-        lines.push(`        if (strlen(${contentVar}) > ${action.max}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at most ${action.max} character(s)");`);
+        helpers.add('schemata_utf8_char_count');
+        lines.push(`        if (schemata_utf8_char_count(${contentVar}) > ${action.max}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at most ${action.max} character(s)");`);
         break;
       case 'check_content_pattern': {
         const r = renderPatternCheckC(action.native, contentVar);
         for (const h of r.helpers) helpers.add(h);
-        lines.push(`        if (!(${r.expr})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must match pattern ${action.regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}");`);
+        lines.push(`        if (!(${r.expr})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must match pattern ${cStringEscape(action.regex)}");`);
         break;
       }
       case 'check_content_enum': {
         const checks = action.values.map(v => `strcmp(${contentVar}, ${JSON.stringify(v)}) == 0`).join(' || ');
-        lines.push(`        if (!(${checks})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be one of: ${action.values.join(', ')}");`);
+        lines.push(`        if (!(${checks})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be one of: ${cStringEscape(action.values.join(', '))}");`);
         break;
       }
     }
@@ -472,6 +485,10 @@ function emitEventFunctionC(
     lines.push('int schemata_validate_event(const struct ndb_note *note,');
     lines.push('                            struct schemata_error *errs, int max_errs) {');
     lines.push('    int n = 0;');
+    lines.push('    if (!note) {');
+    lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "note", "note is required");');
+    lines.push('        return n;');
+    lines.push('    }');
     // nostrdb stores raw bytes, not hex strings - just null-check
     lines.push('    if (!ndb_note_id(note)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "id", "id is required");');
     lines.push('    if (!ndb_note_pubkey(note)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "pubkey", "pubkey is required");');
@@ -535,7 +552,7 @@ function emitEventFunctionC(
     lines.push('    }');
 
     // Tag dispatch — null-check tags/tag_lens before dispatch
-    lines.push('    if (num_tags > 0 && (!tags || !tag_lens)) {');
+    lines.push('    if (num_tags < 0 || (num_tags > 0 && (!tags || !tag_lens))) {');
     lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "tags", "tags is required but pointer is NULL");');
     lines.push('    } else {');
     lines.push('        int _remaining = max_errs - n;');
@@ -871,6 +888,21 @@ function emitSourceFile(
 
 function emitHelperFunctions(helpers: Set<string>): string {
   const lines: string[] = [];
+
+  if (helpers.has('schemata_utf8_char_count')) {
+    lines.push('static size_t schemata_utf8_char_count(const char *s) {');
+    lines.push('    size_t count = 0;');
+    lines.push('    for (const unsigned char *p = (const unsigned char *)s; *p; ) {');
+    lines.push('        if (*p < 0x80) p += 1;');
+    lines.push('        else if ((*p & 0xE0) == 0xC0) p += 2;');
+    lines.push('        else if ((*p & 0xF0) == 0xE0) p += 3;');
+    lines.push('        else p += 4;');
+    lines.push('        count++;');
+    lines.push('    }');
+    lines.push('    return count;');
+    lines.push('}');
+    lines.push('');
+  }
 
   if (helpers.has('schemata_starts_with')) {
     lines.push('static int schemata_starts_with(const char *s, const char *prefix) {');

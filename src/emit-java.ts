@@ -377,12 +377,12 @@ function renderContentActionsJava(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`                if (content.length() < ${action.min}) {`);
+        lines.push(`                if (content.codePointCount(0, content.length()) < ${action.min}) {`);
         lines.push(`                    errors.add(new ValidationError("content", "content must be at least ${action.min} character(s)"));`);
         lines.push('                }');
         break;
       case 'check_content_max_length':
-        lines.push(`                if (content.length() > ${action.max}) {`);
+        lines.push(`                if (content.codePointCount(0, content.length()) > ${action.max}) {`);
         lines.push(`                    errors.add(new ValidationError("content", "content must be at most ${action.max} character(s)"));`);
         lines.push('                }');
         break;

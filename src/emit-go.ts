@@ -386,12 +386,14 @@ function renderContentActionsGo(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`\tif len(content) < ${action.min} {`);
+        helpers.add('utf8');
+        lines.push(`\tif utf8.RuneCountInString(content) < ${action.min} {`);
         lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be at least ${action.min} character(s)"})`);
         lines.push('\t}');
         break;
       case 'check_content_max_length':
-        lines.push(`\tif len(content) > ${action.max} {`);
+        helpers.add('utf8');
+        lines.push(`\tif utf8.RuneCountInString(content) > ${action.max} {`);
         lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be at most ${action.max} character(s)"})`);
         lines.push('\t}');
         break;
