@@ -202,6 +202,19 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('schemata_check_base64');
       return { expr: `schemata_check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `schemata_check_hex${len}` : `schemata_check_hex${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('schemata_check_base64_2pad');
+      helpers.add('schemata_check_base64'); // for schemata_is_b64_char
+      return { expr: `schemata_check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('schemata_check_nostr_uri');
       return { expr: `schemata_check_nostr_uri(${varExpr})`, helpers };
@@ -1244,6 +1257,20 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    while ($i < $n) {');
     lines.push("        if ($s[$i] !== '=') { return false; }");
     lines.push('        $i++;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_base64_2pad')) {
+    lines.push('/* strict base64 with mandatory 2-char padding */');
+    lines.push('function schemata_check_base64_2pad(string $s): bool {');
+    lines.push('    $n = strlen($s);');
+    lines.push('    if ($n < 4 || $n % 4 !== 0) { return false; }');
+    lines.push("    if ($s[$n - 1] !== '=' || $s[$n - 2] !== '=') { return false; }");
+    lines.push('    for ($i = 0; $i < $n - 2; $i++) {');
+    lines.push('        if (!schemata_is_b64_char($s[$i])) { return false; }');
     lines.push('    }');
     lines.push('    return true;');
     lines.push('}');

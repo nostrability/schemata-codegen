@@ -202,6 +202,19 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_base64');
       return { expr: `check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `check_hex${len}` : `check_hex${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('check_base64_2pad');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('check_nostr_uri');
       return { expr: `check_nostr_uri(${varExpr})`, helpers };
@@ -1131,6 +1144,19 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    if (pad_len == 1 && data_len % 4 != 3) return false;');
     lines.push('    if (pad_len == 2 && data_len % 4 != 2) return false;');
     lines.push("    for (; i < s.size(); i++) { if (s[i] != '=') return false; }");
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_base64_2pad')) {
+    lines.push('/* strict base64 with mandatory 2-char padding */');
+    lines.push('inline bool check_base64_2pad(const std::string& s) {');
+    lines.push('    if (s.size() < 4 || s.size() % 4 != 0) return false;');
+    lines.push("    if (s[s.size() - 1] != '=' || s[s.size() - 2] != '=') return false;");
+    lines.push('    for (size_t i = 0; i < s.size() - 2; i++) {');
+    lines.push('        if (!is_b64_char(s[i])) return false;');
+    lines.push('    }');
     lines.push('    return true;');
     lines.push('}');
     lines.push('');

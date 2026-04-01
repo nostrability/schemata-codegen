@@ -198,6 +198,19 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       helpers.add('_check_base64');
       return { expr: `_check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `_check_hex${len}` : `_check_hex${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' or ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('_check_base64_2pad');
+      helpers.add('_check_base64'); // for _is_b64_char
+      return { expr: `_check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('_check_nostr_uri');
       return { expr: `_check_nostr_uri(${varExpr})`, helpers };
@@ -1215,6 +1228,21 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("        if s[i] != '=':");
     lines.push('            return False');
     lines.push('        i += 1');
+    lines.push('    return True');
+  }
+
+  if (helpers.has('_check_base64_2pad')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_base64_2pad(s: str) -> bool:');
+    lines.push('    n = len(s)');
+    lines.push('    if n < 4 or n % 4 != 0:');
+    lines.push('        return False');
+    lines.push("    if s[n - 1] != '=' or s[n - 2] != '=':");
+    lines.push('        return False');
+    lines.push('    for i in range(n - 2):');
+    lines.push('        if not _is_b64_char(s[i]):');
+    lines.push('            return False');
     lines.push('    return True');
   }
 

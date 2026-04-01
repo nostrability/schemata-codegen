@@ -66,6 +66,8 @@ export type PatternCheck =
   | { op: 'space_separated_tokens' }
   | { op: 'starts_with_charset'; charset: string }
   | { op: 'base64' }
+  | { op: 'hex_alternation'; lengths: number[]; case: 'lower' | 'mixed' }
+  | { op: 'base64_2pad' }
   | { op: 'nostr_uri' }
   | { op: 'nip04_encrypted' }
   | { op: 'nip05_identifier' }
@@ -99,6 +101,18 @@ export function classifyRegex(pattern: string): PatternCheck {
     if (m) {
       const isLower = !m[1].includes('A-F');
       return { op: 'hex', len: parseInt(m[2], 10), case: isLower ? 'lower' : 'mixed' };
+    }
+  }
+
+  // Multi-length hex alternation: ^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$
+  {
+    const m = pattern.match(
+      /^\^\(\?:(\[(?:a-f0-9|a-fA-F0-9|0-9a-f|0-9a-fA-F)\]\{\d+\}(?:\|\[(?:a-f0-9|a-fA-F0-9|0-9a-f|0-9a-fA-F)\]\{\d+\})+)\)\$$/
+    );
+    if (m) {
+      const isLower = !m[1].includes('A-F');
+      const lengths = [...m[1].matchAll(/\{(\d+)\}/g)].map(mm => parseInt(mm[1], 10));
+      return { op: 'hex_alternation', lengths, case: isLower ? 'lower' : 'mixed' };
     }
   }
 
@@ -409,6 +423,11 @@ export function classifyRegex(pattern: string): PatternCheck {
     return { op: 'base64' };
   }
 
+  // Base64 strict 2-pad: ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$
+  if (pattern === '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$') {
+    return { op: 'base64_2pad' };
+  }
+
   // Nostr URI: ^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$
   if (pattern === '^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$') {
     return { op: 'nostr_uri' };
@@ -639,6 +658,8 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'space_separated_tokens':
     case 'starts_with_charset':
     case 'base64':
+    case 'hex_alternation':
+    case 'base64_2pad':
     case 'nostr_uri':
     case 'nip04_encrypted':
     case 'nip05_identifier':

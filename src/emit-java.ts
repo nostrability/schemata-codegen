@@ -202,6 +202,19 @@ function renderPatternCheckJava(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('checkBase64');
       return { expr: `checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `checkHex${len}` : `checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('checkBase642Pad');
+      helpers.add('checkBase64'); // for isB64Char
+      return { expr: `checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('checkNostrUri');
       helpers.add('checkBech32'); // triggers isBech32Char
@@ -1161,6 +1174,21 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (padLen == 1 && dataLen % 4 != 3) return false;');
     lines.push('        if (padLen == 2 && dataLen % 4 != 2) return false;');
     lines.push("        while (i < s.length()) { if (s.charAt(i) != '=') return false; i++; }");
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBase642Pad')) {
+    lines.push('    /* strict base64 with mandatory 2-char padding */');
+    lines.push('    private static boolean checkBase642Pad(String s) {');
+    lines.push('        if (s == null) return false;');
+    lines.push('        int len = s.length();');
+    lines.push('        if (len < 4 || len % 4 != 0) return false;');
+    lines.push("        if (s.charAt(len - 1) != '=' || s.charAt(len - 2) != '=') return false;");
+    lines.push('        for (int i = 0; i < len - 2; i++) {');
+    lines.push('            if (!isB64Char(s.charAt(i))) return false;');
+    lines.push('        }');
     lines.push('        return true;');
     lines.push('    }');
     lines.push('');

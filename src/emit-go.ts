@@ -212,6 +212,19 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkBase64');
       return { expr: `checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `checkHex${len}` : `checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('checkBase642Pad');
+      helpers.add('checkBase64'); // for isB64Char
+      return { expr: `checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('checkNostrUri');
       helpers.add('strings');
@@ -1648,6 +1661,26 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t\t\treturn false');
     lines.push('\t\t}');
     lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBase642Pad')) {
+    lines.push('// strict base64 with mandatory 2-char padding');
+    lines.push('func checkBase642Pad(s string) bool {');
+    lines.push('\tl := len(s)');
+    lines.push('\tif l < 4 || l%4 != 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif s[l-1] != '=' || s[l-2] != '=' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < l-2; i++ {');
+    lines.push('\t\tif !isB64Char(s[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
     lines.push('\t}');
     lines.push('\treturn true');
     lines.push('}');

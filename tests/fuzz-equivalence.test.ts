@@ -772,6 +772,30 @@ function buildNativeChecker(check: PatternCheck, originalPattern?: string): ((s:
       };
     }
 
+    case 'hex_alternation': {
+      const validChars = check.case === 'lower' ? HEX_LOWER : HEX_MIXED;
+      const lengthSet = new Set(check.lengths);
+      return (s) => {
+        if (!lengthSet.has(s.length)) return false;
+        for (let i = 0; i < s.length; i++) {
+          if (!validChars.includes(s[i])) return false;
+        }
+        return true;
+      };
+    }
+
+    case 'base64_2pad': {
+      const isB64 = (c: string) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/';
+      return (s) => {
+        if (s.length < 4 || s.length % 4 !== 0) return false;
+        if (s[s.length - 1] !== '=' || s[s.length - 2] !== '=') return false;
+        for (let i = 0; i < s.length - 2; i++) {
+          if (!isB64(s[i])) return false;
+        }
+        return true;
+      };
+    }
+
     case 'nostr_uri': {
       const BC = '023456789acdefghjklmnpqrstuvwxyz';
       return (s) => {
@@ -1724,6 +1748,29 @@ function generateInputsForCheck(rng: Rng, check: PatternCheck): string[] {
       return [...base, '0abc', 'bXYZ', '', 'ABC', 'a123'];
     case 'base64':
       return [...base, '', 'AAAA', 'SGVsbG8=', 'SGVsbA==', 'A', 'ABC', '====', 'AA==AAAA'];
+    case 'hex_alternation': {
+      const hexAltInputs: string[] = [];
+      const hexAltChars = check.case === 'lower' ? HEX_LOWER : HEX_MIXED;
+      for (const len of check.lengths) {
+        hexAltInputs.push(rng.randomString(len, hexAltChars)); // valid
+        hexAltInputs.push(rng.randomString(len + 1, hexAltChars)); // off by 1
+        hexAltInputs.push(rng.randomString(len - 1, hexAltChars)); // off by 1
+      }
+      hexAltInputs.push('a'.repeat(64), 'a'.repeat(96), 'a'.repeat(128));
+      hexAltInputs.push('a'.repeat(65), 'a'.repeat(95), 'a'.repeat(127));
+      if (check.case === 'lower') hexAltInputs.push('A'.repeat(64)); // uppercase rejected
+      hexAltInputs.push('g'.repeat(64)); // invalid hex char
+      hexAltInputs.push('');
+      return [...base, ...hexAltInputs];
+    }
+    case 'base64_2pad':
+      return [...base,
+        'AAAA', 'AA==', 'AAAAAA==', 'AAAAAAAA', // valid: 4-byte groups ending ==
+        '', 'SGVsbG8=', 'A===', '====',           // invalid
+        'AA==AAAA', 'AA=\n', 'AA==\n',            // adversarial
+        'AAAAAAAAAAAA', 'AAAAAAAAAA==',            // 12 chars valid, 12 chars with pad
+        'AB==', '+/==', 'ab==', '00==',            // valid 4-byte
+      ];
     case 'nostr_uri':
       return [...base, 'nostr:npub1' + '0'.repeat(58), 'nostr:note1' + '0'.repeat(58), 'nostr:nprofile1' + '0'.repeat(10), 'nostr:', '', 'npub1' + '0'.repeat(58)];
     case 'nip04_encrypted':
@@ -1833,6 +1880,10 @@ const ALL_PATTERNS: string[] = [
   // Additional from schemata dist
   '^(02|03)[a-f0-9]{64}$',
   '^https?://\\S+$',
+  // Multi-length hex alternation (MIP-00 i-tag)
+  '^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$',
+  // Strict base64 2-pad (MIP-05 token tag)
+  '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$',
 ];
 
 // Deduplicate

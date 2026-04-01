@@ -511,6 +511,28 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  // --- hex_alternation ---
+
+  it('classifies multi-length hex alternation as hex_alternation', () => {
+    const r = classifyRegex('^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$');
+    assert.deepStrictEqual(r, { op: 'hex_alternation', lengths: [64, 96, 128], case: 'lower' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies mixed-case hex alternation', () => {
+    const r = classifyRegex('^(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{64})$');
+    assert.deepStrictEqual(r, { op: 'hex_alternation', lengths: [32, 64], case: 'mixed' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- base64_2pad ---
+
+  it('classifies strict base64 2-pad as base64_2pad', () => {
+    const r = classifyRegex('^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$');
+    assert.deepStrictEqual(r, { op: 'base64_2pad' });
+    assert.ok(isNativeCheck(r));
+  });
+
   // --- nostr_uri ---
 
   it('classifies nostr URI pattern as nostr_uri', () => {
@@ -724,6 +746,9 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^refs/(heads|tags)/[^\\s]+$',
     '^https?://\\S+$',
     '^dim [0-9]{1,5}x[0-9]{1,5}$',
+    // New patterns (PR #37: hex_alternation + base64_2pad)
+    '^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$',
+    '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$',
   ];
 
   it('processes all schemata patterns without throwing', () => {

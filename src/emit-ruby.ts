@@ -202,6 +202,19 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_base64');
       return { expr: `check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `check_hex${len}` : `check_hex${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('check_base64_2pad');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('check_nostr_uri');
       return { expr: `check_nostr_uri(${varExpr})`, helpers };
@@ -1119,6 +1132,19 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false if pad_len == 1 && data_len % 4 != 3');
     lines.push('    return false if pad_len == 2 && data_len % 4 != 2');
     lines.push("    (data_len...s.length).each { |j| return false unless s[j] == '=' }");
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_base64_2pad')) {
+    lines.push('  # strict base64 with mandatory 2-char padding');
+    lines.push('  def self.check_base64_2pad(s)');
+    lines.push('    return false unless s.is_a?(String)');
+    lines.push('    n = s.length');
+    lines.push('    return false if n < 4 || n % 4 != 0');
+    lines.push("    return false unless s[n - 1] == '=' && s[n - 2] == '='");
+    lines.push('    (0...n - 2).each { |i| return false unless is_b64_char(s[i]) }');
     lines.push('    true');
     lines.push('  end');
     lines.push('');

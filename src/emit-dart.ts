@@ -195,6 +195,19 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkBase64');
       return { expr: `_checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `_checkHex${len}` : `_checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('_checkBase642Pad');
+      helpers.add('_isB64Char');
+      return { expr: `_checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('_checkNostrUri');
       helpers.add('_isBech32Char');
@@ -1102,7 +1115,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('_isB64Char') || helpers.has('_checkBase64') || helpers.has('_checkNip04Encrypted')) {
+  if (helpers.has('_isB64Char') || helpers.has('_checkBase64') || helpers.has('_checkNip04Encrypted') || helpers.has('_checkBase642Pad')) {
     lines.push('bool _isB64Char(int c) {');
     lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 43 || c == 47;');
     lines.push('}');
@@ -1128,6 +1141,20 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  while (i < l) {');
     lines.push('    if (s.codeUnitAt(i) != 61) return false; // \'=\'');
     lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkBase642Pad')) {
+    lines.push('// strict base64 with mandatory 2-char padding');
+    lines.push('bool _checkBase642Pad(String s) {');
+    lines.push('  final l = s.length;');
+    lines.push('  if (l < 4 || l % 4 != 0) return false;');
+    lines.push("  if (s.codeUnitAt(l - 1) != 61 || s.codeUnitAt(l - 2) != 61) return false; // '='");
+    lines.push('  for (var i = 0; i < l - 2; i++) {');
+    lines.push('    if (!_isB64Char(s.codeUnitAt(i))) return false;');
     lines.push('  }');
     lines.push('  return true;');
     lines.push('}');

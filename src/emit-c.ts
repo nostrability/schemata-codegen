@@ -307,6 +307,19 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_base64');
       return { expr: `schemata_check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `schemata_check_hex${len}` : `schemata_check_hex${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('schemata_check_base64_2pad');
+      helpers.add('schemata_check_base64'); // for schemata_is_b64_char
+      return { expr: `schemata_check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('schemata_check_nostr_uri');
       return { expr: `schemata_check_nostr_uri(${varExpr})`, helpers };
@@ -1491,6 +1504,22 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (pad_len == 1 && data_len % 4 != 3) return 0;');
     lines.push('    if (pad_len == 2 && data_len % 4 != 2) return 0;');
     lines.push("    for (; i < len; i++) { if (s[i] != '=') return 0; }");
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_base64_2pad')) {
+    lines.push('/* strict base64 with mandatory 2-char padding */');
+    lines.push('static int schemata_check_base64_2pad(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len < 4 || len % 4 != 0) return 0;');
+    lines.push("    if (s[len - 1] != '=' || s[len - 2] != '=') return 0;");
+    lines.push('    size_t i;');
+    lines.push('    for (i = 0; i < len - 2; i++) {');
+    lines.push('        if (!schemata_is_b64_char(s[i])) return 0;');
+    lines.push('    }');
     lines.push('    return 1;');
     lines.push('}');
     lines.push('');

@@ -201,6 +201,19 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('checkBase64');
       return { expr: `checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `checkHex${len}` : `checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('checkBase642Pad');
+      helpers.add('checkBase64'); // for isB64Char
+      return { expr: `checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('checkNostrUri');
       helpers.add('checkBech32'); // triggers isBech32Char
@@ -1177,6 +1190,21 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    while i < len {');
     lines.push('        if u[i] != 0x3D { return false }');
     lines.push('        i += 1');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBase642Pad')) {
+    lines.push('// strict base64 with mandatory 2-char padding');
+    lines.push('private func checkBase642Pad(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let len = u.count');
+    lines.push('    if len < 4 || len % 4 != 0 { return false }');
+    lines.push('    if u[len - 1] != 0x3D || u[len - 2] != 0x3D { return false }');
+    lines.push('    for i in 0..<len - 2 {');
+    lines.push('        if !isB64Char(u[i]) { return false }');
     lines.push('    }');
     lines.push('    return true');
     lines.push('}');
