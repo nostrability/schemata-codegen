@@ -227,6 +227,18 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  it('classifies relay URL pattern without underscore as relay_url', () => {
+    const r = classifyRegex('^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$');
+    assert.deepStrictEqual(r, { op: 'relay_url' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies legacy optional relay URL as starts_with_any', () => {
+    const r = classifyRegex('^((ws://|wss://).+)?$');
+    assert.deepStrictEqual(r, { op: 'starts_with_any', prefixes: ['ws://', 'wss://'] });
+    assert.ok(isNativeCheck(r));
+  });
+
   // --- wrapped ---
 
   it('classifies PGP signature as wrapped', () => {
@@ -724,6 +736,9 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^refs/(heads|tags)/[^\\s]+$',
     '^https?://\\S+$',
     '^dim [0-9]{1,5}x[0-9]{1,5}$',
+    // Relay URL charset variant (no underscore) and legacy optional pattern
+    '^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$',
+    '^((ws://|wss://).+)?$',
   ];
 
   it('processes all schemata patterns without throwing', () => {
