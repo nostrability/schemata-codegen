@@ -313,9 +313,23 @@ function emitEventDispatch(
   lines.push('  }');
   lines.push('  const errors: ValidationError[] = [];');
   lines.push('  const kind = event.kind;');
-  lines.push('  if (typeof kind !== "number") {');
-  lines.push('    errors.push({ path: "kind", message: "kind must be a number" });');
+  lines.push('  if (typeof kind !== "number" || !Number.isInteger(kind)) {');
+  lines.push('    errors.push({ path: "kind", message: "kind must be an integer" });');
   lines.push('    return errors;');
+  lines.push('  }');
+
+  // Base field validation
+  lines.push('  if (typeof event.id !== "string" || !/^[a-f0-9]{64}$/.test(event.id as string)) {');
+  lines.push('    errors.push({ path: "id", message: "id must be a 64-char lowercase hex string" });');
+  lines.push('  }');
+  lines.push('  if (typeof event.pubkey !== "string" || !/^[a-f0-9]{64}$/.test(event.pubkey as string)) {');
+  lines.push('    errors.push({ path: "pubkey", message: "pubkey must be a 64-char lowercase hex string" });');
+  lines.push('  }');
+  lines.push('  if (typeof event.sig !== "string" || !/^[a-f0-9]{128}$/.test(event.sig as string)) {');
+  lines.push('    errors.push({ path: "sig", message: "sig must be a 128-char lowercase hex string" });');
+  lines.push('  }');
+  lines.push('  if (typeof event.created_at !== "number" || !Number.isInteger(event.created_at as number) || (event.created_at as number) < 0) {');
+  lines.push('    errors.push({ path: "created_at", message: "created_at must be a non-negative integer" });');
   lines.push('  }');
 
   // Content validation

@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitCppValidators', () => {
   it('generates struct ValidationError', () => {
     const output = emitCppValidators([kind9735]);
@@ -157,5 +168,34 @@ describe('emitCppValidators', () => {
     assert.ok(output.includes('namespace schemata {'));
     assert.ok(output.includes('switch (kind)'));
     assert.ok(output.includes('struct ValidationError'));
+  });
+});
+
+describe('validate_event', () => {
+  it('contains validate_event function', () => {
+    const output = emitCppValidators([kindWithContent]);
+    assert.ok(output.includes('validate_event('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitCppValidators([kindWithContent]);
+    assert.ok(output.includes('check_hex_64'));
+    assert.ok(output.includes('check_hex_128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitCppValidators([kindWithContent]);
+    assert.ok(output.includes('.size() < 1'));
+  });
+
+  it('dispatches to validate_kind_tags', () => {
+    const output = emitCppValidators([kindWithContent]);
+    assert.ok(output.includes('validate_kind_tags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitCppValidators([kindWithContent]);
+    assert.ok(output.includes('struct SchemataEvent'));
+    assert.ok(output.includes('check_hex_128'));
   });
 });

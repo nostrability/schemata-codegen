@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitRustValidators (generic, default)', () => {
   it('generates ValidationError struct', () => {
     const output = emitRustValidators([kind9735]);
@@ -181,5 +192,47 @@ describe('emitRustValidators full run', () => {
     assert.ok(output.includes('validate_kind_10002'));
     assert.ok(output.includes('validate_kind_777'));
     assert.ok(!output.includes('pub fn validate_kind_1('));
+  });
+});
+
+describe('validateEvent (generic)', () => {
+  it('contains validate_event function', () => {
+    const output = emitRustValidators([kindWithContent]);
+    assert.ok(output.includes('fn validate_event('));
+  });
+
+  it('generates SchemataEvent struct', () => {
+    const output = emitRustValidators([kindWithContent]);
+    assert.ok(output.includes('pub struct SchemataEvent'));
+  });
+
+  it('validates hex fields', () => {
+    const output = emitRustValidators([kindWithContent]);
+    assert.ok(output.includes('check_hex_64'));
+    assert.ok(output.includes('check_hex_128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitRustValidators([kindWithContent]);
+    assert.ok(output.includes('content.len() < 1'));
+  });
+
+  it('dispatches to validate_kind_tags', () => {
+    const output = emitRustValidators([kindWithContent]);
+    assert.ok(output.includes('validate_kind_tags('));
+  });
+});
+
+describe('validateEvent (nostr API)', () => {
+  it('generates validate_event for nostr API', () => {
+    const output = emitRustValidators([kindWithContent], 'nostr');
+    assert.ok(output.includes('fn validate_event(event: &Event)'));
+  });
+});
+
+describe('validateEvent (nostrdb API)', () => {
+  it('generates validate_event for nostrdb API', () => {
+    const output = emitRustValidators([kindWithContent], 'nostrdb');
+    assert.ok(output.includes('fn validate_event(note: &Note)'));
   });
 });

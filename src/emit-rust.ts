@@ -15,7 +15,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -374,6 +376,158 @@ function renderTagMatcherRust(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsRust(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`        if content.len() < ${action.min} {`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must be at least ${action.min} character(s)" });`);
+        lines.push('        }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`        if content.len() > ${action.max} {`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must be at most ${action.max} character(s)" });`);
+        lines.push('        }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckRust(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`        if !(${r.expr}) {`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must match pattern ${action.regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" });`);
+        lines.push('        }');
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `content == ${JSON.stringify(v)}`).join(' || ');
+        lines.push(`        if !(${checks}) {`);
+        lines.push(`            errors.push(ValidationError { path: "content", message: "content must be one of: ${action.values.join(', ')}" });`);
+        lines.push('        }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchRust(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+  adapter: RustApiAdapter,
+  api: RustApi,
+): string {
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+  const lines: string[] = [];
+
+  if (api === 'generic') {
+    // Generic: struct-based event with string fields
+    helpers.add('check_hex_64');
+    helpers.add('check_hex_128');
+
+    lines.push('/// A Nostr event for validation.');
+    lines.push('pub struct SchemataEvent<\'a> {');
+    lines.push("    pub id: &'a str,");
+    lines.push("    pub pubkey: &'a str,");
+    lines.push("    pub sig: &'a str,");
+    lines.push("    pub content: &'a str,");
+    lines.push('    pub created_at: i64,');
+    lines.push('    pub kind: u32,');
+    lines.push("    pub tags: &'a [&'a [&'a str]],");
+    lines.push('}');
+    lines.push('');
+    lines.push("/// Validate an event's base fields, content constraints, and tag structure.");
+    lines.push("pub fn validate_event(event: &SchemataEvent<'_>) -> Vec<ValidationError> {");
+    lines.push('    let mut errors = Vec::new();');
+
+    // Base field checks
+    lines.push('    if !check_hex_64(event.id) {');
+    lines.push('        errors.push(ValidationError { path: "id", message: "id must be a 64-char lowercase hex string" });');
+    lines.push('    }');
+    lines.push('    if !check_hex_64(event.pubkey) {');
+    lines.push('        errors.push(ValidationError { path: "pubkey", message: "pubkey must be a 64-char lowercase hex string" });');
+    lines.push('    }');
+    lines.push('    if !check_hex_128(event.sig) {');
+    lines.push('        errors.push(ValidationError { path: "sig", message: "sig must be a 128-char lowercase hex string" });');
+    lines.push('    }');
+    lines.push('    if event.created_at < 0 {');
+    lines.push('        errors.push(ValidationError { path: "created_at", message: "created_at must be a non-negative integer" });');
+    lines.push('    }');
+
+    // Content validation
+    if (contentKinds.length > 0) {
+      lines.push('    let content = event.content;');
+      lines.push('    match event.kind {');
+      for (const [kindNumber, actions] of contentKinds) {
+        lines.push(`        ${kindNumber} => {`);
+        lines.push(...renderContentActionsRust(actions, helpers));
+        lines.push('        }');
+      }
+      lines.push('        _ => {}');
+      lines.push('    }');
+    }
+
+    // Tag dispatch
+    lines.push('    errors.extend(validate_kind_tags(event.kind, event.tags));');
+    lines.push('    errors');
+    lines.push('}');
+  } else {
+    // For nostr and nostrdb APIs: type system already validates base fields
+    // Just add content validation + tag dispatch
+    if (api === 'nostr') {
+      lines.push("/// Validate an event's content constraints and tag structure.");
+      lines.push('pub fn validate_event(event: &Event) -> Vec<ValidationError> {');
+      lines.push('    let mut errors = Vec::new();');
+      lines.push('    let kind = event.kind().as_u16() as u32;');
+
+      if (contentKinds.length > 0) {
+        lines.push('    let content = event.content().as_str();');
+        lines.push('    match kind {');
+        for (const [kindNumber, actions] of contentKinds) {
+          lines.push(`        ${kindNumber} => {`);
+          lines.push(...renderContentActionsRust(actions, helpers));
+          lines.push('        }');
+        }
+        lines.push('        _ => {}');
+        lines.push('    }');
+      }
+
+      lines.push('    errors.extend(validate_kind_tags(kind, event.tags()));');
+    } else {
+      // nostrdb
+      lines.push("/// Validate an event's content constraints and tag structure.");
+      lines.push('pub fn validate_event(note: &Note) -> Vec<ValidationError> {');
+      lines.push('    let mut errors = Vec::new();');
+      lines.push('    let kind = note.kind() as u32;');
+
+      if (contentKinds.length > 0) {
+        lines.push('    let content = note.content();');
+        lines.push('    match kind {');
+        for (const [kindNumber, actions] of contentKinds) {
+          lines.push(`        ${kindNumber} => {`);
+          lines.push(...renderContentActionsRust(actions, helpers));
+          lines.push('        }');
+        }
+        lines.push('        _ => {}');
+        lines.push('    }');
+      }
+
+      lines.push('    errors.extend(validate_kind_tags(kind, note.tags()));');
+    }
+    lines.push('    errors');
+    lines.push('}');
+  }
+
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitRustValidators(
@@ -395,7 +549,13 @@ export function emitRustValidators(
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitRustFile(fnBodies, constrainedKinds, allHelpers, adapter);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitRustFile(fnBodies, constrainedKinds, allHelpers, adapter, contentPlans, api);
 }
 
 function emitKindFunctionRust(
@@ -515,7 +675,16 @@ function emitRustFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
   adapter: RustApiAdapter,
+  contentPlans: Map<number, ContentAction[]>,
+  api: RustApi,
 ): string {
+  // Pre-generate event dispatch so any helpers it needs (e.g. check_hex_128)
+  // are registered before helper emission.
+  let eventDispatchCode: string | undefined;
+  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
+    eventDispatchCode = emitEventDispatchRust(constrainedKinds, contentPlans, helpers, adapter, api);
+  }
+
   const lines: string[] = [
     '// Auto-generated by @nostrability/schemata-codegen',
     '// Do not edit manually.',
@@ -548,6 +717,11 @@ function emitRustFile(
   lines.push('    }');
   lines.push('}');
   lines.push('');
+
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

@@ -14,7 +14,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -421,6 +423,131 @@ function renderTagSearchC(
   return { code: lines.join('\n'), helpers };
 }
 
+// --- Content validation ---
+
+function renderContentActionsC(
+  actions: ContentAction[],
+  helpers: Set<string>,
+  contentVar: string,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`        if (strlen(${contentVar}) < ${action.min}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at least ${action.min} character(s)");`);
+        break;
+      case 'check_content_max_length':
+        lines.push(`        if (strlen(${contentVar}) > ${action.max}) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be at most ${action.max} character(s)");`);
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckC(action.native, contentVar);
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`        if (!(${r.expr})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must match pattern ${action.regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}");`);
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `strcmp(${contentVar}, ${JSON.stringify(v)}) == 0`).join(' || ');
+        lines.push(`        if (!(${checks})) SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content must be one of: ${action.values.join(', ')}");`);
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventFunctionC(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+  adapter: CApiAdapter,
+  api: CApi,
+): string {
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+  const lines: string[] = [];
+
+  if (api === 'nostrdb') {
+    lines.push('/* Validate an entire event: base fields + content + tags */');
+    lines.push('int schemata_validate_event(const struct ndb_note *note,');
+    lines.push('                            struct schemata_error *errs, int max_errs) {');
+    lines.push('    int n = 0;');
+    // nostrdb stores raw bytes, not hex strings - just null-check
+    lines.push('    if (!ndb_note_id(note)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "id", "id is required");');
+    lines.push('    if (!ndb_note_pubkey(note)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "pubkey", "pubkey is required");');
+    // sig not available through ndb API typically, skip
+    lines.push('    if (ndb_note_created_at(note) < 0) SCHEMATA_EMIT_ERR(errs, n, max_errs, "created_at", "created_at must be a non-negative integer");');
+
+    // Content validation
+    if (contentKinds.length > 0) {
+      lines.push('    const char *_content = ndb_note_content(note);');
+      lines.push('    if (!_content) {');
+      lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
+      lines.push('    } else {');
+      lines.push(`        switch (${adapter.kindExpr}) {`);
+      for (const [kindNumber, actions] of contentKinds) {
+        lines.push(`        case ${kindNumber}:`);
+        lines.push(...renderContentActionsC(actions, helpers, '_content'));
+        lines.push('            break;');
+      }
+      lines.push('        }');
+      lines.push('    }');
+    }
+
+    // Tag dispatch
+    lines.push('    {');
+    lines.push('        int _remaining = max_errs - n;');
+    lines.push('        if (_remaining > 0) {');
+    lines.push('            n += schemata_validate(note, errs + n, _remaining);');
+    lines.push('        }');
+    lines.push('    }');
+  } else {
+    // Generic API
+    helpers.add('schemata_check_hex64');
+    helpers.add('schemata_check_hex128');
+
+    lines.push('/* Validate an entire event: base fields + content + tags */');
+    lines.push('int schemata_validate_event(int kind, const char *id, const char *pubkey,');
+    lines.push('                            const char *sig, int64_t created_at, const char *content,');
+    lines.push('                            const char *const *const *tags, const int *tag_lens, int num_tags,');
+    lines.push('                            struct schemata_error *errs, int max_errs) {');
+    lines.push('    int n = 0;');
+
+    // Base field checks
+    lines.push('    if (!id || !schemata_check_hex64(id)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "id", "id must be a 64-char lowercase hex string");');
+    lines.push('    if (!pubkey || !schemata_check_hex64(pubkey)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "pubkey", "pubkey must be a 64-char lowercase hex string");');
+    lines.push('    if (!sig || !schemata_check_hex128(sig)) SCHEMATA_EMIT_ERR(errs, n, max_errs, "sig", "sig must be a 128-char lowercase hex string");');
+    lines.push('    if (created_at < 0) SCHEMATA_EMIT_ERR(errs, n, max_errs, "created_at", "created_at must be a non-negative integer");');
+
+    // Content validation
+    if (contentKinds.length > 0) {
+      lines.push('    if (!content) {');
+      lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
+      lines.push('    } else {');
+      lines.push('        switch (kind) {');
+      for (const [kindNumber, actions] of contentKinds) {
+        lines.push(`        case ${kindNumber}:`);
+        lines.push(...renderContentActionsC(actions, helpers, 'content'));
+        lines.push('            break;');
+      }
+      lines.push('        }');
+      lines.push('    }');
+    }
+
+    // Tag dispatch
+    lines.push('    {');
+    lines.push('        int _remaining = max_errs - n;');
+    lines.push('        if (_remaining > 0) {');
+    lines.push('            n += schemata_validate(kind, tags, tag_lens, num_tags, errs + n, _remaining);');
+    lines.push('        }');
+    lines.push('    }');
+  }
+
+  lines.push('    return n;');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitCValidators(
@@ -443,8 +570,14 @@ export function emitCValidators(
     for (const h of helpers) allHelpers.add(h);
   }
 
-  const header = emitHeaderFile(constrainedKinds, adapter);
-  const source = emitSourceFile(fnBodies, constrainedKinds, allHelpers, adapter, api, headerFileName);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  const header = emitHeaderFile(constrainedKinds, adapter, api, contentPlans);
+  const source = emitSourceFile(fnBodies, constrainedKinds, allHelpers, adapter, api, headerFileName, contentPlans);
 
   return { header, source };
 }
@@ -611,6 +744,8 @@ function emitKindFunctionC(
 function emitHeaderFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   adapter: CApiAdapter,
+  api: CApi,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
   const lines: string[] = [
     '/* Auto-generated by @nostrability/schemata-codegen */',
@@ -623,6 +758,12 @@ function emitHeaderFile(
 
   if (adapter.headerInclude) {
     lines.push(adapter.headerInclude);
+    lines.push('');
+  }
+
+  // int64_t needed for generic API event function
+  if (api === 'generic' && (constrainedKinds.length > 0 || contentPlans.size > 0)) {
+    lines.push('#include <stdint.h>');
     lines.push('');
   }
 
@@ -645,6 +786,22 @@ function emitHeaderFile(
   lines.push('/* Dispatch: validate by kind number */');
   for (const l of adapter.dispatchDecl()) lines.push(l);
   lines.push('');
+
+  // Event validation declaration
+  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
+    lines.push('/* Validate an entire event: base fields + content + tags */');
+    if (api === 'nostrdb') {
+      lines.push('int schemata_validate_event(const struct ndb_note *note,');
+      lines.push('                            struct schemata_error *errs, int max_errs);');
+    } else {
+      lines.push('int schemata_validate_event(int kind, const char *id, const char *pubkey,');
+      lines.push('                            const char *sig, int64_t created_at, const char *content,');
+      lines.push('                            const char *const *const *tags, const int *tag_lens, int num_tags,');
+      lines.push('                            struct schemata_error *errs, int max_errs);');
+    }
+    lines.push('');
+  }
+
   lines.push('#ifdef __cplusplus');
   lines.push('}');
   lines.push('#endif');
@@ -662,7 +819,14 @@ function emitSourceFile(
   adapter: CApiAdapter,
   api: CApi,
   headerFileName: string,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  // Pre-generate event function BEFORE helpers so helper references are registered
+  let eventFnCode: string | undefined;
+  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
+    eventFnCode = emitEventFunctionC(constrainedKinds, contentPlans, helpers, adapter, api);
+  }
+
   const lines: string[] = [
     '/* Auto-generated by @nostrability/schemata-codegen */',
     '/* Do not edit manually. */',
@@ -697,6 +861,12 @@ function emitSourceFile(
   lines.push('        default: return 0;');
   lines.push('    }');
   lines.push('}');
+
+  if (eventFnCode) {
+    lines.push('');
+    lines.push(eventFnCode);
+  }
+
   lines.push('');
 
   return lines.join('\n');

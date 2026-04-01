@@ -17,7 +17,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -325,6 +327,116 @@ function rubyString(s: string): string {
   return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
 }
 
+// --- Content validation ---
+
+function renderContentActionsRuby(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`          errors << ValidationError.new('content', 'content must be at least ${action.min} character(s)') if content.length < ${action.min}`);
+        break;
+      case 'check_content_max_length':
+        lines.push(`          errors << ValidationError.new('content', 'content must be at most ${action.max} character(s)') if content.length > ${action.max}`);
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckRuby(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`          errors << ValidationError.new('content', 'content must match pattern ${action.regex.replace(/'/g, "\\'")}') unless ${r.expr}`);
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => `'${v}'`).join(', ');
+        lines.push(`          errors << ValidationError.new('content', 'content must be one of: ${action.values.join(', ')}') unless [${vals}].include?(content)`);
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchRuby(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('    # Validate an event\'s base fields, content constraints, and tag structure.');
+  lines.push('    def self.validate_event(event)');
+  lines.push('      return [ValidationError.new(\'event\', \'event must be a Hash\')] unless event.is_a?(Hash)');
+  lines.push('      errors = []');
+  lines.push('      kind = event[\'kind\']');
+  lines.push('      unless kind.is_a?(Integer)');
+  lines.push('        errors << ValidationError.new(\'kind\', \'kind must be an integer\')');
+  lines.push('        return errors');
+  lines.push('      end');
+
+  helpers.add('check_hex_64');
+  helpers.add('check_hex_128');
+
+  lines.push('      id = event[\'id\']');
+  lines.push('      errors << ValidationError.new(\'id\', \'id must be a 64-char lowercase hex string\') unless id.is_a?(String) && check_hex_64(id)');
+  lines.push('      pk = event[\'pubkey\']');
+  lines.push('      errors << ValidationError.new(\'pubkey\', \'pubkey must be a 64-char lowercase hex string\') unless pk.is_a?(String) && check_hex_64(pk)');
+  lines.push('      sig = event[\'sig\']');
+  lines.push('      errors << ValidationError.new(\'sig\', \'sig must be a 128-char lowercase hex string\') unless sig.is_a?(String) && check_hex_128(sig)');
+  lines.push('      ca = event[\'created_at\']');
+  lines.push('      errors << ValidationError.new(\'created_at\', \'created_at must be a non-negative integer\') unless ca.is_a?(Integer) && ca >= 0');
+
+  if (contentKinds.length > 0) {
+    lines.push("      unless event.key?('content')");
+    lines.push("        errors << ValidationError.new('content', 'content is required')");
+    lines.push('      else');
+    lines.push("        content_raw = event['content']");
+    lines.push('        if content_raw.is_a?(String)');
+    lines.push('          content = content_raw');
+    lines.push('          case kind');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`          when ${kindNumber}`);
+      lines.push(...renderContentActionsRuby(actions, helpers));
+    }
+    lines.push('          end');
+    lines.push('        else');
+    lines.push("          errors << ValidationError.new('content', 'content must be a string')");
+    lines.push('        end');
+    lines.push('      end');
+  }
+
+  if (sorted.length > 0) {
+    lines.push("      unless event.key?('tags')");
+    lines.push("        errors << ValidationError.new('tags', 'tags is required')");
+    lines.push('      else');
+    lines.push("        tags_raw = event['tags']");
+    lines.push('        if tags_raw.is_a?(Array)');
+    lines.push('          tags = []');
+    lines.push('          tags_raw.each_with_index do |t, i|');
+    lines.push('            if t.is_a?(Array) && t.all? { |v| v.is_a?(String) }');
+    lines.push('              tags << t');
+    lines.push('            else');
+    lines.push('              errors << ValidationError.new("tags[#{i}]", "tags[#{i}] must be an array of strings")');
+    lines.push('              tags << []');
+    lines.push('            end');
+    lines.push('          end');
+    lines.push('          errors.concat(validate_kind_tags(kind, tags))');
+    lines.push('        else');
+    lines.push("          errors << ValidationError.new('tags', 'tags must be an array')");
+    lines.push('        end');
+    lines.push('      end');
+  }
+
+  lines.push('      errors');
+  lines.push('    end');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitRubyValidators(kindShapes: KindShape[]): string {
@@ -342,7 +454,13 @@ export function emitRubyValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitRubyFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitRubyFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionRuby(
@@ -460,7 +578,13 @@ function emitRubyFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  let eventDispatchCode: string | undefined;
+  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
+    eventDispatchCode = emitEventDispatchRuby(constrainedKinds, contentPlans, helpers);
+  }
+
   const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws') || helpers.has('check_package_id') || helpers.has('check_nostr_uri');
   const lines: string[] = [
     '# frozen_string_literal: true',
@@ -503,6 +627,11 @@ function emitRubyFile(
   lines.push('    else []');
   lines.push('    end');
   lines.push('  end');
+
+  if (eventDispatchCode) {
+    lines.push('');
+    lines.push(eventDispatchCode);
+  }
 
   lines.push('end');
   lines.push('');

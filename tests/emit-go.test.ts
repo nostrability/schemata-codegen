@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitGoValidators', () => {
   it('generates ValidationError struct', () => {
     const output = emitGoValidators([kind9735]);
@@ -173,5 +184,33 @@ describe('emitGoValidators', () => {
     assert.ok(output.includes('ValidateKind10002'));
     assert.ok(output.includes('ValidateKind777'));
     assert.ok(!output.includes('func ValidateKind1('));
+  });
+});
+
+describe('ValidateEvent', () => {
+  it('contains ValidateEvent function', () => {
+    const output = emitGoValidators([kindWithContent]);
+    assert.ok(output.includes('func ValidateEvent('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitGoValidators([kindWithContent]);
+    assert.ok(output.includes('checkHex64'));
+    assert.ok(output.includes('checkHex128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitGoValidators([kindWithContent]);
+    assert.ok(output.includes('len(content) < 1'));
+  });
+
+  it('dispatches to ValidateKindTags', () => {
+    const output = emitGoValidators([kindWithContent]);
+    assert.ok(output.includes('ValidateKindTags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitGoValidators([kindWithContent]);
+    assert.ok(output.includes('func checkHex128'));
   });
 });

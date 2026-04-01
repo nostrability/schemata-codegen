@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitKotlinValidators', () => {
   it('generates data class ValidationError', () => {
     const output = emitKotlinValidators([kind9735]);
@@ -157,5 +168,33 @@ describe('emitKotlinValidators', () => {
   it('does not add regex import when not needed', () => {
     const output = emitKotlinValidators([kind9735]);
     assert.ok(!output.includes('import kotlin.text.Regex'));
+  });
+});
+
+describe('validateEvent', () => {
+  it('contains validateEvent function', () => {
+    const output = emitKotlinValidators([kindWithContent]);
+    assert.ok(output.includes('fun validateEvent('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitKotlinValidators([kindWithContent]);
+    assert.ok(output.includes('checkHex64'));
+    assert.ok(output.includes('checkHex128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitKotlinValidators([kindWithContent]);
+    assert.ok(output.includes('.length < 1'));
+  });
+
+  it('dispatches to validateKindTags', () => {
+    const output = emitKotlinValidators([kindWithContent]);
+    assert.ok(output.includes('validateKindTags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitKotlinValidators([kindWithContent]);
+    assert.ok(output.includes('fun checkHex128'));
   });
 });

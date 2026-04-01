@@ -18,7 +18,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -365,6 +367,149 @@ function renderTagMatcherJava(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsJava(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`                if (content.length() < ${action.min}) {`);
+        lines.push(`                    errors.add(new ValidationError("content", "content must be at least ${action.min} character(s)"));`);
+        lines.push('                }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`                if (content.length() > ${action.max}) {`);
+        lines.push(`                    errors.add(new ValidationError("content", "content must be at most ${action.max} character(s)"));`);
+        lines.push('                }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckJava(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`                if (!(${r.expr})) {`);
+        lines.push(`                    errors.add(new ValidationError("content", "content must match pattern " + ${JSON.stringify(action.regex)}));`);
+        lines.push('                }');
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `content.equals(${JSON.stringify(v)})`).join(' || ');
+        lines.push(`                if (!(${checks})) {`);
+        lines.push(`                    errors.add(new ValidationError("content", "content must be one of: " + ${JSON.stringify(action.values.join(', '))}));`);
+        lines.push('                }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchJava(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('    /** Validate an event\'s base fields, content constraints, and tag structure. */');
+  lines.push('    @SuppressWarnings("unchecked")');
+  lines.push('    public static List<ValidationError> validateEvent(java.util.Map<String, Object> event) {');
+  lines.push('        if (event == null) {');
+  lines.push('            return List.of(new ValidationError("event", "event must be a non-null object"));');
+  lines.push('        }');
+  lines.push('        var errors = new ArrayList<ValidationError>();');
+  lines.push('        Object kindRaw = event.get("kind");');
+  lines.push('        if (!(kindRaw instanceof Number) || ((Number) kindRaw).doubleValue() != ((Number) kindRaw).intValue()) {');
+  lines.push('            errors.add(new ValidationError("kind", "kind must be an integer"));');
+  lines.push('            return errors;');
+  lines.push('        }');
+  lines.push('        int kind = ((Number) kindRaw).intValue();');
+
+  // Base field checks
+  helpers.add('checkHex64');
+  helpers.add('checkHex128');
+
+  lines.push('        Object idRaw = event.get("id");');
+  lines.push('        if (!(idRaw instanceof String) || !checkHex64((String) idRaw)) {');
+  lines.push('            errors.add(new ValidationError("id", "id must be a 64-char lowercase hex string"));');
+  lines.push('        }');
+
+  lines.push('        Object pkRaw = event.get("pubkey");');
+  lines.push('        if (!(pkRaw instanceof String) || !checkHex64((String) pkRaw)) {');
+  lines.push('            errors.add(new ValidationError("pubkey", "pubkey must be a 64-char lowercase hex string"));');
+  lines.push('        }');
+
+  lines.push('        Object sigRaw = event.get("sig");');
+  lines.push('        if (!(sigRaw instanceof String) || !checkHex128((String) sigRaw)) {');
+  lines.push('            errors.add(new ValidationError("sig", "sig must be a 128-char lowercase hex string"));');
+  lines.push('        }');
+
+  lines.push('        Object caRaw = event.get("created_at");');
+  lines.push('        if (!(caRaw instanceof Number) || ((Number) caRaw).doubleValue() != ((Number) caRaw).longValue() || ((Number) caRaw).longValue() < 0) {');
+  lines.push('            errors.add(new ValidationError("created_at", "created_at must be a non-negative integer"));');
+  lines.push('        }');
+
+  // Content validation
+  if (contentKinds.length > 0) {
+    lines.push('        Object contentRaw = event.get("content");');
+    lines.push('        if (contentRaw == null && !event.containsKey("content")) {');
+    lines.push('            errors.add(new ValidationError("content", "content is required"));');
+    lines.push('        } else if (contentRaw instanceof String) {');
+    lines.push('            String content = (String) contentRaw;');
+    lines.push('            switch (kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`                case ${kindNumber}: {`);
+      lines.push(...renderContentActionsJava(actions, helpers));
+      lines.push('                    break;');
+      lines.push('                }');
+    }
+    lines.push('            }');
+    lines.push('        } else {');
+    lines.push('            errors.add(new ValidationError("content", "content must be a string"));');
+    lines.push('        }');
+  }
+
+  // Tag dispatch
+  if (sorted.length > 0) {
+    lines.push('        Object tagsRaw = event.get("tags");');
+    lines.push('        if (tagsRaw == null && !event.containsKey("tags")) {');
+    lines.push('            errors.add(new ValidationError("tags", "tags is required"));');
+    lines.push('        } else if (tagsRaw instanceof List<?>) {');
+    lines.push('            var rawTags = (List<?>) tagsRaw;');
+    lines.push('            var tags = new ArrayList<List<String>>(rawTags.size());');
+    lines.push('            for (int i = 0; i < rawTags.size(); i++) {');
+    lines.push('                Object t = rawTags.get(i);');
+    lines.push('                if (t instanceof List<?>) {');
+    lines.push('                    var arr = (List<?>) t;');
+    lines.push('                    boolean valid = arr.stream().allMatch(v -> v instanceof String);');
+    lines.push('                    if (valid) {');
+    lines.push('                        tags.add((List<String>) (List<?>) arr);');
+    lines.push('                    } else {');
+    lines.push('                        errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
+    lines.push('                        tags.add(List.of());');
+    lines.push('                    }');
+    lines.push('                } else {');
+    lines.push('                    errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
+    lines.push('                    tags.add(List.of());');
+    lines.push('                }');
+    lines.push('            }');
+    lines.push('            errors.addAll(validateKindTags(kind, tags));');
+    lines.push('        } else {');
+    lines.push('            errors.add(new ValidationError("tags", "tags must be a list"));');
+    lines.push('        }');
+  }
+
+  lines.push('        return errors;');
+  lines.push('    }');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitJavaValidators(kindShapes: KindShape[]): string {
@@ -382,7 +527,13 @@ export function emitJavaValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitJavaFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitJavaFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionJava(
@@ -500,7 +651,13 @@ function emitJavaFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  let eventDispatchCode: string | undefined;
+  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
+    eventDispatchCode = emitEventDispatchJava(constrainedKinds, contentPlans, helpers);
+  }
+
   const lines: string[] = [
     '// Auto-generated by @nostrability/schemata-codegen',
     '// Do not edit manually.',
@@ -545,6 +702,12 @@ function emitJavaFile(
   lines.push('            default: return List.of();');
   lines.push('        }');
   lines.push('    }');
+
+  if (eventDispatchCode) {
+    lines.push('');
+    lines.push(eventDispatchCode);
+  }
+
   lines.push('}');
   lines.push('');
 

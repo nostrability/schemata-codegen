@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitPhpValidators', () => {
   it('output starts with <?php', () => {
     const output = emitPhpValidators([kind9735]);
@@ -220,5 +231,33 @@ describe('emitPhpValidators full run', () => {
     const kinds: KindShape[] = [kind9735];
     const output = emitPhpValidators(kinds);
     assert.ok(output.includes('strlen($s) === 64'));
+  });
+});
+
+describe('schemata_validate_event', () => {
+  it('contains schemata_validate_event function', () => {
+    const output = emitPhpValidators([kindWithContent]);
+    assert.ok(output.includes('function schemata_validate_event('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitPhpValidators([kindWithContent]);
+    assert.ok(output.includes('schemata_check_hex64'));
+    assert.ok(output.includes('schemata_check_hex128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitPhpValidators([kindWithContent]);
+    assert.ok(output.includes('mb_strlen($content) < 1'));
+  });
+
+  it('dispatches to schemata_validate_kind_tags', () => {
+    const output = emitPhpValidators([kindWithContent]);
+    assert.ok(output.includes('schemata_validate_kind_tags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitPhpValidators([kindWithContent]);
+    assert.ok(output.includes('function schemata_check_hex128'));
   });
 });

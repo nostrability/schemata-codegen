@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitCSharpValidators', () => {
   it('generates record ValidationError', () => {
     const output = emitCSharpValidators([kind9735]);
@@ -150,5 +161,33 @@ describe('emitCSharpValidators full run', () => {
     assert.ok(output.includes('public static class SchemataValidators'));
     assert.ok(output.includes('using System.Collections.Generic;'));
     assert.ok(output.includes('using System.Linq;'));
+  });
+});
+
+describe('ValidateEvent', () => {
+  it('contains ValidateEvent function', () => {
+    const output = emitCSharpValidators([kindWithContent]);
+    assert.ok(output.includes('ValidateEvent('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitCSharpValidators([kindWithContent]);
+    assert.ok(output.includes('CheckHex64'));
+    assert.ok(output.includes('CheckHex128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitCSharpValidators([kindWithContent]);
+    assert.ok(output.includes('.Length < 1'));
+  });
+
+  it('dispatches to ValidateKindTags', () => {
+    const output = emitCSharpValidators([kindWithContent]);
+    assert.ok(output.includes('ValidateKindTags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitCSharpValidators([kindWithContent]);
+    assert.ok(output.includes('bool CheckHex128'));
   });
 });
