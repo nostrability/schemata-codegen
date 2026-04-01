@@ -103,9 +103,16 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER double-collect tag constraints** — `unwrapTagSchema` already merges `structural.allOf` contains into `extraAllOf`
 - **NEVER skip constrained optional positions in validation** — `emitTagMatcher` skips optional positions for existence checks, but constrained optional positions need a separate `validate_optional_positions` action
 - **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
-- **NEVER treat regex `.` as "any character"** — `.` excludes line terminators. Since JSON Schema `pattern` is defined as ECMA-262, use the ECMA-262 set (`\n`, `\r`, `\u2028`, `\u2029`) for ALL generated languages. A native shortcut like "if slash, accept remainder" or "check `i < s.length`" silently widens the accepted set. For **anchored** `.+` or `.*` (with `$`), scan ALL remaining characters via the shared `checkDotTail` helper. For **unanchored** `.+` (no `$`, e.g., `prefix_delim_rest`), only the FIRST character after the delimiter matters — `.+` greedily matches non-terminator chars, but since there's no `$`, later terminators don't prevent the match (e.g., `"123:a\nb"` matches `^[0-9]+:.+` because `.+` matches `"a"`).
-  - **Byte-oriented** (C, C++, Rust, Go, PHP, Swift UTF-8 view): check bytes `0x0A` (`\n`), `0x0D` (`\r`), and UTF-8 sequences `E2 80 A8` (`\u2028`), `E2 80 A9` (`\u2029`)
-  - **Char-oriented** (Java, Kotlin, C#, Python, Ruby, Dart): check directly against `\n`, `\r`, `\u2028`, `\u2029`
+- **NEVER treat regex `.` as "any character"** — `.` excludes line terminators. Each emitter must match its **target language's regex engine**, not a uniform set. A native shortcut like "if slash, accept remainder" or "check `i < s.length`" silently widens the accepted set.
+  - **`checkDotTail`** is for **non-empty** tails (`.+$`) — it requires `pos < len` and scans ALL remaining chars. For **`.*$`** (zero-or-more), callers must add `|| pos == len` to accept the empty-tail case before delegating to `checkDotTail`.
+  - **`prefix_delim_rest`** (unanchored `.+`, no `$`) — only the FIRST character after the delimiter matters. `.+` greedily matches non-terminator chars; since there's no `$`, later terminators don't prevent the match (e.g., `"123:a\nb"` matches `^[0-9]+:.+` because `.+` matches `"a"`).
+  - **Both helpers must reject the same terminator set** within each emitter:
+    - C, Rust, Go, PHP: `\n` only
+    - C++: `\n`, `\r`
+    - C#, Python, Ruby: `\n` only
+    - Dart: `\n`, `\r`, `\u2028`, `\u2029`
+    - Java, Kotlin: `\n`, `\r`, `\u0085`, `\u2028`, `\u2029`
+    - Swift: `\n`, `\r`, `\u0085` (NEL), `\u2028`, `\u2029` (byte-level: `0xC2 0x85`, `0xE2 0x80 0xA8/0xA9`)
 - **NEVER use the native implementation as the fuzz-test oracle** — the `buildNativeChecker` in `fuzz-equivalence.test.ts` MUST compare against the actual regex (`new RegExp(pattern)`), not a reimplementation of the native check. If the oracle encodes the same bug as the implementation (as happened with `prefix_delim_rest`), the test can never detect the regression. Seeded inputs MUST include adversarial line terminators (`\n`, `\r`, `\u2028`, `\u2029`) for any op that deals with `.`/`.+`/`.*`.
 - **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
 - **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.

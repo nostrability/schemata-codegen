@@ -1861,9 +1861,8 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\t}');
     lines.push('\ti += len(delimiter)');
     lines.push('\tif i >= len(s) { return false }');
-    lines.push('\t// .+ first char must not be a line terminator (ECMA-262)');
-    lines.push("\tif s[i] == '\\n' || s[i] == '\\r' { return false }");
-    lines.push('\tif s[i] == 0xE2 && i+2 < len(s) && s[i+1] == 0x80 && (s[i+2] == 0xA8 || s[i+2] == 0xA9) { return false }');
+    lines.push('\t// .+ first char must not be a line terminator (Go regexp . excludes \\n only)');
+    lines.push("\tif s[i] == '\\n' { return false }");
     lines.push('\treturn true');
     lines.push('}');
     lines.push('');

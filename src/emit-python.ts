@@ -1375,8 +1375,8 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    i += dlen');
     lines.push('    if i >= len(s):');
     lines.push('        return False');
-    lines.push("    # .+ first char must not be a line terminator (ECMA-262)");
-    lines.push("    if s[i] in ('\\n', '\\r', '\\u2028', '\\u2029'):");
+    lines.push("    # .+ first char must not be a line terminator (Python re . excludes \\n only)");
+    lines.push("    if s[i] == '\\n':");
     lines.push('        return False');
     lines.push('    return True');
   }

@@ -1288,9 +1288,9 @@ function emitJavaHelpers(helpers: Set<string>): string {
     lines.push('        if (!s.substring(i, i + delimiter.length()).equals(delimiter)) return false;');
     lines.push('        i += delimiter.length();');
     lines.push('        if (i >= s.length()) return false;');
-    lines.push('        /* .+ first char must not be a line terminator (ECMA-262) */');
+    lines.push('        /* .+ first char must not be a line terminator (Java . excludes \\n, \\r, NEL, LS, PS) */');
     lines.push("        char c = s.charAt(i);");
-    lines.push("        return c != '\\n' && c != '\\r' && c != '\\u2028' && c != '\\u2029';");
+    lines.push("        return c != '\\n' && c != '\\r' && c != '\\u0085' && c != '\\u2028' && c != '\\u2029';");
     lines.push('    }');
     lines.push('');
   }

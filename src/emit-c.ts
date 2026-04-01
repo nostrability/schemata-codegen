@@ -1636,11 +1636,8 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (strncmp(s + i, delim, dlen) != 0) return 0;');
     lines.push('    i += dlen;');
     lines.push("    if (i >= len) return 0;");
-    lines.push('    /* .+ first char must not be a line terminator (ECMA-262) */');
-    lines.push("    if (s[i] == '\\n' || s[i] == '\\r') return 0;");
-    lines.push('    if ((unsigned char)s[i] == 0xE2 && i + 2 < len');
-    lines.push('        && (unsigned char)s[i+1] == 0x80');
-    lines.push('        && ((unsigned char)s[i+2] == 0xA8 || (unsigned char)s[i+2] == 0xA9)) return 0;');
+    lines.push('    /* .+ first char must not be a line terminator (C regex . excludes \\n only) */');
+    lines.push("    if (s[i] == '\\n') return 0;");
     lines.push('    return 1;');
     lines.push('}');
     lines.push('');

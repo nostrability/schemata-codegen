@@ -1340,8 +1340,9 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    }');
     lines.push('    i += del.count');
     lines.push('    if i >= u.count { return false }');
-    lines.push('    // .+ first char must not be a line terminator (ECMA-262)');
+    lines.push('    // .+ first char must not be a line terminator (Swift . excludes \\n, \\r, NEL, LS, PS)');
     lines.push('    if u[i] == 0x0A || u[i] == 0x0D { return false }');
+    lines.push('    if u[i] == 0xC2 && i + 1 < u.count && u[i+1] == 0x85 { return false }');
     lines.push('    if u[i] == 0xE2 && i + 2 < u.count && u[i+1] == 0x80 && (u[i+2] == 0xA8 || u[i+2] == 0xA9) { return false }');
     lines.push('    return true');
     lines.push('}');
