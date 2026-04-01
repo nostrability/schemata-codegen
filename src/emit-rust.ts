@@ -1292,7 +1292,10 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    let db = delim.as_bytes();');
     lines.push('    if i + db.len() >= b.len() { return false; }');
     lines.push('    if &b[i..i + db.len()] != db { return false; }');
-    lines.push('    // .+ requires at least 1 char after delimiter, no end anchor');
+    lines.push('    // .+ first char must not be a line terminator (ECMA-262)');
+    lines.push('    let j = i + db.len();');
+    lines.push('    if b[j] == 0x0A || b[j] == 0x0D { return false; }');
+    lines.push('    if b[j] == 0xE2 && j + 2 < b.len() && b[j+1] == 0x80 && (b[j+2] == 0xA8 || b[j+2] == 0xA9) { return false; }');
     lines.push('    true');
     lines.push('}');
     lines.push('');

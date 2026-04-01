@@ -860,6 +860,7 @@ function buildNativeChecker(check: PatternCheck, originalPattern?: string): ((s:
     case 'prefix_delim_rest': {
       const cs = check.charset;
       const delim = check.delimiter;
+      const LT = new Set(['\n', '\r', '\u2028', '\u2029']);
       return (s) => {
         if (s.length === 0) return false;
         let i = 0;
@@ -867,7 +868,10 @@ function buildNativeChecker(check: PatternCheck, originalPattern?: string): ((s:
         while (i < s.length && cs.includes(s[i])) i++;
         if (i + delim.length >= s.length) return false;
         if (s.slice(i, i + delim.length) !== delim) return false;
-        return true;
+        i += delim.length;
+        if (i >= s.length) return false;
+        // .+ first char must not be a line terminator (ECMA-262)
+        return !LT.has(s[i]);
       };
     }
 
@@ -1729,7 +1733,8 @@ function generateInputsForCheck(rng: Rng, check: PatternCheck): string[] {
     case 'mime_type_strict':
       return [...base, 'text/plain', 'application/json', '', 'text', '!t/p', 'text/'];
     case 'prefix_delim_rest':
-      return [...base, '123:hello', '0:x', '', '123', '123:', 'abc:def'];
+      return [...base, '123:hello', '0:x', '', '123', '123:', 'abc:def',
+        '123:\n', '123:\r', '123:\u2028', '123:\u2029', '123:\nfoo', '123:a\nfoo'];
     case 'compound':
       // For compound, generate inputs for the first sub-check
       if (check.checks.length > 0) {

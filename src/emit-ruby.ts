@@ -1265,8 +1265,11 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    return false if i + delim.length >= s.length');
     lines.push('    return false unless s[i, delim.length] == delim');
     lines.push('    i += delim.length');
-    lines.push('    # .+ requires at least 1 char after delimiter');
-    lines.push('    i < s.length');
+    lines.push('    return false if i >= s.length');
+    lines.push("    # .+ first char must not be a line terminator (ECMA-262)");
+    lines.push('    c = s[i]');
+    lines.push('    return false if c == "\\n" || c == "\\r" || c == "\\u2028" || c == "\\u2029"');
+    lines.push('    true');
     lines.push('  end');
     lines.push('');
   }

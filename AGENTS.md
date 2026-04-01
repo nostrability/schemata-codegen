@@ -26,7 +26,7 @@ emit-*.ts (12 languages + TS)       → source files (.ts, .c, .rs, .go, ...)
 
 | Abstraction | File | Purpose |
 |---|---|---|
-| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (25+ ops including hex, all_digits, starts_with_any, chars_in, bech32, relay_url, a_tag, datetime_iso, content_type, external_identity, etc.) |
+| `PatternCheck` | `classify-pattern.ts` | Language-independent intermediate representation for regex patterns (40+ ops including hex, all_digits, starts_with_any, chars_in, bech32, relay_url, a_tag, datetime_iso, content_type, external_identity, base64, nip05_identifier, prefix_delim_rest, etc.) |
 | `ValidatorAction` | `plan-validators.ts` | Language-independent validation step (require_tag, check_pattern, etc.) |
 | `BuilderAction` | `plan-builders.ts` | Language-independent tag construction step |
 | `KindShape` | `kind-types.ts` | Extracted kind metadata (kind number, NIP spec reference, tag constraints) |
@@ -71,6 +71,8 @@ Every `renderPatternCheck*()` function has a `switch (check.op)` that MUST handl
 
 **Past incident (relay_url):** The `relay_url` op translated `(?:/.*)?$` as "if slash, accept remainder" — but regex `.` does not match `\n`/`\r`, so `wss://relay.example.com/\npath` passed the native check but failed the regex. Also: the C helper read `s[0]..s[5]` without a length guard (unsafe on short non-null-terminated buffers), and the Python helper used `str.isdigit()` which accepts Unicode numerals instead of ASCII-only `[0-9]`. All three bugs were caught in review, not by tests, because the equivalence test only used well-formed URLs.
 
+**Past incident (prefix_delim_rest):** The `prefix_delim_rest` op (for `^[0-9]+:.+` and similar unanchored patterns) checked "at least 1 char after delimiter" but never verified the first char wasn't a line terminator — so `"123:\n"` passed the native check but failed the regex. The bug was copied identically into all 12 emitters. The fuzz-equivalence test ALSO encoded the same broken logic as its oracle (checking `s.length > i` instead of comparing against the regex), AND its seeded inputs (`'123:hello', '0:x', '', '123:', 'abc:def'`) never included `\n`, `\r`, `\u2028`, or `\u2029`, so it could not detect the regression.
+
 ### 2. EVERY `helpers.add()` MUST have a matching `emit*Helpers()` implementation
 
 In each emitter:
@@ -101,11 +103,10 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 - **NEVER double-collect tag constraints** — `unwrapTagSchema` already merges `structural.allOf` contains into `extraAllOf`
 - **NEVER skip constrained optional positions in validation** — `emitTagMatcher` skips optional positions for existence checks, but constrained optional positions need a separate `validate_optional_positions` action
 - **NEVER flatten anyOf groups** — `collectKindTags()` flattens anyOf groups into individual entries; the planner MUST consult `shape.anyOfTagGroups` directly to preserve group semantics
-- **NEVER treat regex `.` as "any character"** — `.` excludes language-specific line terminators. A native shortcut like "if slash, accept remainder" silently widens the accepted set. After any delimiter, scan remaining characters and reject the correct set for the target language:
-  - **`\n` only**: C (POSIX), C# (.NET), Go, Rust, Python, Ruby, PHP (PCRE)
-  - **`\n` `\r` only**: C++ — `std::regex` on `std::string` is byte-oriented; the ECMAScript spec says `.` excludes `\u2028`/`\u2029`, but the UTF-8 bytes (E2 80 A8/A9) don't individually match `\n`/`\r`, so `std::regex` accepts them
-  - **`\n` `\r` `\u2028` `\u2029`**: Dart (16-bit code units, detects LS/PS directly)
-  - **`\n` `\r` `\u0085` `\u2028` `\u2029`**: Java, Kotlin (16-bit chars), Swift (ICU — uses UTF-8 byte sequence detection: C2 85, E2 80 A8/A9)
+- **NEVER treat regex `.` as "any character"** — `.` excludes line terminators. Since JSON Schema `pattern` is defined as ECMA-262, use the ECMA-262 set (`\n`, `\r`, `\u2028`, `\u2029`) for ALL generated languages. A native shortcut like "if slash, accept remainder" or "check `i < s.length`" silently widens the accepted set. For **anchored** `.+` or `.*` (with `$`), scan ALL remaining characters via the shared `checkDotTail` helper. For **unanchored** `.+` (no `$`, e.g., `prefix_delim_rest`), only the FIRST character after the delimiter matters — `.+` greedily matches non-terminator chars, but since there's no `$`, later terminators don't prevent the match (e.g., `"123:a\nb"` matches `^[0-9]+:.+` because `.+` matches `"a"`).
+  - **Byte-oriented** (C, C++, Rust, Go, PHP, Swift UTF-8 view): check bytes `0x0A` (`\n`), `0x0D` (`\r`), and UTF-8 sequences `E2 80 A8` (`\u2028`), `E2 80 A9` (`\u2029`)
+  - **Char-oriented** (Java, Kotlin, C#, Python, Ruby, Dart): check directly against `\n`, `\r`, `\u2028`, `\u2029`
+- **NEVER use the native implementation as the fuzz-test oracle** — the `buildNativeChecker` in `fuzz-equivalence.test.ts` MUST compare against the actual regex (`new RegExp(pattern)`), not a reimplementation of the native check. If the oracle encodes the same bug as the implementation (as happened with `prefix_delim_rest`), the test can never detect the regression. Seeded inputs MUST include adversarial line terminators (`\n`, `\r`, `\u2028`, `\u2029`) for any op that deals with `.`/`.+`/`.*`.
 - **NEVER use locale-dependent stdlib functions for ASCII pattern checks** — `str.isdigit()` (Python), `ctype_alnum()` (PHP), `Character.isLetter` (Swift), `=~` (Ruby) all accept Unicode beyond ASCII. Always use explicit range checks: `'0' <= c <= '9'`, `c >= 'a' && c <= 'z'`, etc.
 - **NEVER skip bounds checking in C helpers** — even with `&&` short-circuit, callers may pass non-null-terminated buffers. Always `strlen()` or `strncmp()` before indexed access like `s[0]..s[5]`.
 - **NEVER add runtime dependencies** — zero dependencies (Node builtins only)
@@ -117,7 +118,7 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
 
 - **ALWAYS follow existing helper naming conventions** per language (see emitter table above)
 - **ALWAYS test with `--all` flag** to generate all languages and catch cross-language regressions
-- **ALWAYS run `npm test`** — 693+ tests covering extraction, emission, compilation, and runtime validation
+- **ALWAYS run `npm test`** — 910+ tests covering extraction, emission, compilation, fuzz equivalence, and runtime validation
 - **ALWAYS check `isNativeCheck()`** returns `true` for any new op that doesn't need regex fallback
 - **Use `--dump-plan`** to inspect the `ValidatorAction[]` plan when debugging validator output
 
@@ -168,7 +169,7 @@ node dist/index.js --schemas ../schemata/dist --go-validators validators.go
 
 ```bash
 npm run build    # TypeScript → dist/
-npm test         # Run all tests (333+ pass)
+npm test         # Run all tests (910+ pass)
 ```
 
 Test structure:
@@ -177,6 +178,7 @@ Test structure:
 - `plan-validators.test.ts` — action planning
 - `emit-*.test.ts` — per-language output verification
 - `validators-runtime.test.ts` — generated TS validators executed against sample data
+- `fuzz-equivalence.test.ts` — property-based regex-vs-native equivalence testing with adversarial inputs
 - `compile-check.test.ts` — TypeScript compilation of generated outputs
 
 

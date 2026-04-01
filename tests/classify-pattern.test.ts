@@ -2375,6 +2375,11 @@ describe('check_prefix_delim_rest behavioral correctness', () => {
     while (i < s.length && charset.includes(s[i])) i++;
     if (i + delim.length >= s.length) return false;
     if (s.slice(i, i + delim.length) !== delim) return false;
+    i += delim.length;
+    if (i >= s.length) return false;
+    // .+ first char must not be a line terminator (ECMA-262)
+    const c = s[i];
+    if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
     return true;
   }
 
@@ -2383,10 +2388,16 @@ describe('check_prefix_delim_rest behavioral correctness', () => {
   it('rejects empty', () => assert.ok(!checkPrefixDelimRest('', '0123456789', ':')));
   it('rejects no delimiter', () => assert.ok(!checkPrefixDelimRest('123', '0123456789', ':')));
   it('rejects nothing after delimiter', () => assert.ok(!checkPrefixDelimRest('123:', '0123456789', ':')));
+  it('rejects newline after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\n', '0123456789', ':')));
+  it('rejects CR after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\r', '0123456789', ':')));
+  it('rejects LS after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\u2028', '0123456789', ':')));
+  it('rejects PS after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\u2029', '0123456789', ':')));
+  it('accepts newline in middle of content', () => assert.ok(checkPrefixDelimRest('123:hello\nmore', '0123456789', ':')));
 
   it('matches regex ^[0-9]+:.+ (unanchored)', () => {
     const regex = /^[0-9]+:.+/;
-    const inputs = ['123:hello', '0:x', '', '123', '123:', 'abc:def', '123:hello\nmore'];
+    const inputs = ['123:hello', '0:x', '', '123', '123:', 'abc:def', '123:hello\nmore',
+      '123:\n', '123:\r', '123:\u2028', '123:\u2029', '123:\nfoo', '123:\rfoo'];
     for (const input of inputs) {
       assert.strictEqual(checkPrefixDelimRest(input, '0123456789', ':'), regex.test(input),
         `Mismatch for ${JSON.stringify(input)}`);

@@ -1267,8 +1267,10 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            if (i + delimiter.Length >= s.Length) return false;');
     lines.push('            if (s.Substring(i, delimiter.Length) != delimiter) return false;');
     lines.push('            i += delimiter.Length;');
-    lines.push('            /* .+ requires at least 1 char after delimiter */');
-    lines.push('            return i < s.Length;');
+    lines.push('            if (i >= s.Length) return false;');
+    lines.push('            /* .+ first char must not be a line terminator (ECMA-262) */');
+    lines.push("            char c = s[i];");
+    lines.push("            return c != '\\n' && c != '\\r' && c != '\\u2028' && c != '\\u2029';");
     lines.push('        }');
     lines.push('');
   }

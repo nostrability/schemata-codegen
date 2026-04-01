@@ -1262,8 +1262,10 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  if (i + delimiter.length >= s.length) return false;');
     lines.push('  if (s.substring(i, i + delimiter.length) != delimiter) return false;');
     lines.push('  i += delimiter.length;');
-    lines.push('  // .+ requires at least 1 char after delimiter, no end anchor');
-    lines.push('  return i < s.length;');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  // .+ first char must not be a line terminator (ECMA-262)');
+    lines.push('  final c = s.codeUnitAt(i);');
+    lines.push('  return c != 0x0A && c != 0x0D && c != 0x2028 && c != 0x2029;');
     lines.push('}');
     lines.push('');
   }

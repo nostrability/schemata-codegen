@@ -1172,8 +1172,10 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    if (i + delimiter.length >= s.length) return false');
     lines.push('    if (s.substring(i, i + delimiter.length) != delimiter) return false');
     lines.push('    i += delimiter.length');
-    lines.push('    /* .+ requires at least 1 char after delimiter */');
-    lines.push('    return i < s.length');
+    lines.push('    if (i >= s.length) return false');
+    lines.push('    /* .+ first char must not be a line terminator (ECMA-262) */');
+    lines.push("    val c = s[i]");
+    lines.push("    return c != '\\n' && c != '\\r' && c != '\\u2028' && c != '\\u2029'");
     lines.push('}');
     lines.push('');
   }

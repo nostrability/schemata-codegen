@@ -1384,7 +1384,13 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    if ($i + $dlen >= strlen($s)) { return false; }');
     lines.push('    if (substr($s, $i, $dlen) !== $delimiter) { return false; }');
     lines.push('    $i += $dlen;');
-    lines.push('    return $i < strlen($s);');
+    lines.push('    if ($i >= strlen($s)) { return false; }');
+    lines.push('    /* .+ first char must not be a line terminator (ECMA-262) */');
+    lines.push("    $c = ord($s[$i]);");
+    lines.push('    if ($c === 0x0A || $c === 0x0D) { return false; }');
+    lines.push('    if ($c === 0xE2 && $i + 2 < strlen($s) && ord($s[$i + 1]) === 0x80');
+    lines.push('        && (ord($s[$i + 2]) === 0xA8 || ord($s[$i + 2]) === 0xA9)) { return false; }');
+    lines.push('    return true;');
     lines.push('}');
     lines.push('');
   }

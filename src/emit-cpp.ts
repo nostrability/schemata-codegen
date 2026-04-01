@@ -1267,8 +1267,13 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    if (i + delim.size() >= s.size()) return false;');
     lines.push('    if (s.compare(i, delim.size(), delim) != 0) return false;');
     lines.push('    i += delim.size();');
-    lines.push('    /* .+ requires at least 1 char after delimiter, no end anchor */');
-    lines.push('    return i < s.size();');
+    lines.push('    if (i >= s.size()) return false;');
+    lines.push('    /* .+ first char must not be a line terminator (ECMA-262) */');
+    lines.push("    unsigned char c = static_cast<unsigned char>(s[i]);");
+    lines.push("    if (c == '\\n' || c == '\\r') return false;");
+    lines.push('    if (c == 0xE2 && i + 2 < s.size() && static_cast<unsigned char>(s[i+1]) == 0x80');
+    lines.push('        && (static_cast<unsigned char>(s[i+2]) == 0xA8 || static_cast<unsigned char>(s[i+2]) == 0xA9)) return false;');
+    lines.push('    return true;');
     lines.push('}');
     lines.push('');
   }

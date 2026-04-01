@@ -1373,7 +1373,12 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push('    if s[i:i + dlen] != delimiter:');
     lines.push('        return False');
     lines.push('    i += dlen');
-    lines.push('    return i < len(s)');
+    lines.push('    if i >= len(s):');
+    lines.push('        return False');
+    lines.push("    # .+ first char must not be a line terminator (ECMA-262)");
+    lines.push("    if s[i] in ('\\n', '\\r', '\\u2028', '\\u2029'):");
+    lines.push('        return False');
+    lines.push('    return True');
   }
 
   return lines.join('\n');

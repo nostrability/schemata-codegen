@@ -1339,8 +1339,11 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        if u[i + j] != del[j] { return false }');
     lines.push('    }');
     lines.push('    i += del.count');
-    lines.push('    // .+ requires at least 1 char after delimiter, no end anchor');
-    lines.push('    return i < u.count');
+    lines.push('    if i >= u.count { return false }');
+    lines.push('    // .+ first char must not be a line terminator (ECMA-262)');
+    lines.push('    if u[i] == 0x0A || u[i] == 0x0D { return false }');
+    lines.push('    if u[i] == 0xE2 && i + 2 < u.count && u[i+1] == 0x80 && (u[i+2] == 0xA8 || u[i+2] == 0xA9) { return false }');
+    lines.push('    return true');
     lines.push('}');
     lines.push('');
   }
