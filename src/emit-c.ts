@@ -881,15 +881,11 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('');
   }
 
-  // Shared dot-tail helper: checks remaining string has >=1 char and no line terminators (regex `.` semantics)
-  // C regex `.` excludes only \n
+  // Shared dot-tail helper: checks remaining string has >=1 char (regex `.+` tail)
+  // POSIX ERE without REG_NEWLINE: `.` matches ALL characters including \n
   if (helpers.has('schemata_check_dot_tail') || helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag') || helpers.has('schemata_check_doi')) {
     lines.push('static int schemata_check_dot_tail(const char *s, size_t pos, size_t len) {');
-    lines.push('    if (pos >= len) return 0;');
-    lines.push('    for (size_t i = pos; i < len; i++) {');
-    lines.push("        if (s[i] == '\\n') return 0;");
-    lines.push('    }');
-    lines.push('    return 1;');
+    lines.push('    return pos < len;');
     lines.push('}');
     lines.push('');
   }
@@ -1635,10 +1631,9 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    if (i + dlen >= len) return 0;');
     lines.push('    if (strncmp(s + i, delim, dlen) != 0) return 0;');
     lines.push('    i += dlen;');
-    lines.push("    if (i >= len) return 0;");
-    lines.push('    /* .+ first char must not be a line terminator (C regex . excludes \\n only) */');
-    lines.push("    if (s[i] == '\\n') return 0;");
-    lines.push('    return 1;');
+    lines.push("    /* .+ requires at least 1 char after delimiter */");
+    lines.push("    /* POSIX ERE without REG_NEWLINE: . matches all chars including \\n */");
+    lines.push('    return i < len;');
     lines.push('}');
     lines.push('');
   }

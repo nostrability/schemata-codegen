@@ -107,7 +107,8 @@ Schemata uses `allOf` nesting 3-5 levels deep. Extraction code (`extract-kind.ts
   - **`checkDotTail`** is for **non-empty** tails (`.+$`) — it requires `pos < len` and scans ALL remaining chars. For **`.*$`** (zero-or-more), callers must add `|| pos == len` to accept the empty-tail case before delegating to `checkDotTail`.
   - **`prefix_delim_rest`** (unanchored `.+`, no `$`) — only the FIRST character after the delimiter matters. `.+` greedily matches non-terminator chars; since there's no `$`, later terminators don't prevent the match (e.g., `"123:a\nb"` matches `^[0-9]+:.+` because `.+` matches `"a"`).
   - **Both helpers must reject the same terminator set** within each emitter:
-    - C, Rust, Go, PHP: `\n` only
+    - C (POSIX ERE, no `REG_NEWLINE`): none (`.` matches all chars including `\n`)
+    - Rust, Go, PHP: `\n` only
     - C++: `\n`, `\r`
     - C#, Python, Ruby: `\n` only
     - Dart: `\n`, `\r`, `\u2028`, `\u2029`
