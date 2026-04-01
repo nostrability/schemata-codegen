@@ -25,11 +25,14 @@ jobs:
       - name: Build codegen
         run: npm run build
 
+      - name: Read schemata version
+        run: echo "SCHEMATA_VERSION=$(cat .schemata-version | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
       - name: Download schemata schemas
         run: |
-          gh release download v0.3.0 -R nostrability/schemata -p '*.zip' -D /tmp
+          gh release download "$SCHEMATA_VERSION" -R nostrability/schemata -p '*.zip' -D /tmp
           mkdir -p /tmp/schemata-dist
-          unzip -q /tmp/schemata-v0.3.0.zip -d /tmp/schemata-dist
+          unzip -q /tmp/schemata-*.zip -d /tmp/schemata-dist
           echo "SCHEMAS_DIR=/tmp/schemata-dist" >> "$GITHUB_ENV"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

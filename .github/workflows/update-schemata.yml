@@ -1,0 +1,71 @@
+name: Update schemata version
+
+on:
+  repository_dispatch:
+    types: [schema-update]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Schemata release tag (e.g. v0.4.0)"
+        required: true
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.tag }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "BRANCH=chore/bump-schemata-${TAG}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.CODEGEN_PAT }}
+
+      - name: Check if already up to date
+        run: |
+          CURRENT="$(cat .schemata-version | tr -d '[:space:]')"
+          if [ "$CURRENT" = "$TAG" ]; then
+            echo "Already at $TAG — nothing to do."
+            echo "SKIP=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Close existing bump PRs
+        if: env.SKIP != 'true'
+        run: |
+          gh pr list --state open --head "chore/bump-schemata-" --json number --jq '.[].number' \
+            | xargs -I{} gh pr close {} --comment "Superseded by bump to $TAG" || true
+        env:
+          GH_TOKEN: ${{ secrets.CODEGEN_PAT }}
+
+      - name: Create branch and update version
+        if: env.SKIP != 'true'
+        run: |
+          git checkout -b "$BRANCH"
+          echo "$TAG" > .schemata-version
+          git add .schemata-version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: bump schemata to $TAG"
+          git push -u origin "$BRANCH"
+
+      - name: Create pull request
+        if: env.SKIP != 'true'
+        run: |
+          gh pr create \
+            --title "chore: bump schemata to $TAG" \
+            --body "Automated bump triggered by upstream schemata release.
+
+          - Updates \`.schemata-version\` to \`$TAG\`
+          - CI (classifier-gate + compile-check) will validate compatibility
+
+          If CI fails, new unclassified patterns may need attention." \
+            --head "$BRANCH" \
+            --base main
+        env:
+          GH_TOKEN: ${{ secrets.CODEGEN_PAT }}
