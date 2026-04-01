@@ -349,8 +349,8 @@ function renderContentActionsRuby(
         break;
       }
       case 'check_content_enum': {
-        const vals = action.values.map(v => `'${v}'`).join(', ');
-        lines.push(`          errors << ValidationError.new('content', 'content must be one of: ${action.values.join(', ')}') unless [${vals}].include?(content)`);
+        const vals = action.values.map(v => rubyString(v)).join(', ');
+        lines.push(`          errors << ValidationError.new('content', ${rubyString('content must be one of: ' + action.values.join(', '))}) unless [${vals}].include?(content)`);
         break;
       }
     }
@@ -391,12 +391,12 @@ function emitEventDispatchRuby(
   lines.push('      ca = event[\'created_at\']');
   lines.push('      errors << ValidationError.new(\'created_at\', \'created_at must be a non-negative integer\') unless ca.is_a?(Integer) && ca >= 0');
 
+  lines.push("      unless event.key?('content')");
+  lines.push("        errors << ValidationError.new('content', 'content is required')");
+  lines.push('      else');
+  lines.push("        content_raw = event['content']");
+  lines.push('        if content_raw.is_a?(String)');
   if (contentKinds.length > 0) {
-    lines.push("      unless event.key?('content')");
-    lines.push("        errors << ValidationError.new('content', 'content is required')");
-    lines.push('      else');
-    lines.push("        content_raw = event['content']");
-    lines.push('        if content_raw.is_a?(String)');
     lines.push('          content = content_raw');
     lines.push('          case kind');
     for (const [kindNumber, actions] of contentKinds) {
@@ -404,33 +404,31 @@ function emitEventDispatchRuby(
       lines.push(...renderContentActionsRuby(actions, helpers));
     }
     lines.push('          end');
-    lines.push('        else');
-    lines.push("          errors << ValidationError.new('content', 'content must be a string')");
-    lines.push('        end');
-    lines.push('      end');
   }
+  lines.push('        else');
+  lines.push("          errors << ValidationError.new('content', 'content must be a string')");
+  lines.push('        end');
+  lines.push('      end');
 
-  if (sorted.length > 0) {
-    lines.push("      unless event.key?('tags')");
-    lines.push("        errors << ValidationError.new('tags', 'tags is required')");
-    lines.push('      else');
-    lines.push("        tags_raw = event['tags']");
-    lines.push('        if tags_raw.is_a?(Array)');
-    lines.push('          tags = []');
-    lines.push('          tags_raw.each_with_index do |t, i|');
-    lines.push('            if t.is_a?(Array) && t.all? { |v| v.is_a?(String) }');
-    lines.push('              tags << t');
-    lines.push('            else');
-    lines.push('              errors << ValidationError.new("tags[#{i}]", "tags[#{i}] must be an array of strings")');
-    lines.push('              tags << []');
-    lines.push('            end');
-    lines.push('          end');
-    lines.push('          errors.concat(validate_kind_tags(kind, tags))');
-    lines.push('        else');
-    lines.push("          errors << ValidationError.new('tags', 'tags must be an array')");
-    lines.push('        end');
-    lines.push('      end');
-  }
+  lines.push("      unless event.key?('tags')");
+  lines.push("        errors << ValidationError.new('tags', 'tags is required')");
+  lines.push('      else');
+  lines.push("        tags_raw = event['tags']");
+  lines.push('        if tags_raw.is_a?(Array)');
+  lines.push('          tags = []');
+  lines.push('          tags_raw.each_with_index do |t, i|');
+  lines.push('            if t.is_a?(Array) && t.all? { |v| v.is_a?(String) }');
+  lines.push('              tags << t');
+  lines.push('            else');
+  lines.push('              errors << ValidationError.new("tags[#{i}]", "tags[#{i}] must be an array of strings")');
+  lines.push('              tags << []');
+  lines.push('            end');
+  lines.push('          end');
+  lines.push('          errors.concat(validate_kind_tags(kind, tags))');
+  lines.push('        else');
+  lines.push("          errors << ValidationError.new('tags', 'tags must be an array')");
+  lines.push('        end');
+  lines.push('      end');
 
   lines.push('      errors');
   lines.push('    end');
@@ -580,10 +578,7 @@ function emitRubyFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchRuby(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchRuby(constrainedKinds, contentPlans, helpers);
 
   const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws') || helpers.has('check_package_id') || helpers.has('check_nostr_uri');
   const lines: string[] = [

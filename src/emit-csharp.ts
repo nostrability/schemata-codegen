@@ -369,7 +369,14 @@ function emitEventDispatchCSharp(
   lines.push('    /// <summary>Validate an event\'s base fields, content constraints, and tag structure.</summary>');
   lines.push('    public static List<ValidationError> ValidateEvent(IDictionary<string, object?> ev) {');
   lines.push('        var errors = new List<ValidationError>();');
-  lines.push('        if (!ev.TryGetValue("kind", out var kindRaw) || kindRaw is not int kind) {');
+  lines.push('        if (!ev.TryGetValue("kind", out var kindRaw)) {');
+  lines.push('            errors.Add(new ValidationError("kind", "kind must be an integer"));');
+  lines.push('            return errors;');
+  lines.push('        }');
+  lines.push('        int kind;');
+  lines.push('        if (kindRaw is int ki) kind = ki;');
+  lines.push('        else if (kindRaw is long kl) kind = (int)kl;');
+  lines.push('        else {');
   lines.push('            errors.Add(new ValidationError("kind", "kind must be an integer"));');
   lines.push('            return errors;');
   lines.push('        }');
@@ -386,14 +393,19 @@ function emitEventDispatchCSharp(
   lines.push('        if (!ev.TryGetValue("sig", out var sigRaw) || sigRaw is not string sigStr || !CheckHex128(sigStr)) {');
   lines.push('            errors.Add(new ValidationError("sig", "sig must be a 128-char lowercase hex string"));');
   lines.push('        }');
-  lines.push('        if (!ev.TryGetValue("created_at", out var caRaw) || caRaw is not int caVal || caVal < 0) {');
-  lines.push('            errors.Add(new ValidationError("created_at", "created_at must be a non-negative integer"));');
+  lines.push('        {');
+  lines.push('            bool caOk = false;');
+  lines.push('            if (ev.TryGetValue("created_at", out var caRaw)) {');
+  lines.push('                if (caRaw is int ci) caOk = ci >= 0;');
+  lines.push('                else if (caRaw is long cl) caOk = cl >= 0;');
+  lines.push('            }');
+  lines.push('            if (!caOk) errors.Add(new ValidationError("created_at", "created_at must be a non-negative integer"));');
   lines.push('        }');
 
+  lines.push('        if (!ev.ContainsKey("content")) {');
+  lines.push('            errors.Add(new ValidationError("content", "content is required"));');
+  lines.push('        } else if (ev.TryGetValue("content", out var contentRaw) && contentRaw is string content) {');
   if (contentKinds.length > 0) {
-    lines.push('        if (!ev.ContainsKey("content")) {');
-    lines.push('            errors.Add(new ValidationError("content", "content is required"));');
-    lines.push('        } else if (ev.TryGetValue("content", out var contentRaw) && contentRaw is string content) {');
     lines.push('            switch (kind) {');
     for (const [kindNumber, actions] of contentKinds) {
       lines.push(`                case ${kindNumber}: {`);
@@ -402,29 +414,27 @@ function emitEventDispatchCSharp(
       lines.push('                }');
     }
     lines.push('            }');
-    lines.push('        } else {');
-    lines.push('            errors.Add(new ValidationError("content", "content must be a string"));');
-    lines.push('        }');
   }
+  lines.push('        } else {');
+  lines.push('            errors.Add(new ValidationError("content", "content must be a string"));');
+  lines.push('        }');
 
-  if (sorted.length > 0) {
-    lines.push('        if (!ev.ContainsKey("tags")) {');
-    lines.push('            errors.Add(new ValidationError("tags", "tags is required"));');
-    lines.push('        } else if (ev.TryGetValue("tags", out var tagsRaw) && tagsRaw is System.Collections.IList rawList) {');
-    lines.push('            var tags = new List<List<string>>();');
-    lines.push('            for (var i = 0; i < rawList.Count; i++) {');
-    lines.push('                if (rawList[i] is System.Collections.IList inner && inner.Cast<object?>().All(v => v is string)) {');
-    lines.push('                    tags.Add(inner.Cast<object?>().Select(v => (string)v!).ToList());');
-    lines.push('                } else {');
-    lines.push('                    errors.Add(new ValidationError($"tags[{i}]", $"tags[{i}] must be a list of strings"));');
-    lines.push('                    tags.Add(new List<string>());');
-    lines.push('                }');
-    lines.push('            }');
-    lines.push('            errors.AddRange(ValidateKindTags(kind, tags));');
-    lines.push('        } else {');
-    lines.push('            errors.Add(new ValidationError("tags", "tags must be a list"));');
-    lines.push('        }');
-  }
+  lines.push('        if (!ev.ContainsKey("tags")) {');
+  lines.push('            errors.Add(new ValidationError("tags", "tags is required"));');
+  lines.push('        } else if (ev.TryGetValue("tags", out var tagsRaw) && tagsRaw is System.Collections.IList rawList) {');
+  lines.push('            var tags = new List<List<string>>();');
+  lines.push('            for (var i = 0; i < rawList.Count; i++) {');
+  lines.push('                if (rawList[i] is System.Collections.IList inner && inner.Cast<object?>().All(v => v is string)) {');
+  lines.push('                    tags.Add(inner.Cast<object?>().Select(v => (string)v!).ToList());');
+  lines.push('                } else {');
+  lines.push('                    errors.Add(new ValidationError($"tags[{i}]", $"tags[{i}] must be a list of strings"));');
+  lines.push('                    tags.Add(new List<string>());');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('            errors.AddRange(ValidateKindTags(kind, tags));');
+  lines.push('        } else {');
+  lines.push('            errors.Add(new ValidationError("tags", "tags must be a list"));');
+  lines.push('        }');
 
   lines.push('        return errors;');
   lines.push('    }');
@@ -574,10 +584,7 @@ function emitCSharpFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchCSharp(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchCSharp(constrainedKinds, contentPlans, helpers);
 
   const needsRegex = helpers.has('regex');
 

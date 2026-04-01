@@ -366,10 +366,14 @@ function emitEventDispatchKotlin(
   lines.push('/** Validate an event\'s base fields, content constraints, and tag structure. */');
   lines.push('fun validateEvent(event: Map<String, Any?>): List<ValidationError> {');
   lines.push('    val errors = mutableListOf<ValidationError>()');
-  lines.push('    val kind = event["kind"]');
-  lines.push('    if (kind !is Int) {');
-  lines.push('        errors.add(ValidationError("kind", "kind must be an integer"))');
-  lines.push('        return errors');
+  lines.push('    val kindRaw = event["kind"]');
+  lines.push('    val kind: Int = when (kindRaw) {');
+  lines.push('        is Int -> kindRaw');
+  lines.push('        is Long -> kindRaw.toInt()');
+  lines.push('        else -> {');
+  lines.push('            errors.add(ValidationError("kind", "kind must be an integer"))');
+  lines.push('            return errors');
+  lines.push('        }');
   lines.push('    }');
 
   helpers.add('checkHex64');
@@ -388,16 +392,16 @@ function emitEventDispatchKotlin(
   lines.push('        errors.add(ValidationError("sig", "sig must be a 128-char lowercase hex string"))');
   lines.push('    }');
   lines.push('    val createdAt = event["created_at"]');
-  lines.push('    if (createdAt !is Int || createdAt < 0) {');
+  lines.push('    if (!((createdAt is Int && createdAt >= 0) || (createdAt is Long && createdAt >= 0L))) {');
   lines.push('        errors.add(ValidationError("created_at", "created_at must be a non-negative integer"))');
   lines.push('    }');
 
+  lines.push('    if (!event.containsKey("content")) {');
+  lines.push('        errors.add(ValidationError("content", "content is required"))');
+  lines.push('    } else {');
+  lines.push('        val contentRaw = event["content"]');
+  lines.push('        if (contentRaw is String) {');
   if (contentKinds.length > 0) {
-    lines.push('    if (!event.containsKey("content")) {');
-    lines.push('        errors.add(ValidationError("content", "content is required"))');
-    lines.push('    } else {');
-    lines.push('        val contentRaw = event["content"]');
-    lines.push('        if (contentRaw is String) {');
     lines.push('            val content = contentRaw');
     lines.push('            when (kind) {');
     for (const [kindNumber, actions] of contentKinds) {
@@ -406,34 +410,32 @@ function emitEventDispatchKotlin(
       lines.push('                }');
     }
     lines.push('            }');
-    lines.push('        } else {');
-    lines.push('            errors.add(ValidationError("content", "content must be a string"))');
-    lines.push('        }');
-    lines.push('    }');
   }
+  lines.push('        } else {');
+  lines.push('            errors.add(ValidationError("content", "content must be a string"))');
+  lines.push('        }');
+  lines.push('    }');
 
-  if (sorted.length > 0) {
-    lines.push('    if (!event.containsKey("tags")) {');
-    lines.push('        errors.add(ValidationError("tags", "tags is required"))');
-    lines.push('    } else {');
-    lines.push('        val tagsRaw = event["tags"]');
-    lines.push('        if (tagsRaw is List<*>) {');
-    lines.push('            val tags = mutableListOf<List<String>>()');
-    lines.push('            for ((i, t) in tagsRaw.withIndex()) {');
-    lines.push('                if (t is List<*> && t.all { it is String }) {');
-    lines.push('                    @Suppress("UNCHECKED_CAST")');
-    lines.push('                    tags.add(t as List<String>)');
-    lines.push('                } else {');
-    lines.push('                    errors.add(ValidationError("tags[$i]", "tags[$i] must be a list of strings"))');
-    lines.push('                    tags.add(emptyList())');
-    lines.push('                }');
-    lines.push('            }');
-    lines.push('            errors.addAll(validateKindTags(kind, tags))');
-    lines.push('        } else {');
-    lines.push('            errors.add(ValidationError("tags", "tags must be a list"))');
-    lines.push('        }');
-    lines.push('    }');
-  }
+  lines.push('    if (!event.containsKey("tags")) {');
+  lines.push('        errors.add(ValidationError("tags", "tags is required"))');
+  lines.push('    } else {');
+  lines.push('        val tagsRaw = event["tags"]');
+  lines.push('        if (tagsRaw is List<*>) {');
+  lines.push('            val tags = mutableListOf<List<String>>()');
+  lines.push('            for ((i, t) in tagsRaw.withIndex()) {');
+  lines.push('                if (t is List<*> && t.all { it is String }) {');
+  lines.push('                    @Suppress("UNCHECKED_CAST")');
+  lines.push('                    tags.add(t as List<String>)');
+  lines.push('                } else {');
+  lines.push('                    errors.add(ValidationError("tags[$i]", "tags[$i] must be a list of strings"))');
+  lines.push('                    tags.add(emptyList())');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('            errors.addAll(validateKindTags(kind, tags))');
+  lines.push('        } else {');
+  lines.push('            errors.add(ValidationError("tags", "tags must be a list"))');
+  lines.push('        }');
+  lines.push('    }');
 
   lines.push('    return errors');
   lines.push('}');
@@ -583,10 +585,7 @@ function emitKotlinFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchKotlin(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchKotlin(constrainedKinds, contentPlans, helpers);
 
   const needsRegex = helpers.has('regex');
 

@@ -403,10 +403,8 @@ function emitEventDispatchCpp(
     lines.push('    }');
   }
 
-  if (sorted.length > 0) {
-    lines.push('    auto tag_errors = validate_kind_tags(event.kind, event.tags);');
-    lines.push('    errors.insert(errors.end(), tag_errors.begin(), tag_errors.end());');
-  }
+  lines.push('    auto tag_errors = validate_kind_tags(event.kind, event.tags);');
+  lines.push('    errors.insert(errors.end(), tag_errors.begin(), tag_errors.end());');
 
   lines.push('    return errors;');
   lines.push('}');
@@ -556,10 +554,7 @@ function emitCppFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchCpp(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchCpp(constrainedKinds, contentPlans, helpers);
 
   const needsRegex = helpers.has('regex');
 

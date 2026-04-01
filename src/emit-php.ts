@@ -376,12 +376,12 @@ function renderContentActionsPhp(
   for (const action of actions) {
     switch (action.type) {
       case 'check_content_min_length':
-        lines.push(`            if (mb_strlen($content) < ${action.min}) {`);
+        lines.push(`            if (mb_strlen($content, 'UTF-8') < ${action.min}) {`);
         lines.push(`                $errors[] = new SchemataValidationError('content', 'content must be at least ${action.min} character(s)');`);
         lines.push('            }');
         break;
       case 'check_content_max_length':
-        lines.push(`            if (mb_strlen($content) > ${action.max}) {`);
+        lines.push(`            if (mb_strlen($content, 'UTF-8') > ${action.max}) {`);
         lines.push(`                $errors[] = new SchemataValidationError('content', 'content must be at most ${action.max} character(s)');`);
         lines.push('            }');
         break;
@@ -394,9 +394,9 @@ function renderContentActionsPhp(
         break;
       }
       case 'check_content_enum': {
-        const vals = action.values.map(v => `'${v}'`).join(', ');
+        const vals = action.values.map(v => phpString(v)).join(', ');
         lines.push(`            if (!in_array($content, [${vals}], true)) {`);
-        lines.push(`                $errors[] = new SchemataValidationError('content', 'content must be one of: ${action.values.join(', ')}');`);
+        lines.push(`                $errors[] = new SchemataValidationError('content', ${phpString('content must be one of: ' + action.values.join(', '))});`);
         lines.push('            }');
         break;
       }
@@ -445,10 +445,10 @@ function emitEventDispatchPhp(
   lines.push("        $errors[] = new SchemataValidationError('created_at', 'created_at must be a non-negative integer');");
   lines.push('    }');
 
+  lines.push("    if (!array_key_exists('content', $event)) {");
+  lines.push("        $errors[] = new SchemataValidationError('content', 'content is required');");
+  lines.push("    } elseif (is_string($event['content'])) {");
   if (contentKinds.length > 0) {
-    lines.push("    if (!array_key_exists('content', $event)) {");
-    lines.push("        $errors[] = new SchemataValidationError('content', 'content is required');");
-    lines.push("    } elseif (is_string($event['content'])) {");
     lines.push("        $content = $event['content'];");
     lines.push('        switch ($kind) {');
     for (const [kindNumber, actions] of contentKinds) {
@@ -457,29 +457,27 @@ function emitEventDispatchPhp(
       lines.push('                break;');
     }
     lines.push('        }');
-    lines.push('    } else {');
-    lines.push("        $errors[] = new SchemataValidationError('content', 'content must be a string');");
-    lines.push('    }');
   }
+  lines.push('    } else {');
+  lines.push("        $errors[] = new SchemataValidationError('content', 'content must be a string');");
+  lines.push('    }');
 
-  if (sorted.length > 0) {
-    lines.push("    if (!array_key_exists('tags', $event)) {");
-    lines.push("        $errors[] = new SchemataValidationError('tags', 'tags is required');");
-    lines.push("    } elseif (is_array($event['tags'])) {");
-    lines.push('        $tags = [];');
-    lines.push("        foreach ($event['tags'] as $i => $t) {");
-    lines.push('            if (is_array($t) && array_reduce($t, fn($carry, $v) => $carry && is_string($v), true)) {');
-    lines.push('                $tags[] = array_values($t);');
-    lines.push('            } else {');
-    lines.push('                $errors[] = new SchemataValidationError("tags[$i]", "tags[$i] must be an array of strings");');
-    lines.push('                $tags[] = [];');
-    lines.push('            }');
-    lines.push('        }');
-    lines.push('        $errors = array_merge($errors, schemata_validate_kind_tags($kind, $tags));');
-    lines.push('    } else {');
-    lines.push("        $errors[] = new SchemataValidationError('tags', 'tags must be an array');");
-    lines.push('    }');
-  }
+  lines.push("    if (!array_key_exists('tags', $event)) {");
+  lines.push("        $errors[] = new SchemataValidationError('tags', 'tags is required');");
+  lines.push("    } elseif (is_array($event['tags'])) {");
+  lines.push('        $tags = [];');
+  lines.push("        foreach ($event['tags'] as $i => $t) {");
+  lines.push('            if (is_array($t) && array_reduce($t, fn($carry, $v) => $carry && is_string($v), true)) {');
+  lines.push('                $tags[] = array_values($t);');
+  lines.push('            } else {');
+  lines.push('                $errors[] = new SchemataValidationError("tags[$i]", "tags[$i] must be an array of strings");');
+  lines.push('                $tags[] = [];');
+  lines.push('            }');
+  lines.push('        }');
+  lines.push('        $errors = array_merge($errors, schemata_validate_kind_tags($kind, $tags));');
+  lines.push('    } else {');
+  lines.push("        $errors[] = new SchemataValidationError('tags', 'tags must be an array');");
+  lines.push('    }');
 
   lines.push('    return $errors;');
   lines.push('}');
@@ -689,10 +687,7 @@ function emitPhpFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchPhp(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchPhp(constrainedKinds, contentPlans, helpers);
 
   const lines: string[] = [
     '<?php',

@@ -214,7 +214,7 @@ describe('validateEvent (generic)', () => {
 
   it('validates content for constrained kinds', () => {
     const output = emitRustValidators([kindWithContent]);
-    assert.ok(output.includes('content.len() < 1'));
+    assert.ok(output.includes('content.chars().count() < 1'));
   });
 
   it('dispatches to validate_kind_tags', () => {

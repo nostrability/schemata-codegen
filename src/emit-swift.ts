@@ -412,8 +412,8 @@ function emitEventDispatchSwift(
   lines.push('    }');
 
   // Content validation
+  lines.push('    if let content = event["content"] as? String {');
   if (contentKinds.length > 0) {
-    lines.push('    if let content = event["content"] as? String {');
     lines.push('        switch kind {');
     for (const [kindNumber, actions] of contentKinds) {
       lines.push(`        case ${kindNumber}:`);
@@ -421,32 +421,30 @@ function emitEventDispatchSwift(
     }
     lines.push('        default: break');
     lines.push('        }');
-    lines.push('    } else if event["content"] != nil {');
-    lines.push('        errors.append(ValidationError(path: "content", message: "content must be a string"))');
-    lines.push('    } else {');
-    lines.push('        errors.append(ValidationError(path: "content", message: "content is required"))');
-    lines.push('    }');
   }
+  lines.push('    } else if event["content"] != nil {');
+  lines.push('        errors.append(ValidationError(path: "content", message: "content must be a string"))');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "content", message: "content is required"))');
+  lines.push('    }');
 
   // Tag dispatch
-  if (sorted.length > 0) {
-    lines.push('    if let rawTags = event["tags"] as? [[Any]] {');
-    lines.push('        var tags: [[String]] = []');
-    lines.push('        for (i, t) in rawTags.enumerated() {');
-    lines.push('            if let st = t as? [String] {');
-    lines.push('                tags.append(st)');
-    lines.push('            } else {');
-    lines.push('                errors.append(ValidationError(path: "tags[\\(i)]", message: "tags[\\(i)] must be an array of strings"))');
-    lines.push('                tags.append([])');
-    lines.push('            }');
-    lines.push('        }');
-    lines.push('        errors.append(contentsOf: validateKindTags(kind: kind, tags: tags))');
-    lines.push('    } else if event["tags"] != nil {');
-    lines.push('        errors.append(ValidationError(path: "tags", message: "tags must be an array"))');
-    lines.push('    } else {');
-    lines.push('        errors.append(ValidationError(path: "tags", message: "tags is required"))');
-    lines.push('    }');
-  }
+  lines.push('    if let rawTags = event["tags"] as? [[Any]] {');
+  lines.push('        var tags: [[String]] = []');
+  lines.push('        for (i, t) in rawTags.enumerated() {');
+  lines.push('            if let st = t as? [String] {');
+  lines.push('                tags.append(st)');
+  lines.push('            } else {');
+  lines.push('                errors.append(ValidationError(path: "tags[\\(i)]", message: "tags[\\(i)] must be an array of strings"))');
+  lines.push('                tags.append([])');
+  lines.push('            }');
+  lines.push('        }');
+  lines.push('        errors.append(contentsOf: validateKindTags(kind: kind, tags: tags))');
+  lines.push('    } else if event["tags"] != nil {');
+  lines.push('        errors.append(ValidationError(path: "tags", message: "tags must be an array"))');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "tags", message: "tags is required"))');
+  lines.push('    }');
 
   lines.push('    return errors');
   lines.push('}');
@@ -600,10 +598,7 @@ function emitSwiftFile(
   contentPlans: Map<number, ContentAction[]>,
 ): string {
   // Pre-generate event dispatch to collect helpers before emitting helper functions
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchSwift(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchSwift(constrainedKinds, contentPlans, helpers);
 
   const needsFoundation = helpers.has('regex');
 

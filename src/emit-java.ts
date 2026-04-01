@@ -456,11 +456,11 @@ function emitEventDispatchJava(
   lines.push('        }');
 
   // Content validation
+  lines.push('        Object contentRaw = event.get("content");');
+  lines.push('        if (contentRaw == null && !event.containsKey("content")) {');
+  lines.push('            errors.add(new ValidationError("content", "content is required"));');
+  lines.push('        } else if (contentRaw instanceof String) {');
   if (contentKinds.length > 0) {
-    lines.push('        Object contentRaw = event.get("content");');
-    lines.push('        if (contentRaw == null && !event.containsKey("content")) {');
-    lines.push('            errors.add(new ValidationError("content", "content is required"));');
-    lines.push('        } else if (contentRaw instanceof String) {');
     lines.push('            String content = (String) contentRaw;');
     lines.push('            switch (kind) {');
     for (const [kindNumber, actions] of contentKinds) {
@@ -470,40 +470,38 @@ function emitEventDispatchJava(
       lines.push('                }');
     }
     lines.push('            }');
-    lines.push('        } else {');
-    lines.push('            errors.add(new ValidationError("content", "content must be a string"));');
-    lines.push('        }');
   }
+  lines.push('        } else {');
+  lines.push('            errors.add(new ValidationError("content", "content must be a string"));');
+  lines.push('        }');
 
   // Tag dispatch
-  if (sorted.length > 0) {
-    lines.push('        Object tagsRaw = event.get("tags");');
-    lines.push('        if (tagsRaw == null && !event.containsKey("tags")) {');
-    lines.push('            errors.add(new ValidationError("tags", "tags is required"));');
-    lines.push('        } else if (tagsRaw instanceof List<?>) {');
-    lines.push('            var rawTags = (List<?>) tagsRaw;');
-    lines.push('            var tags = new ArrayList<List<String>>(rawTags.size());');
-    lines.push('            for (int i = 0; i < rawTags.size(); i++) {');
-    lines.push('                Object t = rawTags.get(i);');
-    lines.push('                if (t instanceof List<?>) {');
-    lines.push('                    var arr = (List<?>) t;');
-    lines.push('                    boolean valid = arr.stream().allMatch(v -> v instanceof String);');
-    lines.push('                    if (valid) {');
-    lines.push('                        tags.add((List<String>) (List<?>) arr);');
-    lines.push('                    } else {');
-    lines.push('                        errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
-    lines.push('                        tags.add(List.of());');
-    lines.push('                    }');
-    lines.push('                } else {');
-    lines.push('                    errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
-    lines.push('                    tags.add(List.of());');
-    lines.push('                }');
-    lines.push('            }');
-    lines.push('            errors.addAll(validateKindTags(kind, tags));');
-    lines.push('        } else {');
-    lines.push('            errors.add(new ValidationError("tags", "tags must be a list"));');
-    lines.push('        }');
-  }
+  lines.push('        Object tagsRaw = event.get("tags");');
+  lines.push('        if (tagsRaw == null && !event.containsKey("tags")) {');
+  lines.push('            errors.add(new ValidationError("tags", "tags is required"));');
+  lines.push('        } else if (tagsRaw instanceof List<?>) {');
+  lines.push('            var rawTags = (List<?>) tagsRaw;');
+  lines.push('            var tags = new ArrayList<List<String>>(rawTags.size());');
+  lines.push('            for (int i = 0; i < rawTags.size(); i++) {');
+  lines.push('                Object t = rawTags.get(i);');
+  lines.push('                if (t instanceof List<?>) {');
+  lines.push('                    var arr = (List<?>) t;');
+  lines.push('                    boolean valid = arr.stream().allMatch(v -> v instanceof String);');
+  lines.push('                    if (valid) {');
+  lines.push('                        tags.add((List<String>) (List<?>) arr);');
+  lines.push('                    } else {');
+  lines.push('                        errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
+  lines.push('                        tags.add(List.of());');
+  lines.push('                    }');
+  lines.push('                } else {');
+  lines.push('                    errors.add(new ValidationError("tags[" + i + "]", "tags[" + i + "] must be a list of strings"));');
+  lines.push('                    tags.add(List.of());');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('            errors.addAll(validateKindTags(kind, tags));');
+  lines.push('        } else {');
+  lines.push('            errors.add(new ValidationError("tags", "tags must be a list"));');
+  lines.push('        }');
 
   lines.push('        return errors;');
   lines.push('    }');
@@ -653,10 +651,7 @@ function emitJavaFile(
   helpers: Set<string>,
   contentPlans: Map<number, ContentAction[]>,
 ): string {
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchJava(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchJava(constrainedKinds, contentPlans, helpers);
 
   const lines: string[] = [
     '// Auto-generated by @nostrability/schemata-codegen',

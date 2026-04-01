@@ -248,7 +248,7 @@ describe('schemata_validate_event', () => {
 
   it('validates content for constrained kinds', () => {
     const output = emitPhpValidators([kindWithContent]);
-    assert.ok(output.includes('mb_strlen($content) < 1'));
+    assert.ok(output.includes("mb_strlen($content, 'UTF-8') < 1"));
   });
 
   it('dispatches to schemata_validate_kind_tags', () => {

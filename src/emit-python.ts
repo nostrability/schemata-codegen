@@ -390,37 +390,36 @@ function emitEventDispatchPython(
   lines.push('        errors.append(ValidationError(path="created_at", message="created_at must be a non-negative integer"))');
 
   // Content validation
+  lines.push('    _content = event.get("content")');
+  lines.push('    if _content is None:');
+  lines.push('        errors.append(ValidationError(path="content", message="content is required"))');
+  lines.push('    elif isinstance(_content, str):');
   if (contentKinds.length > 0) {
-    lines.push('    _content = event.get("content")');
-    lines.push('    if _content is None:');
-    lines.push('        errors.append(ValidationError(path="content", message="content is required"))');
-    lines.push('    elif isinstance(_content, str):');
     lines.push('        content = _content');
     for (const [kindNumber, actions] of contentKinds) {
       lines.push(`        if kind == ${kindNumber}:`);
       lines.push(...renderContentActionsPython(actions, helpers));
     }
-    lines.push('    else:');
-    lines.push('        errors.append(ValidationError(path="content", message="content must be a string"))');
   }
+  lines.push('        pass');
+  lines.push('    else:');
+  lines.push('        errors.append(ValidationError(path="content", message="content must be a string"))');
 
   // Tag dispatch
-  if (sorted.length > 0) {
-    lines.push('    _tags = event.get("tags")');
-    lines.push('    if _tags is None:');
-    lines.push('        errors.append(ValidationError(path="tags", message="tags is required"))');
-    lines.push('    elif isinstance(_tags, list):');
-    lines.push('        tags: list[list[str]] = []');
-    lines.push('        for i, t in enumerate(_tags):');
-    lines.push('            if isinstance(t, list) and all(isinstance(v, str) for v in t):');
-    lines.push('                tags.append(t)');
-    lines.push('            else:');
-    lines.push('                errors.append(ValidationError(path=f"tags[{i}]", message=f"tags[{i}] must be a list of strings"))');
-    lines.push('                tags.append([])');
-    lines.push('        errors.extend(validate_kind_tags(kind, tags))');
-    lines.push('    else:');
-    lines.push('        errors.append(ValidationError(path="tags", message="tags must be a list"))');
-  }
+  lines.push('    _tags = event.get("tags")');
+  lines.push('    if _tags is None:');
+  lines.push('        errors.append(ValidationError(path="tags", message="tags is required"))');
+  lines.push('    elif isinstance(_tags, list):');
+  lines.push('        tags: list[list[str]] = []');
+  lines.push('        for i, t in enumerate(_tags):');
+  lines.push('            if isinstance(t, list) and all(isinstance(v, str) for v in t):');
+  lines.push('                tags.append(t)');
+  lines.push('            else:');
+  lines.push('                errors.append(ValidationError(path=f"tags[{i}]", message=f"tags[{i}] must be a list of strings"))');
+  lines.push('                tags.append([])');
+  lines.push('        errors.extend(validate_kind_tags(kind, tags))');
+  lines.push('    else:');
+  lines.push('        errors.append(ValidationError(path="tags", message="tags must be a list"))');
 
   lines.push('    return errors');
   return lines.join('\n');
@@ -558,10 +557,7 @@ function emitPythonFile(
   contentPlans: Map<number, ContentAction[]>,
 ): string {
   // Pre-generate event dispatch to collect helpers before emitting helper functions
-  let eventDispatchCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventDispatchCode = emitEventDispatchPython(constrainedKinds, contentPlans, helpers);
-  }
+  const eventDispatchCode = emitEventDispatchPython(constrainedKinds, contentPlans, helpers);
 
   const needsRegex = helpers.has('_regex');
   const lines: string[] = [

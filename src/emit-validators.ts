@@ -333,10 +333,10 @@ function emitEventDispatch(
   lines.push('  }');
 
   // Content validation
+  lines.push('  if (event.content === undefined) {');
+  lines.push('    errors.push({ path: "content", message: "content is required" });');
+  lines.push('  } else if (typeof event.content === "string") {');
   if (contentKinds.length > 0) {
-    lines.push('  if (event.content === undefined) {');
-    lines.push('    errors.push({ path: "content", message: "content is required" });');
-    lines.push('  } else if (typeof event.content === "string") {');
     lines.push('    const content = event.content;');
     lines.push('    switch (kind) {');
     for (const [kindNumber, actions] of contentKinds) {
@@ -346,31 +346,29 @@ function emitEventDispatch(
       lines.push('      }');
     }
     lines.push('    }');
-    lines.push('  } else {');
-    lines.push('    errors.push({ path: "content", message: "content must be a string" });');
-    lines.push('  }');
   }
+  lines.push('  } else {');
+  lines.push('    errors.push({ path: "content", message: "content must be a string" });');
+  lines.push('  }');
 
   // Tag dispatch — validate tag element types, then dispatch
-  if (sorted.length > 0) {
-    lines.push('  if (event.tags === undefined) {');
-    lines.push('    errors.push({ path: "tags", message: "tags is required" });');
-    lines.push('  } else if (Array.isArray(event.tags)) {');
-    lines.push('    const tags: string[][] = [];');
-    lines.push('    for (let i = 0; i < event.tags.length; i++) {');
-    lines.push('      const t = event.tags[i];');
-    lines.push('      if (!Array.isArray(t) || !t.every(v => typeof v === "string")) {');
-    lines.push('        errors.push({ path: `tags[${i}]`, message: `tags[${i}] must be an array of strings` });');
-    lines.push('        tags.push([]);');
-    lines.push('      } else {');
-    lines.push('        tags.push(t as string[]);');
-    lines.push('      }');
-    lines.push('    }');
-    lines.push('    errors.push(...validateKindTags(kind, tags));');
-    lines.push('  } else {');
-    lines.push('    errors.push({ path: "tags", message: "tags must be an array" });');
-    lines.push('  }');
-  }
+  lines.push('  if (event.tags === undefined) {');
+  lines.push('    errors.push({ path: "tags", message: "tags is required" });');
+  lines.push('  } else if (Array.isArray(event.tags)) {');
+  lines.push('    const tags: string[][] = [];');
+  lines.push('    for (let i = 0; i < event.tags.length; i++) {');
+  lines.push('      const t = event.tags[i];');
+  lines.push('      if (!Array.isArray(t) || !t.every(v => typeof v === "string")) {');
+  lines.push('        errors.push({ path: `tags[${i}]`, message: `tags[${i}] must be an array of strings` });');
+  lines.push('        tags.push([]);');
+  lines.push('      } else {');
+  lines.push('        tags.push(t as string[]);');
+  lines.push('      }');
+  lines.push('    }');
+  lines.push('    errors.push(...validateKindTags(kind, tags));');
+  lines.push('  } else {');
+  lines.push('    errors.push({ path: "tags", message: "tags must be an array" });');
+  lines.push('  }');
 
   lines.push('  return errors;');
   lines.push('}');
@@ -463,18 +461,14 @@ export function emitValidatorsFile(
   }
 
   // Dispatch function
-  if (constrainedKinds.length > 0) {
-    parts.push('\n// === Dispatch ===\n');
-    parts.push(emitDispatch(constrainedKinds));
-    parts.push('');
-  }
+  parts.push('\n// === Dispatch ===\n');
+  parts.push(emitDispatch(constrainedKinds));
+  parts.push('');
 
   // Event dispatch (content + tag validation)
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    parts.push('\n// === Event validation ===\n');
-    parts.push(emitEventDispatch(constrainedKinds, contentPlans));
-    parts.push('');
-  }
+  parts.push('\n// === Event validation ===\n');
+  parts.push(emitEventDispatch(constrainedKinds, contentPlans));
+  parts.push('');
 
   return parts.join('\n');
 }

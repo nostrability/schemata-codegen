@@ -479,10 +479,10 @@ function emitEventFunctionC(
     lines.push('    if (ndb_note_created_at(note) < 0) SCHEMATA_EMIT_ERR(errs, n, max_errs, "created_at", "created_at must be a non-negative integer");');
 
     // Content validation
+    lines.push('    const char *_content = ndb_note_content(note);');
+    lines.push('    if (!_content) {');
+    lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
     if (contentKinds.length > 0) {
-      lines.push('    const char *_content = ndb_note_content(note);');
-      lines.push('    if (!_content) {');
-      lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
       lines.push('    } else {');
       lines.push(`        switch (${adapter.kindExpr}) {`);
       for (const [kindNumber, actions] of contentKinds) {
@@ -491,8 +491,8 @@ function emitEventFunctionC(
         lines.push('            break;');
       }
       lines.push('        }');
-      lines.push('    }');
     }
+    lines.push('    }');
 
     // Tag dispatch
     lines.push('    {');
@@ -520,9 +520,9 @@ function emitEventFunctionC(
     lines.push('    if (created_at < 0) SCHEMATA_EMIT_ERR(errs, n, max_errs, "created_at", "created_at must be a non-negative integer");');
 
     // Content validation
+    lines.push('    if (!content) {');
+    lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
     if (contentKinds.length > 0) {
-      lines.push('    if (!content) {');
-      lines.push('        SCHEMATA_EMIT_ERR(errs, n, max_errs, "content", "content is required");');
       lines.push('    } else {');
       lines.push('        switch (kind) {');
       for (const [kindNumber, actions] of contentKinds) {
@@ -531,14 +531,19 @@ function emitEventFunctionC(
         lines.push('            break;');
       }
       lines.push('        }');
-      lines.push('    }');
     }
+    lines.push('    }');
 
-    // Tag dispatch
-    lines.push('    {');
+    // Tag dispatch — null-check tags/tag_lens before dispatch
+    lines.push('    if (num_tags > 0 && tags && tag_lens) {');
     lines.push('        int _remaining = max_errs - n;');
     lines.push('        if (_remaining > 0) {');
     lines.push('            n += schemata_validate(kind, tags, tag_lens, num_tags, errs + n, _remaining);');
+    lines.push('        }');
+    lines.push('    } else if (num_tags == 0) {');
+    lines.push('        int _remaining = max_errs - n;');
+    lines.push('        if (_remaining > 0) {');
+    lines.push('            n += schemata_validate(kind, tags, tag_lens, 0, errs + n, _remaining);');
     lines.push('        }');
     lines.push('    }');
   }
@@ -762,7 +767,7 @@ function emitHeaderFile(
   }
 
   // int64_t needed for generic API event function
-  if (api === 'generic' && (constrainedKinds.length > 0 || contentPlans.size > 0)) {
+  if (api === 'generic') {
     lines.push('#include <stdint.h>');
     lines.push('');
   }
@@ -788,19 +793,17 @@ function emitHeaderFile(
   lines.push('');
 
   // Event validation declaration
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    lines.push('/* Validate an entire event: base fields + content + tags */');
-    if (api === 'nostrdb') {
-      lines.push('int schemata_validate_event(const struct ndb_note *note,');
-      lines.push('                            struct schemata_error *errs, int max_errs);');
-    } else {
-      lines.push('int schemata_validate_event(int kind, const char *id, const char *pubkey,');
-      lines.push('                            const char *sig, int64_t created_at, const char *content,');
-      lines.push('                            const char *const *const *tags, const int *tag_lens, int num_tags,');
-      lines.push('                            struct schemata_error *errs, int max_errs);');
-    }
-    lines.push('');
+  lines.push('/* Validate an entire event: base fields + content + tags */');
+  if (api === 'nostrdb') {
+    lines.push('int schemata_validate_event(const struct ndb_note *note,');
+    lines.push('                            struct schemata_error *errs, int max_errs);');
+  } else {
+    lines.push('int schemata_validate_event(int kind, const char *id, const char *pubkey,');
+    lines.push('                            const char *sig, int64_t created_at, const char *content,');
+    lines.push('                            const char *const *const *tags, const int *tag_lens, int num_tags,');
+    lines.push('                            struct schemata_error *errs, int max_errs);');
   }
+  lines.push('');
 
   lines.push('#ifdef __cplusplus');
   lines.push('}');
@@ -822,10 +825,7 @@ function emitSourceFile(
   contentPlans: Map<number, ContentAction[]>,
 ): string {
   // Pre-generate event function BEFORE helpers so helper references are registered
-  let eventFnCode: string | undefined;
-  if (constrainedKinds.length > 0 || contentPlans.size > 0) {
-    eventFnCode = emitEventFunctionC(constrainedKinds, contentPlans, helpers, adapter, api);
-  }
+  const eventFnCode = emitEventFunctionC(constrainedKinds, contentPlans, helpers, adapter, api);
 
   const lines: string[] = [
     '/* Auto-generated by @nostrability/schemata-codegen */',
