@@ -30,6 +30,7 @@ interface AllowlistEntry {
 
 interface CoverageResult {
   totalPatterns: number;
+  allPatterns: string[];
   opCounts: Record<string, number>;
   regexFallbacks: string[];
   allowlisted: string[];
@@ -141,6 +142,7 @@ export function checkClassifierCoverage(
 
   return {
     totalPatterns: allPatterns.size,
+    allPatterns: [...allPatterns],
     opCounts,
     regexFallbacks,
     allowlisted,

@@ -204,7 +204,6 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'nostr_uri': {
       helpers.add('check_nostr_uri');
-      helpers.add('check_bech32'); // triggers BECH32_CHARS
       return { expr: `check_nostr_uri(${varExpr})`, helpers };
     }
     case 'nip04_encrypted': {

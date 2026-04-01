@@ -63,11 +63,12 @@ describe('classifier coverage', () => {
     // Check that every allowlisted pattern is actually still falling back to regex.
     // If a pattern was allowlisted but now classifies natively, the allowlist entry
     // is stale and should be removed.
-    // Note: patterns may only exist in the CI dist (e.g. v0.3.0) and not the local
-    // dev dist — absent patterns are not stale, just version-specific. See #32.
-    const patternsSeenInDist = new Set([...result.allowlisted, ...result.regexFallbacks]);
+    // A pattern is stale if it exists in the dist but now classifies natively
+    // (no longer needs the allowlist). Patterns absent from the dist are not
+    // stale — they may be version-specific (e.g. v0.3.0 only). See #32.
+    const patternsInDist = new Set(result.allPatterns);
     const stale = allowlist.filter((entry) =>
-      patternsSeenInDist.has(entry.pattern) && !result.allowlisted.includes(entry.pattern)
+      patternsInDist.has(entry.pattern) && !result.allowlisted.includes(entry.pattern)
     );
     if (stale.length > 0) {
       const details = stale.map((e) => `  - ${e.pattern} (${e.reason})`).join('\n');
