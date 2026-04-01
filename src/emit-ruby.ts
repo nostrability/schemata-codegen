@@ -173,6 +173,59 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_imeta_dim');
       return { expr: `check_imeta_dim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('check_dim');
+      return { expr: `check_dim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('check_no_uppercase');
+      return { expr: `check_no_uppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('check_dotted_digits');
+      return { expr: `check_dotted_digits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('check_slash_segments');
+      return { expr: `check_slash_segments(${varExpr}, ${rubyString(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('check_space_separated_tokens');
+      helpers.add('ascii_ws');
+      return { expr: `check_space_separated_tokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('check_starts_with_charset');
+      return { expr: `check_starts_with_charset(${varExpr}, ${rubyString(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('check_base64');
+      return { expr: `check_base64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('check_nostr_uri');
+      helpers.add('check_bech32'); // triggers BECH32_CHARS
+      return { expr: `check_nostr_uri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('check_nip04_encrypted');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_nip04_encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('check_nip05_identifier');
+      helpers.add('is_alnum');
+      return { expr: `check_nip05_identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('check_mime_type_strict');
+      helpers.add('is_alnum');
+      return { expr: `check_mime_type_strict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('check_prefix_delim_rest');
+      return { expr: `check_prefix_delim_rest(${varExpr}, ${rubyString(check.charset)}, ${rubyString(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -409,7 +462,7 @@ function emitRubyFile(
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
 ): string {
-  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws') || helpers.has('check_package_id');
+  const needsSet = helpers.has('check_relay_url') || helpers.has('check_bech32') || helpers.has('check_a_tag') || helpers.has('check_ln_invoice') || helpers.has('ascii_ws') || helpers.has('check_package_id') || helpers.has('check_nostr_uri');
   const lines: string[] = [
     '# frozen_string_literal: true',
     '',
@@ -959,6 +1012,261 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    end');
     lines.push('    return false if dc < 1 || dc > 5');
     lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_dim')) {
+    lines.push('  # ^[0-9]+x[0-9]+$');
+    lines.push('  def self.check_dim(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push("    return false unless s[i] >= '0' && s[i] <= '9'");
+    lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("    return false unless i < s.length && s[i] == 'x'");
+    lines.push('    i += 1');
+    lines.push("    return false unless i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_no_uppercase')) {
+    lines.push('  # ^[^A-Z]+$');
+    lines.push('  def self.check_no_uppercase(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push("    s.each_char { |c| return false if c >= 'A' && c <= 'Z' }");
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_dotted_digits')) {
+    lines.push('  # ^[0-9]+(\\.[0-9]+)*$');
+    lines.push('  def self.check_dotted_digits(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push("    return false unless s[i] >= '0' && s[i] <= '9'");
+    lines.push("    i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("    while i < s.length && s[i] == '.'");
+    lines.push('      i += 1');
+    lines.push("      return false unless i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push("      i += 1 while i < s.length && s[i] >= '0' && s[i] <= '9'");
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_slash_segments')) {
+    lines.push('  # ^[charset]+(/[charset]+)*$');
+    lines.push('  def self.check_slash_segments(s, charset)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    return false unless charset.include?(s[i])');
+    lines.push('    i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push("    while i < s.length && s[i] == '/'");
+    lines.push('      i += 1');
+    lines.push('      return false unless i < s.length && charset.include?(s[i])');
+    lines.push('      i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_space_separated_tokens')) {
+    lines.push('  # ^\\S+( \\S+)*$');
+    lines.push('  def self.check_space_separated_tokens(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    return false if ECMA_WS.include?(s[i])');
+    lines.push('    i += 1 while i < s.length && !ECMA_WS.include?(s[i])');
+    lines.push("    while i < s.length && s[i] == ' '");
+    lines.push('      i += 1');
+    lines.push('      return false if i >= s.length || ECMA_WS.include?(s[i])');
+    lines.push('      i += 1 while i < s.length && !ECMA_WS.include?(s[i])');
+    lines.push('    end');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_starts_with_charset')) {
+    lines.push('  # ^[charset]+ (no end anchor)');
+    lines.push('  def self.check_starts_with_charset(s, charset)');
+    lines.push('    s.is_a?(String) && !s.empty? && charset.include?(s[0])');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_base64')) {
+    lines.push('  def self.is_b64_char(c)');
+    lines.push("    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/'");
+    lines.push('  end');
+    lines.push('');
+    lines.push('  # ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$');
+    lines.push('  def self.check_base64(s)');
+    lines.push('    return false unless s.is_a?(String)');
+    lines.push('    return true if s.empty?');
+    lines.push('    return false unless s.length % 4 == 0');
+    lines.push('    i = 0');
+    lines.push("    i += 1 while i < s.length && s[i] != '=' && is_b64_char(s[i])");
+    lines.push("    return false if i < s.length && s[i] != '='");
+    lines.push('    data_len = i');
+    lines.push('    pad_len = s.length - data_len');
+    lines.push('    return false if pad_len > 2');
+    lines.push('    return false if pad_len == 1 && data_len % 4 != 3');
+    lines.push('    return false if pad_len == 2 && data_len % 4 != 2');
+    lines.push("    (data_len...s.length).each { |j| return false unless s[j] == '=' }");
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nostr_uri')) {
+    lines.push('  BECH32_DATA_CHARS = Set.new("023456789acdefghjklmnpqrstuvwxyz".chars).freeze');
+    lines.push('');
+    lines.push('  # ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$');
+    lines.push('  def self.check_nostr_uri(s)');
+    lines.push("    return false unless s.is_a?(String) && s.start_with?('nostr:')");
+    lines.push('    p = s[6..]');
+    lines.push('    return false if p.nil? || p.empty?');
+    lines.push('    # npub1 or note1 + exactly 58 data chars');
+    lines.push("    if p.length == 63 && (p.start_with?('npub1') || p.start_with?('note1'))");
+    lines.push('      (5...63).each { |i| return false unless BECH32_DATA_CHARS.include?(p[i]) }');
+    lines.push('      return true');
+    lines.push('    end');
+    lines.push('    # nprofile1, nevent1, naddr1 + 1+ data chars');
+    lines.push('    prefix_len = 0');
+    lines.push("    if p.start_with?('nprofile1')");
+    lines.push('      prefix_len = 9');
+    lines.push("    elsif p.start_with?('nevent1')");
+    lines.push('      prefix_len = 7');
+    lines.push("    elsif p.start_with?('naddr1')");
+    lines.push('      prefix_len = 6');
+    lines.push('    end');
+    lines.push('    return false if prefix_len == 0 || p.length <= prefix_len');
+    lines.push('    (prefix_len...p.length).each { |i| return false unless BECH32_DATA_CHARS.include?(p[i]) }');
+    lines.push('    true');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nip04_encrypted')) {
+    lines.push('  # ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$');
+    lines.push('  def self.check_nip04_encrypted(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push("    sep = s.index('?iv=')");
+    lines.push('    return false if sep.nil? || sep == 0');
+    lines.push('    right_start = sep + 4');
+    lines.push('    return false if right_start >= s.length');
+    lines.push('    # check left half: 1+ b64 chars + 0-2 =');
+    lines.push('    i = 0');
+    lines.push('    i += 1 while i < sep && is_b64_char(s[i])');
+    lines.push('    return false if i == 0');
+    lines.push('    eq = 0');
+    lines.push("    while i < sep && s[i] == '='");
+    lines.push('      i += 1');
+    lines.push('      eq += 1');
+    lines.push('    end');
+    lines.push('    return false if i != sep || eq > 2');
+    lines.push('    # check right half');
+    lines.push('    i = right_start');
+    lines.push('    data_start = i');
+    lines.push('    i += 1 while i < s.length && is_b64_char(s[i])');
+    lines.push('    return false if i == data_start');
+    lines.push('    eq = 0');
+    lines.push("    while i < s.length && s[i] == '='");
+    lines.push('      i += 1');
+    lines.push('      eq += 1');
+    lines.push('    end');
+    lines.push('    i == s.length && eq <= 2');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('is_alnum')) {
+    lines.push('  def self.is_alnum(c)');
+    lines.push("    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')");
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nip05_identifier')) {
+    lines.push('  def self.is_nip05_local_char(c)');
+    lines.push("    c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-'");
+    lines.push('  end');
+    lines.push('');
+    lines.push('  def self.is_domain_char(c)');
+    lines.push("    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'");
+    lines.push('  end');
+    lines.push('');
+    lines.push('  # NIP-05: local@domain.tld');
+    lines.push('  def self.check_nip05_identifier(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    # find last @');
+    lines.push('    at = nil');
+    lines.push("    (0...s.length).each { |i| at = i if s[i] == '@' }");
+    lines.push('    return false if at.nil? || at == 0');
+    lines.push('    # local part');
+    lines.push('    (0...at).each { |i| return false unless is_nip05_local_char(s[i]) }');
+    lines.push('    # domain: 2+ dot-separated labels');
+    lines.push('    d = s[(at + 1)..]');
+    lines.push('    return false if d.nil? || d.empty?');
+    lines.push('    dot_count = 0');
+    lines.push('    di = 0');
+    lines.push('    while di < d.length');
+    lines.push('      return false unless is_alnum(d[di])');
+    lines.push('      di += 1 while di < d.length && is_domain_char(d[di])');
+    lines.push('      return false unless is_alnum(d[di - 1])');
+    lines.push("      if di < d.length && d[di] == '.'");
+    lines.push('        dot_count += 1');
+    lines.push('        di += 1');
+    lines.push('      elsif di < d.length');
+    lines.push('        return false');
+    lines.push('      end');
+    lines.push('    end');
+    lines.push('    dot_count >= 1 && is_alnum(d[d.length - 1])');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_mime_type_strict')) {
+    lines.push('  def self.is_mime_strict_char(c)');
+    lines.push("    is_alnum(c) || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-'");
+    lines.push('  end');
+    lines.push('');
+    lines.push('  # ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$');
+    lines.push('  def self.check_mime_type_strict(s)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    return false unless is_alnum(s[i])');
+    lines.push('    i += 1');
+    lines.push('    i += 1 while i < s.length && is_mime_strict_char(s[i])');
+    lines.push("    return false unless i < s.length && s[i] == '/'");
+    lines.push('    i += 1');
+    lines.push('    return false unless i < s.length && is_alnum(s[i])');
+    lines.push('    i += 1');
+    lines.push('    i += 1 while i < s.length && is_mime_strict_char(s[i])');
+    lines.push('    i == s.length');
+    lines.push('  end');
+    lines.push('');
+  }
+
+  if (helpers.has('check_prefix_delim_rest')) {
+    lines.push('  # ^[charset]+<delim>.+ (no end anchor)');
+    lines.push('  def self.check_prefix_delim_rest(s, charset, delim)');
+    lines.push('    return false unless s.is_a?(String) && !s.empty?');
+    lines.push('    i = 0');
+    lines.push('    return false unless charset.include?(s[i])');
+    lines.push('    i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push('    return false if i + delim.length >= s.length');
+    lines.push('    return false unless s[i, delim.length] == delim');
+    lines.push('    i += delim.length');
+    lines.push('    # .+ requires at least 1 char after delimiter');
+    lines.push('    i < s.length');
     lines.push('  end');
     lines.push('');
   }

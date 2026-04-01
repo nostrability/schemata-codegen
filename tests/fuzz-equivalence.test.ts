@@ -679,6 +679,198 @@ function buildNativeChecker(check: PatternCheck, originalPattern?: string): ((s:
       };
     }
 
+    case 'dim': {
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (s[i] < '0' || s[i] > '9') return false;
+        while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+        if (i >= s.length || s[i] !== 'x') return false;
+        i++;
+        if (i >= s.length || s[i] < '0' || s[i] > '9') return false;
+        while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+        return i === s.length;
+      };
+    }
+
+    case 'no_uppercase': {
+      return (s) => {
+        if (s.length === 0) return false;
+        for (let i = 0; i < s.length; i++) {
+          if (s[i] >= 'A' && s[i] <= 'Z') return false;
+        }
+        return true;
+      };
+    }
+
+    case 'dotted_digits': {
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (s[i] < '0' || s[i] > '9') return false;
+        while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+        while (i < s.length && s[i] === '.') {
+          i++;
+          if (i >= s.length || s[i] < '0' || s[i] > '9') return false;
+          while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+        }
+        return i === s.length;
+      };
+    }
+
+    case 'slash_segments': {
+      const cs = check.charset;
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (!cs.includes(s[i])) return false;
+        while (i < s.length && cs.includes(s[i])) i++;
+        while (i < s.length && s[i] === '/') {
+          i++;
+          if (i >= s.length || !cs.includes(s[i])) return false;
+          while (i < s.length && cs.includes(s[i])) i++;
+        }
+        return i === s.length;
+      };
+    }
+
+    case 'space_separated_tokens': {
+      const WS = new Set(['\t','\n','\x0B','\x0C','\r',' ','\xA0','\u1680','\u2000','\u2001','\u2002','\u2003','\u2004','\u2005','\u2006','\u2007','\u2008','\u2009','\u200A','\u2028','\u2029','\u202F','\u205F','\u3000','\uFEFF']);
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (WS.has(s[i])) return false;
+        while (i < s.length && !WS.has(s[i])) i++;
+        while (i < s.length && s[i] === ' ') {
+          i++;
+          if (i >= s.length || WS.has(s[i])) return false;
+          while (i < s.length && !WS.has(s[i])) i++;
+        }
+        return i === s.length;
+      };
+    }
+
+    case 'starts_with_charset': {
+      const cs = check.charset;
+      return (s) => s.length >= 1 && cs.includes(s[0]);
+    }
+
+    case 'base64': {
+      const isB64 = (c: string) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/';
+      return (s) => {
+        if (s.length === 0) return true;
+        if (s.length % 4 !== 0) return false;
+        let i = 0;
+        while (i < s.length && isB64(s[i])) i++;
+        const dataLen = i;
+        const padLen = s.length - dataLen;
+        if (padLen > 2) return false;
+        if (padLen === 1 && dataLen % 4 !== 3) return false;
+        if (padLen === 2 && dataLen % 4 !== 2) return false;
+        for (let j = dataLen; j < s.length; j++) if (s[j] !== '=') return false;
+        return true;
+      };
+    }
+
+    case 'nostr_uri': {
+      const BC = '023456789acdefghjklmnpqrstuvwxyz';
+      return (s) => {
+        if (!s.startsWith('nostr:')) return false;
+        const p = s.slice(6);
+        if (p.length === 0) return false;
+        if (p.length === 63 && (p.startsWith('npub1') || p.startsWith('note1'))) {
+          for (let i = 5; i < 63; i++) if (!BC.includes(p[i])) return false;
+          return true;
+        }
+        let pl = 0;
+        if (p.startsWith('nprofile1')) pl = 9;
+        else if (p.startsWith('nevent1')) pl = 7;
+        else if (p.startsWith('naddr1')) pl = 6;
+        if (pl === 0 || p.length <= pl) return false;
+        for (let i = pl; i < p.length; i++) if (!BC.includes(p[i])) return false;
+        return true;
+      };
+    }
+
+    case 'nip04_encrypted': {
+      const isB64 = (c: string) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/';
+      return (s) => {
+        if (s.length === 0) return false;
+        const sep = s.indexOf('?iv=');
+        if (sep <= 0) return false;
+        if (sep + 4 >= s.length) return false;
+        let i = 0;
+        while (i < sep && isB64(s[i])) i++;
+        if (i === 0) return false;
+        let eq = 0;
+        while (i < sep && s[i] === '=') { i++; eq++; }
+        if (i !== sep || eq > 2) return false;
+        i = sep + 4;
+        const ds = i;
+        while (i < s.length && isB64(s[i])) i++;
+        if (i === ds) return false;
+        eq = 0;
+        while (i < s.length && s[i] === '=') { i++; eq++; }
+        return i === s.length && eq <= 2;
+      };
+    }
+
+    case 'nip05_identifier': {
+      const isAln = (c: string) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      const isLocal = (c: string) => c === '_' || isAln(c) || c === '.' || c === '-';
+      const isDom = (c: string) => isAln(c) || c === '-';
+      return (s) => {
+        if (s.length === 0) return false;
+        const at = s.lastIndexOf('@');
+        if (at <= 0) return false;
+        for (let i = 0; i < at; i++) if (!isLocal(s[i])) return false;
+        const d = s.slice(at + 1);
+        if (d.length === 0) return false;
+        let dotCount = 0, di = 0;
+        while (di < d.length) {
+          if (!isAln(d[di])) return false;
+          while (di < d.length && isDom(d[di])) di++;
+          if (di > 0 && !isAln(d[di - 1])) return false;
+          if (di < d.length && d[di] === '.') { dotCount++; di++; }
+          else if (di < d.length) return false;
+        }
+        return dotCount >= 1 && isAln(d[d.length - 1]);
+      };
+    }
+
+    case 'mime_type_strict': {
+      const isAln = (c: string) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      const EXTRA = '!#$&^_.+-';
+      const isMC = (c: string) => isAln(c) || EXTRA.includes(c);
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (!isAln(s[i])) return false;
+        i++;
+        while (i < s.length && isMC(s[i])) i++;
+        if (i >= s.length || s[i] !== '/') return false;
+        i++;
+        if (i >= s.length || !isAln(s[i])) return false;
+        i++;
+        while (i < s.length && isMC(s[i])) i++;
+        return i === s.length;
+      };
+    }
+
+    case 'prefix_delim_rest': {
+      const cs = check.charset;
+      const delim = check.delimiter;
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        if (!cs.includes(s[i])) return false;
+        while (i < s.length && cs.includes(s[i])) i++;
+        if (i + delim.length >= s.length) return false;
+        if (s.slice(i, i + delim.length) !== delim) return false;
+        return true;
+      };
+    }
+
     case 'compound': {
       const checkers = check.checks.map(c => buildNativeChecker(c, originalPattern));
       if (checkers.some(c => c === null)) return null;
@@ -1514,6 +1706,30 @@ function generateInputsForCheck(rng: Rng, check: PatternCheck): string[] {
       return [...base, ...generatePackageIdInputs(rng)];
     case 'imeta_dim':
       return [...base, ...generateImetaDimInputs(rng)];
+    case 'dim':
+      return [...base, '1920x1080', '1x1', '0x0', '', 'x1', '1x', '1920X1080'];
+    case 'no_uppercase':
+      return [...base, 'abc', '123', 'ABC', 'aBc', '', 'abc-123'];
+    case 'dotted_digits':
+      return [...base, '1', '1.2', '1.2.3', '', '.1', '1.', '1..2', '1.2a'];
+    case 'slash_segments':
+      return [...base, 'foo', 'foo/bar', 'a/b/c', '', '/foo', 'foo/', 'foo//bar'];
+    case 'space_separated_tokens':
+      return [...base, 'hello', 'hello world', '', ' hello', 'hello ', 'hello  world', 'hello\tworld'];
+    case 'starts_with_charset':
+      return [...base, '0abc', 'bXYZ', '', 'ABC', 'a123'];
+    case 'base64':
+      return [...base, '', 'AAAA', 'SGVsbG8=', 'SGVsbA==', 'A', 'ABC', '====', 'AA==AAAA'];
+    case 'nostr_uri':
+      return [...base, 'nostr:npub1' + '0'.repeat(58), 'nostr:note1' + '0'.repeat(58), 'nostr:nprofile1' + '0'.repeat(10), 'nostr:', '', 'npub1' + '0'.repeat(58)];
+    case 'nip04_encrypted':
+      return [...base, 'AAAA?iv=BBBB', 'AA==?iv=BB==', '', 'AAAA', '?iv=BBBB', 'AAAA?iv='];
+    case 'nip05_identifier':
+      return [...base, 'user@example.com', '_@domain.tld', '', 'user', 'user@localhost', 'user@-x.com'];
+    case 'mime_type_strict':
+      return [...base, 'text/plain', 'application/json', '', 'text', '!t/p', 'text/'];
+    case 'prefix_delim_rest':
+      return [...base, '123:hello', '0:x', '', '123', '123:', 'abc:def'];
     case 'compound':
       // For compound, generate inputs for the first sub-check
       if (check.checks.length > 0) {

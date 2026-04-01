@@ -173,6 +173,56 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('schemata_check_imeta_dim');
       return { expr: `schemata_check_imeta_dim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('schemata_check_dim');
+      return { expr: `schemata_check_dim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('schemata_check_no_uppercase');
+      return { expr: `schemata_check_no_uppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('schemata_check_dotted_digits');
+      return { expr: `schemata_check_dotted_digits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('schemata_check_slash_segments');
+      return { expr: `schemata_check_slash_segments(${varExpr}, ${phpString(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('schemata_check_space_separated_tokens');
+      helpers.add('schemata_is_ecma_ws');
+      return { expr: `schemata_check_space_separated_tokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('schemata_check_starts_with_charset');
+      return { expr: `schemata_check_starts_with_charset(${varExpr}, ${phpString(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('schemata_check_base64');
+      return { expr: `schemata_check_base64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('schemata_check_nostr_uri');
+      return { expr: `schemata_check_nostr_uri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('schemata_check_nip04_encrypted');
+      helpers.add('schemata_check_base64'); // for schemata_is_b64_char
+      return { expr: `schemata_check_nip04_encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('schemata_check_nip05_identifier');
+      return { expr: `schemata_check_nip05_identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('schemata_check_mime_type_strict');
+      return { expr: `schemata_check_mime_type_strict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('schemata_check_prefix_delim_rest');
+      return { expr: `schemata_check_prefix_delim_rest(${varExpr}, ${phpString(check.charset)}, ${phpString(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1087,6 +1137,254 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    while ($i < $len && $s[$i] >= \'0\' && $s[$i] <= \'9\') { $i++; $dc++; }');
     lines.push('    if ($dc < 1 || $dc > 5) return false;');
     lines.push('    return $i === $len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_dim')) {
+    lines.push('function schemata_check_dim(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push("    if ($s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push("    while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push("    if ($i >= strlen($s) || $s[$i] !== 'x') { return false; }");
+    lines.push('    $i++;');
+    lines.push("    if ($i >= strlen($s) || $s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push("    while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_no_uppercase')) {
+    lines.push('function schemata_check_no_uppercase(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    for ($i = 0; $i < strlen($s); $i++) {');
+    lines.push("        if ($s[$i] >= 'A' && $s[$i] <= 'Z') { return false; }");
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_dotted_digits')) {
+    lines.push('function schemata_check_dotted_digits(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push("    if ($s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push("    while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push("    while ($i < strlen($s) && $s[$i] === '.') {");
+    lines.push('        $i++;');
+    lines.push("        if ($i >= strlen($s) || $s[$i] < '0' || $s[$i] > '9') { return false; }");
+    lines.push("        while ($i < strlen($s) && $s[$i] >= '0' && $s[$i] <= '9') { $i++; }");
+    lines.push('    }');
+    lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_slash_segments')) {
+    lines.push('function schemata_check_slash_segments(string $s, string $charset): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push('    if (strpos($charset, $s[$i]) === false) { return false; }');
+    lines.push('    while ($i < strlen($s) && strpos($charset, $s[$i]) !== false) { $i++; }');
+    lines.push("    while ($i < strlen($s) && $s[$i] === '/') {");
+    lines.push('        $i++;');
+    lines.push('        if ($i >= strlen($s) || strpos($charset, $s[$i]) === false) { return false; }');
+    lines.push('        while ($i < strlen($s) && strpos($charset, $s[$i]) !== false) { $i++; }');
+    lines.push('    }');
+    lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_space_separated_tokens')) {
+    lines.push('function schemata_check_space_separated_tokens(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push('    if (schemata_is_ecma_ws($s, $i) > 0) { return false; }');
+    lines.push('    while ($i < strlen($s) && schemata_is_ecma_ws($s, $i) === 0) { $i++; }');
+    lines.push("    while ($i < strlen($s) && $s[$i] === ' ') {");
+    lines.push('        $i++;');
+    lines.push('        if ($i >= strlen($s) || schemata_is_ecma_ws($s, $i) > 0) { return false; }');
+    lines.push('        while ($i < strlen($s) && schemata_is_ecma_ws($s, $i) === 0) { $i++; }');
+    lines.push('    }');
+    lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_starts_with_charset')) {
+    lines.push('function schemata_check_starts_with_charset(string $s, string $charset): bool {');
+    lines.push("    return $s !== '' && strpos($charset, $s[0]) !== false;");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_base64')) {
+    lines.push('function schemata_is_b64_char(string $c): bool {');
+    lines.push("    return ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9') || $c === '+' || $c === '/';");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_base64(string $s): bool {');
+    lines.push('    $n = strlen($s);');
+    lines.push('    if ($n === 0) { return true; }');
+    lines.push('    if ($n % 4 !== 0) { return false; }');
+    lines.push('    $i = 0;');
+    lines.push("    while ($i < $n && $s[$i] !== '=') {");
+    lines.push('        if (!schemata_is_b64_char($s[$i])) { return false; }');
+    lines.push('        $i++;');
+    lines.push('    }');
+    lines.push('    $dataLen = $i;');
+    lines.push('    $padLen = $n - $dataLen;');
+    lines.push('    if ($padLen > 2) { return false; }');
+    lines.push('    if ($padLen === 1 && $dataLen % 4 !== 3) { return false; }');
+    lines.push('    if ($padLen === 2 && $dataLen % 4 !== 2) { return false; }');
+    lines.push('    while ($i < $n) {');
+    lines.push("        if ($s[$i] !== '=') { return false; }");
+    lines.push('        $i++;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nostr_uri')) {
+    lines.push('function schemata_is_bech32_data_char(string $c): bool {');
+    lines.push("    return ($c >= '0' && $c <= '9' && $c !== '1') || ($c >= 'a' && $c <= 'z' && $c !== 'b' && $c !== 'i' && $c !== 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_nostr_uri(string $s): bool {');
+    lines.push("    if (!str_starts_with($s, 'nostr:')) { return false; }");
+    lines.push('    $p = substr($s, 6);');
+    lines.push('    $rest = strlen($p);');
+    lines.push('    /* npub1 or note1 + exactly 58 data chars */');
+    lines.push("    if ($rest === 63 && (str_starts_with($p, 'npub1') || str_starts_with($p, 'note1'))) {");
+    lines.push('        for ($i = 5; $i < $rest; $i++) {');
+    lines.push('            if (!schemata_is_bech32_data_char($p[$i])) { return false; }');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('    /* nprofile1, nevent1, naddr1 + 1+ data chars */');
+    lines.push('    $prefixLen = 0;');
+    lines.push("    if (str_starts_with($p, 'nprofile1')) { $prefixLen = 9; }");
+    lines.push("    elseif (str_starts_with($p, 'nevent1')) { $prefixLen = 7; }");
+    lines.push("    elseif (str_starts_with($p, 'naddr1')) { $prefixLen = 6; }");
+    lines.push('    if ($prefixLen === 0 || $rest <= $prefixLen) { return false; }');
+    lines.push('    for ($i = $prefixLen; $i < $rest; $i++) {');
+    lines.push('        if (!schemata_is_bech32_data_char($p[$i])) { return false; }');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nip04_encrypted')) {
+    lines.push('function schemata_check_nip04_encrypted(string $s): bool {');
+    lines.push("    $sep = strpos($s, '?iv=');");
+    lines.push('    if ($sep === false || $sep < 1) { return false; }');
+    lines.push('    $rightStart = $sep + 4;');
+    lines.push('    if ($rightStart >= strlen($s)) { return false; }');
+    lines.push('    /* check left half: 1+ b64 chars + 0-2 = */');
+    lines.push('    $i = 0;');
+    lines.push('    while ($i < $sep && schemata_is_b64_char($s[$i])) { $i++; }');
+    lines.push('    if ($i === 0) { return false; }');
+    lines.push('    $eq = 0;');
+    lines.push("    while ($i < $sep && $s[$i] === '=') { $i++; $eq++; }");
+    lines.push('    if ($i !== $sep || $eq > 2) { return false; }');
+    lines.push('    /* check right half */');
+    lines.push('    $i = $rightStart;');
+    lines.push('    $dataStart = $i;');
+    lines.push('    while ($i < strlen($s) && schemata_is_b64_char($s[$i])) { $i++; }');
+    lines.push('    if ($i === $dataStart) { return false; }');
+    lines.push('    $eq = 0;');
+    lines.push("    while ($i < strlen($s) && $s[$i] === '=') { $i++; $eq++; }");
+    lines.push('    return $i === strlen($s) && $eq <= 2;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nip05_identifier')) {
+    lines.push('function schemata_is_nip05_local_char(string $c): bool {');
+    lines.push("    return $c === '_' || ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9') || $c === '.' || $c === '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_is_domain_char(string $c): bool {');
+    lines.push("    return ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9') || $c === '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_is_alnum(string $c): bool {');
+    lines.push("    return ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_nip05_identifier(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    /* find last @ */');
+    lines.push("    $at = strrpos($s, '@');");
+    lines.push('    if ($at === false || $at < 1) { return false; }');
+    lines.push('    /* local part: [_A-Za-z0-9.-]+ */');
+    lines.push('    for ($i = 0; $i < $at; $i++) {');
+    lines.push('        if (!schemata_is_nip05_local_char($s[$i])) { return false; }');
+    lines.push('    }');
+    lines.push('    /* domain: 2+ dot-separated labels */');
+    lines.push('    $domain = substr($s, $at + 1);');
+    lines.push("    if ($domain === '' || $domain === false) { return false; }");
+    lines.push('    $dotCount = 0;');
+    lines.push('    $di = 0;');
+    lines.push('    $dlen = strlen($domain);');
+    lines.push('    while ($di < $dlen) {');
+    lines.push('        if (!schemata_is_alnum($domain[$di])) { return false; }');
+    lines.push('        while ($di < $dlen && schemata_is_domain_char($domain[$di])) { $di++; }');
+    lines.push('        if (!schemata_is_alnum($domain[$di - 1])) { return false; }');
+    lines.push("        if ($di < $dlen && $domain[$di] === '.') {");
+    lines.push('            $dotCount++;');
+    lines.push('            $di++;');
+    lines.push('        } elseif ($di < $dlen) {');
+    lines.push('            return false;');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    return $dotCount >= 1 && schemata_is_alnum($domain[$dlen - 1]);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_mime_type_strict')) {
+    lines.push('function schemata_is_mime_strict_char(string $c): bool {');
+    lines.push("    return ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9') || strpos('!#\$&^_.+-', $c) !== false;");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_is_mime_alnum(string $c): bool {');
+    lines.push("    return ($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function schemata_check_mime_type_strict(string $s): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push('    if (!schemata_is_mime_alnum($s[$i])) { return false; }');
+    lines.push('    $i++;');
+    lines.push('    while ($i < strlen($s) && schemata_is_mime_strict_char($s[$i])) { $i++; }');
+    lines.push("    if ($i >= strlen($s) || $s[$i] !== '/') { return false; }");
+    lines.push('    $i++;');
+    lines.push('    if ($i >= strlen($s) || !schemata_is_mime_alnum($s[$i])) { return false; }');
+    lines.push('    $i++;');
+    lines.push('    while ($i < strlen($s) && schemata_is_mime_strict_char($s[$i])) { $i++; }');
+    lines.push('    return $i === strlen($s);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_prefix_delim_rest')) {
+    lines.push('function schemata_check_prefix_delim_rest(string $s, string $charset, string $delimiter): bool {');
+    lines.push("    if ($s === '') { return false; }");
+    lines.push('    $i = 0;');
+    lines.push('    if (strpos($charset, $s[$i]) === false) { return false; }');
+    lines.push('    while ($i < strlen($s) && strpos($charset, $s[$i]) !== false) { $i++; }');
+    lines.push('    $dlen = strlen($delimiter);');
+    lines.push('    if ($i + $dlen >= strlen($s)) { return false; }');
+    lines.push('    if (substr($s, $i, $dlen) !== $delimiter) { return false; }');
+    lines.push('    $i += $dlen;');
+    lines.push('    return $i < strlen($s);');
     lines.push('}');
     lines.push('');
   }

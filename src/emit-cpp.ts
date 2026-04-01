@@ -173,6 +173,58 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_imeta_dim');
       return { expr: `check_imeta_dim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('check_dim');
+      return { expr: `check_dim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('check_no_uppercase');
+      return { expr: `check_no_uppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('check_dotted_digits');
+      return { expr: `check_dotted_digits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('check_slash_segments');
+      return { expr: `check_slash_segments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('check_space_separated_tokens');
+      helpers.add('is_ecma_ws');
+      return { expr: `check_space_separated_tokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('check_starts_with_charset');
+      return { expr: `check_starts_with_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('check_base64');
+      return { expr: `check_base64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('check_nostr_uri');
+      return { expr: `check_nostr_uri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('check_nip04_encrypted');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_nip04_encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('check_nip05_identifier');
+      helpers.add('is_alnum');
+      return { expr: `check_nip05_identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('check_mime_type_strict');
+      helpers.add('is_alnum');
+      return { expr: `check_mime_type_strict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('check_prefix_delim_rest');
+      return { expr: `check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -969,6 +1021,254 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    size_t d2len = i - d2;');
     lines.push('    if (d2len < 1 || d2len > 5) return false;');
     lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_dim')) {
+    lines.push('/* ^[0-9]+x[0-9]+$ */');
+    lines.push('inline bool check_dim(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push("    if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    if (i >= s.size() || s[i] != 'x') return false;");
+    lines.push('    i++;');
+    lines.push("    if (i >= s.size() || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_no_uppercase')) {
+    lines.push('/* ^[^A-Z]+$ */');
+    lines.push('inline bool check_no_uppercase(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push("    return std::none_of(s.begin(), s.end(), [](char c) { return c >= 'A' && c <= 'Z'; });");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_dotted_digits')) {
+    lines.push('/* ^[0-9]+(\\.[0-9]+)*$ */');
+    lines.push('inline bool check_dotted_digits(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push("    if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("    while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    while (i < s.size() && s[i] == '.') {");
+    lines.push('        i++;');
+    lines.push("        if (i >= s.size() || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("        while (i < s.size() && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_slash_segments')) {
+    lines.push('/* ^[charset]+(/[charset]+)*$ */');
+    lines.push('inline bool check_slash_segments(const std::string& s, const std::string& charset) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push("    while (i < s.size() && s[i] == '/') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= s.size() || charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('        while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_space_separated_tokens')) {
+    lines.push('/* ^\\S+( \\S+)*$ */');
+    lines.push('inline bool check_space_separated_tokens(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    /* first token: 1+ non-whitespace chars */');
+    lines.push('    if (is_ecma_ws(s, i) > 0) return false;');
+    lines.push('    while (i < s.size() && is_ecma_ws(s, i) == 0) i++;');
+    lines.push("    while (i < s.size() && s[i] == ' ') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= s.size() || is_ecma_ws(s, i) > 0) return false;');
+    lines.push('        while (i < s.size() && is_ecma_ws(s, i) == 0) i++;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_starts_with_charset')) {
+    lines.push('/* ^[charset]+ (no end anchor) */');
+    lines.push('inline bool check_starts_with_charset(const std::string& s, const std::string& charset) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    return charset.find(s[0]) != std::string::npos;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_base64')) {
+    lines.push('inline bool is_b64_char(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/';");
+    lines.push('}');
+    lines.push('');
+    lines.push('/* ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$ */');
+    lines.push('inline bool check_base64(const std::string& s) {');
+    lines.push('    if (s.empty()) return true; /* empty string is valid */');
+    lines.push('    if (s.size() % 4 != 0) return false;');
+    lines.push('    size_t i;');
+    lines.push('    for (i = 0; i < s.size(); i++) {');
+    lines.push("        if (s[i] == '=') break;");
+    lines.push('        if (!is_b64_char(s[i])) return false;');
+    lines.push('    }');
+    lines.push('    size_t data_len = i;');
+    lines.push('    size_t pad_len = s.size() - data_len;');
+    lines.push('    if (pad_len > 2) return false;');
+    lines.push('    if (pad_len == 1 && data_len % 4 != 3) return false;');
+    lines.push('    if (pad_len == 2 && data_len % 4 != 2) return false;');
+    lines.push("    for (; i < s.size(); i++) { if (s[i] != '=') return false; }");
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nostr_uri')) {
+    lines.push('inline bool is_bech32_data_char(char c) {');
+    lines.push("    return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('}');
+    lines.push('');
+    lines.push('/* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
+    lines.push('inline bool check_nostr_uri(const std::string& s) {');
+    lines.push('    if (s.size() < 6 || s.compare(0, 6, "nostr:") != 0) return false;');
+    lines.push('    size_t rest = s.size() - 6;');
+    lines.push('    const char* p = s.data() + 6;');
+    lines.push('    /* npub1 or note1 + exactly 58 data chars */');
+    lines.push('    if (rest == 63 && (s.compare(6, 5, "npub1") == 0 || s.compare(6, 5, "note1") == 0)) {');
+    lines.push('        for (size_t i = 5; i < 63; i++) if (!is_bech32_data_char(p[i])) return false;');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('    /* nprofile1, nevent1, naddr1 + 1+ data chars */');
+    lines.push('    size_t prefix_len = 0;');
+    lines.push('    if (s.compare(6, 9, "nprofile1") == 0) prefix_len = 9;');
+    lines.push('    else if (s.compare(6, 7, "nevent1") == 0) prefix_len = 7;');
+    lines.push('    else if (s.compare(6, 6, "naddr1") == 0) prefix_len = 6;');
+    lines.push('    if (prefix_len == 0 || rest <= prefix_len) return false;');
+    lines.push('    for (size_t i = prefix_len; i < rest; i++) if (!is_bech32_data_char(p[i])) return false;');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nip04_encrypted')) {
+    lines.push('/* ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$ */');
+    lines.push('inline bool check_nip04_encrypted(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    /* find "?iv=" separator */');
+    lines.push('    auto sep = s.find("?iv=");');
+    lines.push('    if (sep == std::string::npos || sep == 0) return false;');
+    lines.push('    size_t right_start = sep + 4;');
+    lines.push('    if (right_start >= s.size()) return false;');
+    lines.push('    /* check left half: 1+ b64 chars + 0-2 = */');
+    lines.push('    size_t i = 0;');
+    lines.push('    while (i < sep && is_b64_char(s[i])) i++;');
+    lines.push('    if (i == 0) return false;');
+    lines.push('    int eq = 0;');
+    lines.push("    while (i < sep && s[i] == '=') { i++; eq++; }");
+    lines.push('    if (i != sep || eq > 2) return false;');
+    lines.push('    /* check right half */');
+    lines.push('    i = right_start;');
+    lines.push('    size_t data_start = i;');
+    lines.push('    while (i < s.size() && is_b64_char(s[i])) i++;');
+    lines.push('    if (i == data_start) return false;');
+    lines.push('    eq = 0;');
+    lines.push("    while (i < s.size() && s[i] == '=') { i++; eq++; }");
+    lines.push('    return i == s.size() && eq <= 2;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('is_alnum')) {
+    lines.push('inline bool is_alnum(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_nip05_identifier')) {
+    lines.push('inline bool is_nip05_local_char(char c) {');
+    lines.push("    return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('inline bool is_domain_char(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('/* NIP-05: local@domain.tld */');
+    lines.push('inline bool check_nip05_identifier(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    /* find last @ */');
+    lines.push('    auto at = s.rfind(\'@\');');
+    lines.push('    if (at == std::string::npos || at == 0) return false;');
+    lines.push('    /* local part: [_A-Za-z0-9.-]+ or just "_" */');
+    lines.push('    for (size_t i = 0; i < at; i++) {');
+    lines.push('        if (!is_nip05_local_char(s[i])) return false;');
+    lines.push('    }');
+    lines.push('    /* domain: 2+ dot-separated labels */');
+    lines.push('    size_t d = at + 1;');
+    lines.push('    size_t dlen = s.size() - at - 1;');
+    lines.push('    if (dlen == 0) return false;');
+    lines.push('    int dot_count = 0;');
+    lines.push('    size_t di = 0;');
+    lines.push('    while (di < dlen) {');
+    lines.push('        if (!is_alnum(s[d + di])) return false;');
+    lines.push('        while (di < dlen && is_domain_char(s[d + di])) di++;');
+    lines.push('        if (!is_alnum(s[d + di - 1])) return false;');
+    lines.push("        if (di < dlen && s[d + di] == '.') { dot_count++; di++; }");
+    lines.push('        else if (di < dlen) return false;');
+    lines.push('    }');
+    lines.push('    return dot_count >= 1 && is_alnum(s[s.size() - 1]);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_mime_type_strict')) {
+    lines.push('inline bool is_mime_strict_char(char c) {');
+    lines.push("    return is_alnum(c) || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-';");
+    lines.push('}');
+    lines.push('');
+    lines.push('/* ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$ */');
+    lines.push('inline bool check_mime_type_strict(const std::string& s) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (!is_alnum(s[i])) return false;');
+    lines.push('    i++;');
+    lines.push('    while (i < s.size() && is_mime_strict_char(s[i])) i++;');
+    lines.push("    if (i >= s.size() || s[i] != '/') return false;");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.size() || !is_alnum(s[i])) return false;');
+    lines.push('    i++;');
+    lines.push('    while (i < s.size() && is_mime_strict_char(s[i])) i++;');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('check_prefix_delim_rest')) {
+    lines.push('/* ^[charset]+<delim>.+ (no end anchor) */');
+    lines.push('inline bool check_prefix_delim_rest(const std::string& s, const std::string& charset, const std::string& delim) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push('    if (i + delim.size() >= s.size()) return false;');
+    lines.push('    if (s.compare(i, delim.size(), delim) != 0) return false;');
+    lines.push('    i += delim.size();');
+    lines.push('    /* .+ requires at least 1 char after delimiter, no end anchor */');
+    lines.push('    return i < s.size();');
     lines.push('}');
     lines.push('');
   }

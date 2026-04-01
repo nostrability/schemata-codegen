@@ -59,6 +59,18 @@ export type PatternCheck =
   | { op: 'external_identity' }
   | { op: 'package_id' }
   | { op: 'imeta_dim' }
+  | { op: 'dim' }
+  | { op: 'no_uppercase' }
+  | { op: 'dotted_digits' }
+  | { op: 'slash_segments'; charset: string }
+  | { op: 'space_separated_tokens' }
+  | { op: 'starts_with_charset'; charset: string }
+  | { op: 'base64' }
+  | { op: 'nostr_uri' }
+  | { op: 'nip04_encrypted' }
+  | { op: 'nip05_identifier' }
+  | { op: 'mime_type_strict' }
+  | { op: 'prefix_delim_rest'; charset: string; delimiter: string }
   | { op: 'compound'; checks: PatternCheck[] }
   | { op: 'regex'; pattern: string };
 
@@ -69,6 +81,18 @@ export type PatternCheck =
  * to { op: 'regex', pattern } for patterns that don't match any known form.
  */
 export function classifyRegex(pattern: string): PatternCheck {
+  // Filter errorMessage description strings (not real regex patterns)
+  if (!/[\\[({^$*+?.|]/.test(pattern)) {
+    // No regex metacharacters at all — this is a plain description string
+    return { op: 'regex', pattern };
+  }
+
+  // Normalize escaped slashes: \/ → / (JSON Schema allows but doesn't require escaping /)
+  const normalized = pattern.replace(/\\\//g, '/');
+  if (normalized !== pattern) {
+    return classifyRegex(normalized);
+  }
+
   // Fixed-length hex: ^[a-f0-9]{64}$ or ^[a-fA-F0-9]{64}$
   {
     const m = pattern.match(/^\^(\[(?:a-f0-9|a-fA-F0-9|0-9a-f|0-9a-fA-F)\])\{(\d+)\}\$$/);
@@ -159,8 +183,31 @@ export function classifyRegex(pattern: string): PatternCheck {
     }
   }
 
-  // ^[^A-Z]+$ → chars_in (everything except uppercase)
-  // This is a negated class — keep as regex fallback since chars_in is for positive sets
+  // Compressed public key: ^(02|03)[a-f0-9]{64}$
+  if (pattern === '^(02|03)[a-f0-9]{64}$') {
+    return {
+      op: 'compound',
+      checks: [
+        { op: 'hex', len: 66, case: 'lower' },
+        { op: 'starts_with_any', prefixes: ['02', '03'] },
+      ],
+    };
+  }
+
+  // Git ref (unanchored): ^refs/.*
+  if (pattern === '^refs/.*') {
+    return { op: 'starts_with_any', prefixes: ['refs/'] };
+  }
+
+  // Git branch/tag ref: ^refs/(heads|tags)/[^\s]+$
+  if (pattern === '^refs/(heads|tags)/[^\\s]+$') {
+    return { op: 'prefix_no_whitespace', prefixes: ['refs/heads/', 'refs/tags/'] };
+  }
+
+  // HTTP(S) URL non-whitespace: ^https?://\S+$
+  if (pattern === '^https?://\\S+$') {
+    return { op: 'prefix_no_whitespace', prefixes: ['http://', 'https://'] };
+  }
 
   // ^$ → empty string only — chars_in with 0 length
   if (pattern === '^$') {
@@ -325,6 +372,71 @@ export function classifyRegex(pattern: string): PatternCheck {
   // imeta dimensions: ^dim [0-9]{1,5}x[0-9]{1,5}$
   if (pattern === '^dim [0-9]{1,5}x[0-9]{1,5}$') {
     return { op: 'imeta_dim' };
+  }
+
+  // Bare dimensions: ^[0-9]+x[0-9]+$ or ^\d+x\d+$
+  if (pattern === '^[0-9]+x[0-9]+$' || pattern === '^\\d+x\\d+$') {
+    return { op: 'dim' };
+  }
+
+  // No uppercase: ^[^A-Z]+$
+  if (pattern === '^[^A-Z]+$') {
+    return { op: 'no_uppercase' };
+  }
+
+  // Dotted version number: ^[0-9]+(\.[0-9]+)*$
+  if (pattern === '^[0-9]+(\\.[0-9]+)*$') {
+    return { op: 'dotted_digits' };
+  }
+
+  // Slash-separated segments: ^[A-Za-z0-9_\-+]+(?:/[A-Za-z0-9_\-+]+)*$
+  if (pattern === '^[A-Za-z0-9_\\-+]+(?:/[A-Za-z0-9_\\-+]+)*$') {
+    return { op: 'slash_segments', charset: expandCharset('A-Za-z0-9') + '_-+' };
+  }
+
+  // Space-separated non-whitespace tokens: ^\S+( \S+)*$
+  if (pattern === '^\\S+( \\S+)*$') {
+    return { op: 'space_separated_tokens' };
+  }
+
+  // Starts with bech32-data charset (no end anchor): ^[0-9bcdefghjkmnpqrstuvwxyz]+
+  if (pattern === '^[0-9bcdefghjkmnpqrstuvwxyz]+') {
+    return { op: 'starts_with_charset', charset: '0123456789bcdefghjkmnpqrstuvwxyz' };
+  }
+
+  // Base64: ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
+  if (pattern === '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$') {
+    return { op: 'base64' };
+  }
+
+  // Nostr URI: ^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$
+  if (pattern === '^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$') {
+    return { op: 'nostr_uri' };
+  }
+
+  // NIP-04 encrypted content: ^[A-Za-z0-9+/]+={0,2}\?iv=[A-Za-z0-9+/]+={0,2}$
+  if (pattern === '^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$') {
+    return { op: 'nip04_encrypted' };
+  }
+
+  // NIP-05 identifier: ^(([_A-Za-z0-9.-]+)|_)@...domain...$
+  if (pattern === '^(([_A-Za-z0-9.-]+)|_)@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$') {
+    return { op: 'nip05_identifier' };
+  }
+
+  // Strict MIME type: ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$
+  if (pattern === '^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$') {
+    return { op: 'mime_type_strict' };
+  }
+
+  // Prefix + delimiter + rest (no end anchor): ^[0-9]+:.+
+  if (pattern === '^[0-9]+:.+') {
+    return { op: 'prefix_delim_rest', charset: '0123456789', delimiter: ':' };
+  }
+
+  // Prefix + delimiter + rest (no end anchor): ^[a-zA-Z0-9_-]+: .+
+  if (pattern === '^[a-zA-Z0-9_-]+: .+') {
+    return { op: 'prefix_delim_rest', charset: expandCharset('a-zA-Z0-9') + '_-', delimiter: ': ' };
   }
 
   // Fallback: preserve original regex
@@ -520,6 +632,18 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'external_identity':
     case 'package_id':
     case 'imeta_dim':
+    case 'dim':
+    case 'no_uppercase':
+    case 'dotted_digits':
+    case 'slash_segments':
+    case 'space_separated_tokens':
+    case 'starts_with_charset':
+    case 'base64':
+    case 'nostr_uri':
+    case 'nip04_encrypted':
+    case 'nip05_identifier':
+    case 'mime_type_strict':
+    case 'prefix_delim_rest':
       return true;
     case 'compound':
       return check.checks.every(isNativeCheck);
