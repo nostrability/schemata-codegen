@@ -278,6 +278,58 @@ function renderPatternCheckC(check: PatternCheck, varExpr: string): { expr: stri
       helpers.add('schemata_check_imeta_dim');
       return { expr: `schemata_check_imeta_dim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('schemata_check_dim');
+      return { expr: `schemata_check_dim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('schemata_check_no_uppercase');
+      return { expr: `schemata_check_no_uppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('schemata_check_dotted_digits');
+      return { expr: `schemata_check_dotted_digits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('schemata_check_slash_segments');
+      return { expr: `schemata_check_slash_segments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('schemata_check_space_separated_tokens');
+      helpers.add('schemata_is_ecma_ws');
+      return { expr: `schemata_check_space_separated_tokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('schemata_check_starts_with_charset');
+      return { expr: `schemata_check_starts_with_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('schemata_check_base64');
+      return { expr: `schemata_check_base64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('schemata_check_nostr_uri');
+      return { expr: `schemata_check_nostr_uri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('schemata_check_nip04_encrypted');
+      helpers.add('schemata_check_base64'); // for schemata_is_b64_char
+      return { expr: `schemata_check_nip04_encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('schemata_check_nip05_identifier');
+      helpers.add('schemata_is_alnum');
+      return { expr: `schemata_check_nip05_identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('schemata_check_mime_type_strict');
+      helpers.add('schemata_is_alnum');
+      return { expr: `schemata_check_mime_type_strict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('schemata_check_prefix_delim_rest');
+      return { expr: `schemata_check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -829,15 +881,11 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('');
   }
 
-  // Shared dot-tail helper: checks remaining string has >=1 char and no line terminators (regex `.` semantics)
-  // C regex `.` excludes only \n
+  // Shared dot-tail helper: checks remaining string has >=1 char (regex `.+` tail)
+  // POSIX ERE without REG_NEWLINE: `.` matches ALL characters including \n
   if (helpers.has('schemata_check_dot_tail') || helpers.has('schemata_check_relay_url') || helpers.has('schemata_check_a_tag') || helpers.has('schemata_check_doi')) {
     lines.push('static int schemata_check_dot_tail(const char *s, size_t pos, size_t len) {');
-    lines.push('    if (pos >= len) return 0;');
-    lines.push('    for (size_t i = pos; i < len; i++) {');
-    lines.push("        if (s[i] == '\\n') return 0;");
-    lines.push('    }');
-    lines.push('    return 1;');
+    lines.push('    return pos < len;');
     lines.push('}');
     lines.push('');
   }
@@ -1327,6 +1375,265 @@ function emitHelperFunctions(helpers: Set<string>): string {
     lines.push('    while (i < len && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
     lines.push('    if (dc < 1 || dc > 5) return 0;');
     lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_dim')) {
+    lines.push('/* ^[0-9]+x[0-9]+$ */');
+    lines.push('static int schemata_check_dim(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t i = 0, len = strlen(s);');
+    lines.push("    if (s[i] < '0' || s[i] > '9') return 0;");
+    lines.push("    while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    if (i >= len || s[i] != 'x') return 0;");
+    lines.push('    i++;');
+    lines.push("    if (i >= len || s[i] < '0' || s[i] > '9') return 0;");
+    lines.push("    while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_no_uppercase')) {
+    lines.push('/* ^[^A-Z]+$ */');
+    lines.push('static int schemata_check_no_uppercase(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    for (size_t i = 0; s[i]; i++) {');
+    lines.push("        if (s[i] >= 'A' && s[i] <= 'Z') return 0;");
+    lines.push('    }');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_dotted_digits')) {
+    lines.push('/* ^[0-9]+(\\.[0-9]+)*$ */');
+    lines.push('static int schemata_check_dotted_digits(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t i = 0, len = strlen(s);');
+    lines.push("    if (s[i] < '0' || s[i] > '9') return 0;");
+    lines.push("    while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("    while (i < len && s[i] == '.') {");
+    lines.push('        i++;');
+    lines.push("        if (i >= len || s[i] < '0' || s[i] > '9') return 0;");
+    lines.push("        while (i < len && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_slash_segments')) {
+    lines.push('/* ^[charset]+(/[charset]+)*$ */');
+    lines.push('static int schemata_check_slash_segments(const char *s, const char *charset) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t i = 0, len = strlen(s);');
+    lines.push('    if (!strchr(charset, s[i])) return 0;');
+    lines.push('    while (i < len && strchr(charset, s[i])) i++;');
+    lines.push("    while (i < len && s[i] == '/') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= len || !strchr(charset, s[i])) return 0;');
+    lines.push('        while (i < len && strchr(charset, s[i])) i++;');
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_space_separated_tokens')) {
+    lines.push('/* ^\\S+( \\S+)*$ */');
+    lines.push('static int schemata_check_space_separated_tokens(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t i = 0, len = strlen(s);');
+    lines.push('    const unsigned char *u = (const unsigned char *)s;');
+    lines.push('    size_t adv;');
+    lines.push('    /* first token: 1+ non-whitespace chars */');
+    lines.push('    if (schemata_is_ecma_ws(u, len, 0, &adv)) return 0;');
+    lines.push('    while (i < len && !schemata_is_ecma_ws(u, len, i, &adv)) i++;');
+    lines.push("    while (i < len && s[i] == ' ') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= len || schemata_is_ecma_ws(u, len, i, &adv)) return 0;');
+    lines.push('        while (i < len && !schemata_is_ecma_ws(u, len, i, &adv)) i++;');
+    lines.push('    }');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_starts_with_charset')) {
+    lines.push('/* ^[charset]+ (no end anchor) */');
+    lines.push('static int schemata_check_starts_with_charset(const char *s, const char *charset) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    return strchr(charset, s[0]) != NULL;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_base64')) {
+    lines.push('static int schemata_is_b64_char(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/';");
+    lines.push('}');
+    lines.push('/* ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$ */');
+    lines.push('static int schemata_check_base64(const char *s) {');
+    lines.push('    if (!s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    if (len == 0) return 1; /* empty string is valid */');
+    lines.push('    if (len % 4 != 0) return 0;');
+    lines.push('    size_t i;');
+    lines.push('    for (i = 0; i < len; i++) {');
+    lines.push("        if (s[i] == '=') break;");
+    lines.push('        if (!schemata_is_b64_char(s[i])) return 0;');
+    lines.push('    }');
+    lines.push('    size_t data_len = i;');
+    lines.push('    size_t pad_len = len - data_len;');
+    lines.push('    if (pad_len > 2) return 0;');
+    lines.push('    if (pad_len == 1 && data_len % 4 != 3) return 0;');
+    lines.push('    if (pad_len == 2 && data_len % 4 != 2) return 0;');
+    lines.push("    for (; i < len; i++) { if (s[i] != '=') return 0; }");
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nostr_uri')) {
+    lines.push('static int schemata_is_bech32_data_char(char c) {');
+    lines.push("    return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
+    lines.push('}');
+    lines.push('/* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
+    lines.push('static int schemata_check_nostr_uri(const char *s) {');
+    lines.push('    if (!s || strncmp(s, "nostr:", 6) != 0) return 0;');
+    lines.push('    const char *p = s + 6;');
+    lines.push('    size_t rest = strlen(p);');
+    lines.push('    /* npub1 or note1 + exactly 58 data chars */');
+    lines.push('    if (rest == 63 && (strncmp(p, "npub1", 5) == 0 || strncmp(p, "note1", 5) == 0)) {');
+    lines.push('        for (size_t i = 5; i < 63; i++) if (!schemata_is_bech32_data_char(p[i])) return 0;');
+    lines.push('        return 1;');
+    lines.push('    }');
+    lines.push('    /* nprofile1, nevent1, naddr1 + 1+ data chars */');
+    lines.push('    size_t prefix_len = 0;');
+    lines.push('    if (strncmp(p, "nprofile1", 9) == 0) prefix_len = 9;');
+    lines.push('    else if (strncmp(p, "nevent1", 7) == 0) prefix_len = 7;');
+    lines.push('    else if (strncmp(p, "naddr1", 6) == 0) prefix_len = 6;');
+    lines.push('    if (prefix_len == 0 || rest <= prefix_len) return 0;');
+    lines.push('    for (size_t i = prefix_len; i < rest; i++) if (!schemata_is_bech32_data_char(p[i])) return 0;');
+    lines.push('    return 1;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nip04_encrypted')) {
+    lines.push('/* ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$ */');
+    lines.push('static int schemata_check_nip04_encrypted(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    /* find "?iv=" separator */');
+    lines.push('    const char *sep = strstr(s, "?iv=");');
+    lines.push('    if (!sep || sep == s) return 0;');
+    lines.push('    size_t left_len = sep - s;');
+    lines.push('    size_t right_start = (sep - s) + 4;');
+    lines.push('    if (right_start >= len) return 0;');
+    lines.push('    /* check left half: 1+ b64 chars + 0-2 = */');
+    lines.push('    size_t i = 0;');
+    lines.push('    while (i < left_len && schemata_is_b64_char(s[i])) i++;');
+    lines.push('    if (i == 0) return 0;');
+    lines.push('    int eq = 0;');
+    lines.push("    while (i < left_len && s[i] == '=') { i++; eq++; }");
+    lines.push('    if (i != left_len || eq > 2) return 0;');
+    lines.push('    /* check right half */');
+    lines.push('    i = right_start;');
+    lines.push('    size_t data_start = i;');
+    lines.push('    while (i < len && schemata_is_b64_char(s[i])) i++;');
+    lines.push('    if (i == data_start) return 0;');
+    lines.push('    eq = 0;');
+    lines.push("    while (i < len && s[i] == '=') { i++; eq++; }");
+    lines.push('    return i == len && eq <= 2;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_is_alnum')) {
+    lines.push('static int schemata_is_alnum(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');");
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_nip05_identifier')) {
+    lines.push('static int schemata_is_nip05_local_char(char c) {');
+    lines.push("    return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-';");
+    lines.push('}');
+    lines.push('static int schemata_is_domain_char(char c) {');
+    lines.push("    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';");
+    lines.push('}');
+    lines.push('/* NIP-05: local@domain.tld */');
+    lines.push('static int schemata_check_nip05_identifier(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    /* find last @ */');
+    lines.push('    const char *at = NULL;');
+    lines.push("    for (size_t i = 0; i < len; i++) if (s[i] == '@') at = s + i;");
+    lines.push('    if (!at || at == s) return 0;');
+    lines.push('    /* local part: [_A-Za-z0-9.-]+ or just "_" */');
+    lines.push('    size_t local_len = at - s;');
+    lines.push('    for (size_t i = 0; i < local_len; i++) {');
+    lines.push('        if (!schemata_is_nip05_local_char(s[i])) return 0;');
+    lines.push('    }');
+    lines.push('    /* domain: 2+ dot-separated labels */');
+    lines.push('    const char *d = at + 1;');
+    lines.push('    size_t dlen = len - local_len - 1;');
+    lines.push('    if (dlen == 0) return 0;');
+    lines.push('    int dot_count = 0;');
+    lines.push('    size_t di = 0;');
+    lines.push('    while (di < dlen) {');
+    lines.push('        if (!schemata_is_alnum(d[di])) return 0;');
+    lines.push('        size_t label_start = di;');
+    lines.push('        while (di < dlen && schemata_is_domain_char(d[di])) di++;');
+    lines.push('        if (!schemata_is_alnum(d[di - 1])) return 0;');
+    lines.push("        if (di < dlen && d[di] == '.') { dot_count++; di++; }");
+    lines.push('        else if (di < dlen) return 0;');
+    lines.push('    }');
+    lines.push('    return dot_count >= 1 && schemata_is_alnum(d[dlen - 1]);');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_mime_type_strict')) {
+    lines.push('static int schemata_is_mime_strict_char(char c) {');
+    lines.push("    return schemata_is_alnum(c) || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-';");
+    lines.push('}');
+    lines.push('/* ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$ */');
+    lines.push('static int schemata_check_mime_type_strict(const char *s) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t len = strlen(s);');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (!schemata_is_alnum(s[i])) return 0;');
+    lines.push('    i++;');
+    lines.push('    while (i < len && schemata_is_mime_strict_char(s[i])) i++;');
+    lines.push("    if (i >= len || s[i] != '/') return 0;");
+    lines.push('    i++;');
+    lines.push('    if (i >= len || !schemata_is_alnum(s[i])) return 0;');
+    lines.push('    i++;');
+    lines.push('    while (i < len && schemata_is_mime_strict_char(s[i])) i++;');
+    lines.push('    return i == len;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('schemata_check_prefix_delim_rest')) {
+    lines.push('/* ^[charset]+<delim>.+ (no end anchor) */');
+    lines.push('static int schemata_check_prefix_delim_rest(const char *s, const char *charset, const char *delim) {');
+    lines.push('    if (!s || !*s) return 0;');
+    lines.push('    size_t i = 0, len = strlen(s);');
+    lines.push('    if (!strchr(charset, s[i])) return 0;');
+    lines.push('    while (i < len && strchr(charset, s[i])) i++;');
+    lines.push('    size_t dlen = strlen(delim);');
+    lines.push('    if (i + dlen >= len) return 0;');
+    lines.push('    if (strncmp(s + i, delim, dlen) != 0) return 0;');
+    lines.push('    i += dlen;');
+    lines.push("    /* .+ requires at least 1 char after delimiter */");
+    lines.push("    /* POSIX ERE without REG_NEWLINE: . matches all chars including \\n */");
+    lines.push('    return i < len;');
     lines.push('}');
     lines.push('');
   }

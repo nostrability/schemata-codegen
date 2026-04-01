@@ -181,6 +181,62 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkImetaDim');
       return { expr: `checkImetaDim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('checkDim');
+      return { expr: `checkDim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('checkNoUppercase');
+      return { expr: `checkNoUppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('checkDottedDigits');
+      return { expr: `checkDottedDigits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('checkSlashSegments');
+      helpers.add('strings');
+      return { expr: `checkSlashSegments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('checkSpaceSeparatedTokens');
+      helpers.add('isEcmaWs');
+      return { expr: `checkSpaceSeparatedTokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('checkStartsWithCharset');
+      helpers.add('strings');
+      return { expr: `checkStartsWithCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('checkBase64');
+      return { expr: `checkBase64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('checkNostrUri');
+      helpers.add('strings');
+      return { expr: `checkNostrUri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('checkNip04Encrypted');
+      helpers.add('checkBase64'); // for isB64Char
+      helpers.add('strings');
+      return { expr: `checkNip04Encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('checkNip05Identifier');
+      helpers.add('strings');
+      return { expr: `checkNip05Identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('checkMimeTypeStrict');
+      return { expr: `checkMimeTypeStrict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('checkPrefixDelimRest');
+      helpers.add('strings');
+      return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1402,6 +1458,414 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\tif dc < 1 || dc > 5 { return false }');
     lines.push('\treturn i == len(s)');
     lines.push('}');
+  }
+
+  // checkDim: ^[0-9]+x[0-9]+$
+  if (helpers.has('checkDim')) {
+    lines.push('');
+    lines.push('func checkDim(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tif s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != 'x' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push("\tif i >= len(s) || s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkNoUppercase: ^[^A-Z]+$
+  if (helpers.has('checkNoUppercase')) {
+    lines.push('func checkNoUppercase(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < len(s); i++ {');
+    lines.push("\t\tif s[i] >= 'A' && s[i] <= 'Z' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkDottedDigits: ^[0-9]+(\.[0-9]+)*$
+  if (helpers.has('checkDottedDigits')) {
+    lines.push('func checkDottedDigits(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tif s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] == '.' {");
+    lines.push('\t\ti++');
+    lines.push("\t\tif i >= len(s) || s[i] < '0' || s[i] > '9' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tfor i < len(s) && s[i] >= '0' && s[i] <= '9' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkSlashSegments: ^[charset]+(/[charset]+)*$
+  if (helpers.has('checkSlashSegments')) {
+    lines.push('func checkSlashSegments(s string, charset string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tif !strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i < len(s) && strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] == '/' {");
+    lines.push('\t\ti++');
+    lines.push('\t\tif i >= len(s) || !strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\tfor i < len(s) && strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkSpaceSeparatedTokens: ^\S+( \S+)*$
+  if (helpers.has('checkSpaceSeparatedTokens')) {
+    lines.push('func checkSpaceSeparatedTokens(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\t// first token: 1+ non-whitespace');
+    lines.push('\tfor _, r := range s {');
+    lines.push('\t\tif isEcmaWs(r) {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t\ti += len(string(r))');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] == ' ' {");
+    lines.push('\t\ti++');
+    lines.push('\t\tif i >= len(s) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ttokenStart := i');
+    lines.push('\t\tfor _, r := range s[i:] {');
+    lines.push('\t\t\tif isEcmaWs(r) {');
+    lines.push('\t\t\t\tbreak');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\ti += len(string(r))');
+    lines.push('\t\t}');
+    lines.push('\t\tif i == tokenStart {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkStartsWithCharset: len>0, first char in charset
+  if (helpers.has('checkStartsWithCharset')) {
+    lines.push('func checkStartsWithCharset(s string, charset string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\treturn strings.ContainsRune(charset, rune(s[0]))');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkBase64: standard base64
+  if (helpers.has('checkBase64')) {
+    lines.push('func isB64Char(b byte) bool {');
+    lines.push("\treturn (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '+' || b == '/'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkBase64(s string) bool {');
+    lines.push('\tl := len(s)');
+    lines.push('\tif l == 0 {');
+    lines.push('\t\treturn true');
+    lines.push('\t}');
+    lines.push('\tif l%4 != 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tfor i < l {');
+    lines.push("\t\tif s[i] == '=' {");
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t\tif !isB64Char(s[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tdataLen := i');
+    lines.push('\tpadLen := l - dataLen');
+    lines.push('\tif padLen > 2 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif padLen == 1 && dataLen%4 != 3 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif padLen == 2 && dataLen%4 != 2 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i < l {');
+    lines.push("\t\tif s[i] != '=' {");
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkNostrUri: ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$
+  if (helpers.has('checkNostrUri')) {
+    lines.push('func isNostrBech32DataChar(b byte) bool {');
+    lines.push("\treturn (b >= '0' && b <= '9' && b != '1') || (b >= 'a' && b <= 'z' && b != 'b' && b != 'i' && b != 'o')");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkNostrUri(s string) bool {');
+    lines.push('\tif !strings.HasPrefix(s, "nostr:") {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tp := s[6:]');
+    lines.push('\trest := len(p)');
+    lines.push('\t// npub1 or note1 + exactly 58 data chars');
+    lines.push('\tif rest == 63 && (strings.HasPrefix(p, "npub1") || strings.HasPrefix(p, "note1")) {');
+    lines.push('\t\tfor i := 5; i < 63; i++ {');
+    lines.push('\t\t\tif !isNostrBech32DataChar(p[i]) {');
+    lines.push('\t\t\t\treturn false');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
+    lines.push('\t\treturn true');
+    lines.push('\t}');
+    lines.push('\t// nprofile1, nevent1, naddr1 + 1+ data chars');
+    lines.push('\tprefixLen := 0');
+    lines.push('\tif strings.HasPrefix(p, "nprofile1") {');
+    lines.push('\t\tprefixLen = 9');
+    lines.push('\t} else if strings.HasPrefix(p, "nevent1") {');
+    lines.push('\t\tprefixLen = 7');
+    lines.push('\t} else if strings.HasPrefix(p, "naddr1") {');
+    lines.push('\t\tprefixLen = 6');
+    lines.push('\t}');
+    lines.push('\tif prefixLen == 0 || rest <= prefixLen {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := prefixLen; i < rest; i++ {');
+    lines.push('\t\tif !isNostrBech32DataChar(p[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkNip04Encrypted: ^[A-Za-z0-9+/]+={0,2}\?iv=[A-Za-z0-9+/]+={0,2}$
+  if (helpers.has('checkNip04Encrypted')) {
+    lines.push('func checkNip04Encrypted(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\t// find "?iv=" separator');
+    lines.push('\tsep := strings.Index(s, "?iv=")');
+    lines.push('\tif sep <= 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif sep+4 >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\t// check left half: 1+ b64 chars + 0-2 =');
+    lines.push('\tleft := s[:sep]');
+    lines.push('\ti := 0');
+    lines.push('\tfor i < len(left) && isB64Char(left[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\teq := 0');
+    lines.push("\tfor i < len(left) && left[i] == '=' {");
+    lines.push('\t\ti++');
+    lines.push('\t\teq++');
+    lines.push('\t}');
+    lines.push('\tif i != len(left) || eq > 2 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\t// check right half');
+    lines.push('\tright := s[sep+4:]');
+    lines.push('\ti = 0');
+    lines.push('\tfor i < len(right) && isB64Char(right[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\teq = 0');
+    lines.push("\tfor i < len(right) && right[i] == '=' {");
+    lines.push('\t\ti++');
+    lines.push('\t\teq++');
+    lines.push('\t}');
+    lines.push('\treturn i == len(right) && eq <= 2');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkNip05Identifier: NIP-05 local@domain.tld
+  if (helpers.has('checkNip05Identifier')) {
+    lines.push('func isNip05LocalChar(b byte) bool {');
+    lines.push("\treturn b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '.' || b == '-'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func isAlnum(b byte) bool {');
+    lines.push("\treturn (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')");
+    lines.push('}');
+    lines.push('');
+    lines.push('func isDomainChar(b byte) bool {');
+    lines.push("\treturn (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '-'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkNip05Identifier(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\t// find last @');
+    lines.push('\tatPos := strings.LastIndex(s, "@")');
+    lines.push('\tif atPos <= 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\t// local part: [_A-Za-z0-9.-]+');
+    lines.push('\tlocal := s[:atPos]');
+    lines.push('\tfor i := 0; i < len(local); i++ {');
+    lines.push('\t\tif !isNip05LocalChar(local[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\t// domain: 2+ dot-separated labels');
+    lines.push('\tdomain := s[atPos+1:]');
+    lines.push('\tif len(domain) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tdotCount := 0');
+    lines.push('\tdi := 0');
+    lines.push('\tfor di < len(domain) {');
+    lines.push('\t\tif !isAlnum(domain[di]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\tfor di < len(domain) && isDomainChar(domain[di]) {');
+    lines.push('\t\t\tdi++');
+    lines.push('\t\t}');
+    lines.push('\t\tif !isAlnum(domain[di-1]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push("\t\tif di < len(domain) && domain[di] == '.' {");
+    lines.push('\t\t\tdotCount++');
+    lines.push('\t\t\tdi++');
+    lines.push('\t\t} else if di < len(domain) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn dotCount >= 1 && isAlnum(domain[len(domain)-1])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkMimeTypeStrict: ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$
+  if (helpers.has('checkMimeTypeStrict')) {
+    lines.push('func isMimeStrictChar(b byte) bool {');
+    lines.push("\treturn (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '!' || b == '#' || b == '$' || b == '&' || b == '^' || b == '_' || b == '.' || b == '+' || b == '-'");
+    lines.push('}');
+    lines.push('');
+    lines.push('func checkMimeTypeStrict(s string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push("\tif !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9')) {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) && isMimeStrictChar(s[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tif i >= len(s) || s[i] != '/' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push("\tif i >= len(s) || !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9')) {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) && isMimeStrictChar(s[i]) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // checkPrefixDelimRest: ^[charset]+<delim>.+ (no end anchor)
+  if (helpers.has('checkPrefixDelimRest')) {
+    lines.push('func checkPrefixDelimRest(s string, charset string, delimiter string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tif !strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i < len(s) && strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i+len(delimiter) >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif s[i:i+len(delimiter)] != delimiter {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti += len(delimiter)');
+    lines.push('\tif i >= len(s) { return false }');
+    lines.push('\t// .+ first char must not be a line terminator (Go regexp . excludes \\n only)');
+    lines.push("\tif s[i] == '\\n' { return false }");
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
   }
 
   return lines.join('\n');

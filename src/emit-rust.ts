@@ -227,6 +227,59 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_imeta_dim');
       return { expr: `check_imeta_dim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('check_dim');
+      return { expr: `check_dim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('check_no_uppercase');
+      return { expr: `check_no_uppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('check_dotted_digits');
+      return { expr: `check_dotted_digits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('check_slash_segments');
+      return { expr: `check_slash_segments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('check_space_separated_tokens');
+      helpers.add('is_ecma_ws');
+      return { expr: `check_space_separated_tokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('check_starts_with_charset');
+      return { expr: `check_starts_with_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('check_base64');
+      return { expr: `check_base64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('check_nostr_uri');
+      helpers.add('check_bech32'); // for is_bech32_char
+      return { expr: `check_nostr_uri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('check_nip04_encrypted');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_nip04_encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('check_nip05_identifier');
+      helpers.add('is_alnum');
+      return { expr: `check_nip05_identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('check_mime_type_strict');
+      helpers.add('is_alnum');
+      return { expr: `check_mime_type_strict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('check_prefix_delim_rest');
+      return { expr: `check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -795,7 +848,7 @@ function emitRustHelpers(helpers: Set<string>): string {
   }
 
   // Shared is_ecma_ws helper — full ECMAScript WhiteSpace + LineTerminator set
-  if (helpers.has('is_ecma_ws') || helpers.has('check_email_like') || helpers.has('check_git_clone_url') || helpers.has('check_no_ws_tail')) {
+  if (helpers.has('is_ecma_ws') || helpers.has('check_email_like') || helpers.has('check_git_clone_url') || helpers.has('check_no_ws_tail') || helpers.has('check_space_separated_tokens')) {
     lines.push('fn is_ecma_ws(c: char) -> bool {');
     lines.push("    matches!(c, '\\t' | '\\n' | '\\x0B' | '\\x0C' | '\\r' | ' ' | '\\u{00A0}' | '\\u{1680}' | '\\u{2000}'..='\\u{200A}' | '\\u{2028}' | '\\u{2029}' | '\\u{202F}' | '\\u{205F}' | '\\u{3000}' | '\\u{FEFF}')");
     lines.push('}');
@@ -988,6 +1041,261 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    while i < b.len() && b[i] >= b\'0\' && b[i] <= b\'9\' { i += 1; dc += 1; }');
     lines.push('    if dc < 1 || dc > 5 { return false; }');
     lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[0-9]+x[0-9]+$
+  if (helpers.has('check_dim')) {
+    lines.push('fn check_dim(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !b[i].is_ascii_digit() { return false; }');
+    lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push("    if i >= b.len() || b[i] != b'x' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    if i >= b.len() || !b[i].is_ascii_digit() { return false; }');
+    lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[^A-Z]+$
+  if (helpers.has('check_no_uppercase')) {
+    lines.push('fn check_no_uppercase(s: &str) -> bool {');
+    lines.push('    !s.is_empty() && !s.bytes().any(|b| b.is_ascii_uppercase())');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[0-9]+(\.[0-9]+)*$
+  if (helpers.has('check_dotted_digits')) {
+    lines.push('fn check_dotted_digits(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !b[i].is_ascii_digit() { return false; }');
+    lines.push('    while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push("    while i < b.len() && b[i] == b'.' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= b.len() || !b[i].is_ascii_digit() { return false; }');
+    lines.push('        while i < b.len() && b[i].is_ascii_digit() { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[charset]+(/[charset]+)*$
+  if (helpers.has('check_slash_segments')) {
+    lines.push('fn check_slash_segments(s: &str, charset: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let cs = charset.as_bytes();');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !cs.contains(&b[i]) { return false; }');
+    lines.push('    while i < b.len() && cs.contains(&b[i]) { i += 1; }');
+    lines.push("    while i < b.len() && b[i] == b'/' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= b.len() || !cs.contains(&b[i]) { return false; }');
+    lines.push('        while i < b.len() && cs.contains(&b[i]) { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^\S+( \S+)*$
+  if (helpers.has('check_space_separated_tokens')) {
+    lines.push('fn check_space_separated_tokens(s: &str) -> bool {');
+    lines.push('    if s.is_empty() { return false; }');
+    lines.push('    let chars: Vec<char> = s.chars().collect();');
+    lines.push('    let mut i = 0;');
+    lines.push('    if is_ecma_ws(chars[i]) { return false; }');
+    lines.push('    while i < chars.len() && !is_ecma_ws(chars[i]) { i += 1; }');
+    lines.push("    while i < chars.len() && chars[i] == ' ' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= chars.len() || is_ecma_ws(chars[i]) { return false; }');
+    lines.push('        while i < chars.len() && !is_ecma_ws(chars[i]) { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == chars.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[charset]+ (no end anchor)
+  if (helpers.has('check_starts_with_charset')) {
+    lines.push('fn check_starts_with_charset(s: &str, charset: &str) -> bool {');
+    lines.push('    !s.is_empty() && charset.as_bytes().contains(&s.as_bytes()[0])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // is_b64_char + check_base64
+  if (helpers.has('check_base64')) {
+    lines.push('fn is_b64_char(b: u8) -> bool {');
+    lines.push("    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_base64(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let len = b.len();');
+    lines.push('    if len == 0 { return true; }');
+    lines.push('    if len % 4 != 0 { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push("    while i < len && b[i] != b'=' {");
+    lines.push('        if !is_b64_char(b[i]) { return false; }');
+    lines.push('        i += 1;');
+    lines.push('    }');
+    lines.push('    let data_len = i;');
+    lines.push('    let pad_len = len - data_len;');
+    lines.push('    if pad_len > 2 { return false; }');
+    lines.push('    if pad_len == 1 && data_len % 4 != 3 { return false; }');
+    lines.push('    if pad_len == 2 && data_len % 4 != 2 { return false; }');
+    lines.push("    while i < len { if b[i] != b'=' { return false; } i += 1; }");
+    lines.push('    true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)
+  if (helpers.has('check_nostr_uri')) {
+    lines.push('fn check_nostr_uri(s: &str) -> bool {');
+    lines.push('    if !s.starts_with("nostr:") { return false; }');
+    lines.push('    let p = &s[6..];');
+    lines.push('    let rest = p.len();');
+    lines.push('    // npub1 or note1 + exactly 58 data chars');
+    lines.push('    if rest == 63 && (p.starts_with("npub1") || p.starts_with("note1")) {');
+    lines.push('        return p[5..].bytes().all(is_bech32_char);');
+    lines.push('    }');
+    lines.push('    // nprofile1, nevent1, naddr1 + 1+ data chars');
+    lines.push('    let prefix_len;');
+    lines.push('    if p.starts_with("nprofile1") { prefix_len = 9; }');
+    lines.push('    else if p.starts_with("nevent1") { prefix_len = 7; }');
+    lines.push('    else if p.starts_with("naddr1") { prefix_len = 6; }');
+    lines.push('    else { return false; }');
+    lines.push('    if rest <= prefix_len { return false; }');
+    lines.push('    p[prefix_len..].bytes().all(is_bech32_char)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[A-Za-z0-9+/]+={0,2}\?iv=[A-Za-z0-9+/]+={0,2}$
+  if (helpers.has('check_nip04_encrypted')) {
+    lines.push('fn check_nip04_encrypted(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let sep = match s.find("?iv=") {');
+    lines.push('        Some(pos) if pos > 0 => pos,');
+    lines.push('        _ => return false,');
+    lines.push('    };');
+    lines.push('    let right_start = sep + 4;');
+    lines.push('    if right_start >= b.len() { return false; }');
+    lines.push('    // check left half: 1+ b64 chars + 0-2 =');
+    lines.push('    let mut i = 0;');
+    lines.push('    while i < sep && is_b64_char(b[i]) { i += 1; }');
+    lines.push('    if i == 0 { return false; }');
+    lines.push('    let mut eq = 0;');
+    lines.push("    while i < sep && b[i] == b'=' { i += 1; eq += 1; }");
+    lines.push('    if i != sep || eq > 2 { return false; }');
+    lines.push('    // check right half');
+    lines.push('    i = right_start;');
+    lines.push('    let data_start = i;');
+    lines.push('    while i < b.len() && is_b64_char(b[i]) { i += 1; }');
+    lines.push('    if i == data_start { return false; }');
+    lines.push('    eq = 0;');
+    lines.push("    while i < b.len() && b[i] == b'=' { i += 1; eq += 1; }");
+    lines.push('    i == b.len() && eq <= 2');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // is_alnum helper
+  if (helpers.has('is_alnum')) {
+    lines.push('fn is_alnum(b: u8) -> bool {');
+    lines.push("    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9')");
+    lines.push('}');
+    lines.push('');
+  }
+
+  // NIP-05: local@domain.tld
+  if (helpers.has('check_nip05_identifier')) {
+    lines.push('fn is_nip05_local_char(b: u8) -> bool {');
+    lines.push("    matches!(b, b'_' | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn is_domain_char(b: u8) -> bool {');
+    lines.push("    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_nip05_identifier(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    // find last @');
+    lines.push("    let at = match b.iter().rposition(|&c| c == b'@') {");
+    lines.push('        Some(pos) if pos > 0 => pos,');
+    lines.push('        _ => return false,');
+    lines.push('    };');
+    lines.push('    // local part: [_A-Za-z0-9.-]+');
+    lines.push('    if !b[..at].iter().all(|&c| is_nip05_local_char(c)) { return false; }');
+    lines.push('    // domain: 2+ dot-separated labels');
+    lines.push('    let d = &b[at + 1..];');
+    lines.push('    if d.is_empty() { return false; }');
+    lines.push('    let mut dot_count = 0;');
+    lines.push('    let mut i = 0;');
+    lines.push('    while i < d.len() {');
+    lines.push('        if !is_alnum(d[i]) { return false; }');
+    lines.push('        while i < d.len() && is_domain_char(d[i]) { i += 1; }');
+    lines.push('        if i > 0 && !is_alnum(d[i - 1]) { return false; }');
+    lines.push("        if i < d.len() && d[i] == b'.' { dot_count += 1; i += 1; }");
+    lines.push('        else if i < d.len() { return false; }');
+    lines.push('    }');
+    lines.push('    dot_count >= 1 && is_alnum(d[d.len() - 1])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$
+  if (helpers.has('check_mime_type_strict')) {
+    lines.push('fn is_mime_strict_char(b: u8) -> bool {');
+    lines.push("    is_alnum(b) || matches!(b, b'!' | b'#' | b'$' | b'&' | b'^' | b'_' | b'.' | b'+' | b'-')");
+    lines.push('}');
+    lines.push('');
+    lines.push('fn check_mime_type_strict(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !is_alnum(b[i]) { return false; }');
+    lines.push('    i += 1;');
+    lines.push('    while i < b.len() && is_mime_strict_char(b[i]) { i += 1; }');
+    lines.push("    if i >= b.len() || b[i] != b'/' { return false; }");
+    lines.push('    i += 1;');
+    lines.push('    if i >= b.len() || !is_alnum(b[i]) { return false; }');
+    lines.push('    i += 1;');
+    lines.push('    while i < b.len() && is_mime_strict_char(b[i]) { i += 1; }');
+    lines.push('    i == b.len()');
+    lines.push('}');
+    lines.push('');
+  }
+
+  // ^[charset]+<delim>.+ (no end anchor)
+  if (helpers.has('check_prefix_delim_rest')) {
+    lines.push('fn check_prefix_delim_rest(s: &str, charset: &str, delim: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    if b.is_empty() { return false; }');
+    lines.push('    let cs = charset.as_bytes();');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !cs.contains(&b[i]) { return false; }');
+    lines.push('    while i < b.len() && cs.contains(&b[i]) { i += 1; }');
+    lines.push('    let db = delim.as_bytes();');
+    lines.push('    if i + db.len() >= b.len() { return false; }');
+    lines.push('    if &b[i..i + db.len()] != db { return false; }');
+    lines.push('    // .+ first char must not be a line terminator (Rust regex . excludes \\n only)');
+    lines.push('    let j = i + db.len();');
+    lines.push('    if b[j] == 0x0A { return false; }');
+    lines.push('    true');
     lines.push('}');
     lines.push('');
   }

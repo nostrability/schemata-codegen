@@ -166,6 +166,57 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkImetaDim');
       return { expr: `_checkImetaDim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('_checkDim');
+      return { expr: `_checkDim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('_checkNoUppercase');
+      return { expr: `_checkNoUppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('_checkDottedDigits');
+      return { expr: `_checkDottedDigits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('_checkSlashSegments');
+      return { expr: `_checkSlashSegments(${varExpr}, ${dartString(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('_checkSpaceSeparatedTokens');
+      helpers.add('_isEcmaWs');
+      return { expr: `_checkSpaceSeparatedTokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('_checkStartsWithCharset');
+      return { expr: `_checkStartsWithCharset(${varExpr}, ${dartString(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('_checkBase64');
+      return { expr: `_checkBase64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('_checkNostrUri');
+      helpers.add('_isBech32Char');
+      return { expr: `_checkNostrUri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('_checkNip04Encrypted');
+      helpers.add('_isB64Char');
+      return { expr: `_checkNip04Encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('_checkNip05Identifier');
+      return { expr: `_checkNip05Identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('_checkMimeTypeStrict');
+      return { expr: `_checkMimeTypeStrict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('_checkPrefixDelimRest');
+      return { expr: `_checkPrefixDelimRest(${varExpr}, ${dartString(check.charset)}, ${dartString(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -961,6 +1012,260 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) { i++; dc++; }');
     lines.push('  if (dc < 1 || dc > 5) return false;');
     lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkDim')) {
+    lines.push('bool _checkDim(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push("  if (i >= s.length || s[i] != 'x') return false;");
+    lines.push('  i++;');
+    lines.push('  if (i >= s.length || s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkNoUppercase')) {
+    lines.push('bool _checkNoUppercase(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  for (var i = 0; i < s.length; i++) {');
+    lines.push('    final c = s.codeUnitAt(i);');
+    lines.push('    if (c >= 65 && c <= 90) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkDottedDigits')) {
+    lines.push('bool _checkDottedDigits(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('  while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push("  while (i < s.length && s[i] == '.') {");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length || s.codeUnitAt(i) < 48 || s.codeUnitAt(i) > 57) return false;');
+    lines.push('    while (i < s.length && s.codeUnitAt(i) >= 48 && s.codeUnitAt(i) <= 57) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkSlashSegments')) {
+    lines.push('bool _checkSlashSegments(String s, String charset) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (!charset.contains(String.fromCharCode(s.codeUnitAt(i)))) return false;');
+    lines.push('  while (i < s.length && charset.contains(String.fromCharCode(s.codeUnitAt(i)))) i++;');
+    lines.push("  while (i < s.length && s[i] == '/') {");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length || !charset.contains(String.fromCharCode(s.codeUnitAt(i)))) return false;');
+    lines.push('    while (i < s.length && charset.contains(String.fromCharCode(s.codeUnitAt(i)))) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkSpaceSeparatedTokens')) {
+    lines.push('bool _checkSpaceSeparatedTokens(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  // first token: 1+ non-whitespace');
+    lines.push('  while (i < s.length && !_isEcmaWs(s.codeUnitAt(i))) i++;');
+    lines.push('  if (i == 0) return false;');
+    lines.push("  while (i < s.length && s.codeUnitAt(i) == 32) { // ' '");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length) return false;');
+    lines.push('    final tokenStart = i;');
+    lines.push('    while (i < s.length && !_isEcmaWs(s.codeUnitAt(i))) i++;');
+    lines.push('    if (i == tokenStart) return false;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkStartsWithCharset')) {
+    lines.push('bool _checkStartsWithCharset(String s, String charset) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  return charset.contains(String.fromCharCode(s.codeUnitAt(0)));');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_isB64Char') || helpers.has('_checkBase64') || helpers.has('_checkNip04Encrypted')) {
+    lines.push('bool _isB64Char(int c) {');
+    lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 43 || c == 47;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkBase64')) {
+    lines.push('bool _checkBase64(String s) {');
+    lines.push('  final l = s.length;');
+    lines.push('  if (l == 0) return true;');
+    lines.push('  if (l % 4 != 0) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  while (i < l) {');
+    lines.push('    if (s.codeUnitAt(i) == 61) break; // \'=\'');
+    lines.push('    if (!_isB64Char(s.codeUnitAt(i))) return false;');
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  final dataLen = i;');
+    lines.push('  final padLen = l - dataLen;');
+    lines.push('  if (padLen > 2) return false;');
+    lines.push('  if (padLen == 1 && dataLen % 4 != 3) return false;');
+    lines.push('  if (padLen == 2 && dataLen % 4 != 2) return false;');
+    lines.push('  while (i < l) {');
+    lines.push('    if (s.codeUnitAt(i) != 61) return false; // \'=\'');
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkNostrUri')) {
+    lines.push('bool _checkNostrUri(String s) {');
+    lines.push("  if (!s.startsWith('nostr:')) return false;");
+    lines.push('  final p = s.substring(6);');
+    lines.push('  final rest = p.length;');
+    lines.push('  // npub1 or note1 + exactly 58 data chars');
+    lines.push("  if (rest == 63 && (p.startsWith('npub1') || p.startsWith('note1'))) {");
+    lines.push('    for (var i = 5; i < 63; i++) {');
+    lines.push('      if (!_isBech32Char(p.codeUnitAt(i))) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('  }');
+    lines.push('  // nprofile1, nevent1, naddr1 + 1+ data chars');
+    lines.push('  var prefixLen = 0;');
+    lines.push("  if (p.startsWith('nprofile1')) { prefixLen = 9; }");
+    lines.push("  else if (p.startsWith('nevent1')) { prefixLen = 7; }");
+    lines.push("  else if (p.startsWith('naddr1')) { prefixLen = 6; }");
+    lines.push('  if (prefixLen == 0 || rest <= prefixLen) return false;');
+    lines.push('  for (var i = prefixLen; i < rest; i++) {');
+    lines.push('    if (!_isBech32Char(p.codeUnitAt(i))) return false;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkNip04Encrypted')) {
+    lines.push('bool _checkNip04Encrypted(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push("  final sep = s.indexOf('?iv=');");
+    lines.push('  if (sep <= 0) return false;');
+    lines.push('  if (sep + 4 >= s.length) return false;');
+    lines.push('  // check left half: 1+ b64 chars + 0-2 =');
+    lines.push('  final left = s.substring(0, sep);');
+    lines.push('  var i = 0;');
+    lines.push('  while (i < left.length && _isB64Char(left.codeUnitAt(i))) i++;');
+    lines.push('  if (i == 0) return false;');
+    lines.push('  var eq = 0;');
+    lines.push('  while (i < left.length && left.codeUnitAt(i) == 61) { i++; eq++; }');
+    lines.push('  if (i != left.length || eq > 2) return false;');
+    lines.push('  // check right half');
+    lines.push('  final right = s.substring(sep + 4);');
+    lines.push('  i = 0;');
+    lines.push('  while (i < right.length && _isB64Char(right.codeUnitAt(i))) i++;');
+    lines.push('  if (i == 0) return false;');
+    lines.push('  eq = 0;');
+    lines.push('  while (i < right.length && right.codeUnitAt(i) == 61) { i++; eq++; }');
+    lines.push('  return i == right.length && eq <= 2;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkNip05Identifier')) {
+    lines.push('bool _isNip05LocalChar(int c) {');
+    lines.push('  return c == 95 || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 46 || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _isAlnum(int c) {');
+    lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57);');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _isDomainChar(int c) {');
+    lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkNip05Identifier(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push("  final atPos = s.lastIndexOf('@');");
+    lines.push('  if (atPos <= 0) return false;');
+    lines.push('  // local part: [_A-Za-z0-9.-]+');
+    lines.push('  final local = s.substring(0, atPos);');
+    lines.push('  for (var i = 0; i < local.length; i++) {');
+    lines.push('    if (!_isNip05LocalChar(local.codeUnitAt(i))) return false;');
+    lines.push('  }');
+    lines.push('  // domain: 2+ dot-separated labels');
+    lines.push('  final domain = s.substring(atPos + 1);');
+    lines.push('  if (domain.isEmpty) return false;');
+    lines.push('  var dotCount = 0;');
+    lines.push('  var di = 0;');
+    lines.push('  while (di < domain.length) {');
+    lines.push('    if (!_isAlnum(domain.codeUnitAt(di))) return false;');
+    lines.push('    while (di < domain.length && _isDomainChar(domain.codeUnitAt(di))) di++;');
+    lines.push('    if (!_isAlnum(domain.codeUnitAt(di - 1))) return false;');
+    lines.push("    if (di < domain.length && domain[di] == '.') {");
+    lines.push('      dotCount++;');
+    lines.push('      di++;');
+    lines.push('    } else if (di < domain.length) {');
+    lines.push('      return false;');
+    lines.push('    }');
+    lines.push('  }');
+    lines.push('  return dotCount >= 1 && _isAlnum(domain.codeUnitAt(domain.length - 1));');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkMimeTypeStrict')) {
+    lines.push('bool _isMimeStrictChar(int c) {');
+    lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 33 || c == 35 || c == 36 || c == 38 || c == 94 || c == 95 || c == 46 || c == 43 || c == 45;');
+    lines.push('}');
+    lines.push('');
+    lines.push('bool _checkMimeTypeStrict(String s) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  final c0 = s.codeUnitAt(i);');
+    lines.push('  if (!((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122) || (c0 >= 48 && c0 <= 57))) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length && _isMimeStrictChar(s.codeUnitAt(i))) i++;');
+    lines.push("  if (i >= s.length || s.codeUnitAt(i) != 47) return false; // '/'");
+    lines.push('  i++;');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  final c1 = s.codeUnitAt(i);');
+    lines.push('  if (!((c1 >= 65 && c1 <= 90) || (c1 >= 97 && c1 <= 122) || (c1 >= 48 && c1 <= 57))) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length && _isMimeStrictChar(s.codeUnitAt(i))) i++;');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkPrefixDelimRest')) {
+    lines.push('bool _checkPrefixDelimRest(String s, String charset, String delimiter) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (!charset.contains(String.fromCharCode(s.codeUnitAt(i)))) return false;');
+    lines.push('  while (i < s.length && charset.contains(String.fromCharCode(s.codeUnitAt(i)))) i++;');
+    lines.push('  if (i + delimiter.length >= s.length) return false;');
+    lines.push('  if (s.substring(i, i + delimiter.length) != delimiter) return false;');
+    lines.push('  i += delimiter.length;');
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  // .+ first char must not be a line terminator (ECMA-262)');
+    lines.push('  final c = s.codeUnitAt(i);');
+    lines.push('  return c != 0x0A && c != 0x0D && c != 0x2028 && c != 0x2029;');
     lines.push('}');
     lines.push('');
   }

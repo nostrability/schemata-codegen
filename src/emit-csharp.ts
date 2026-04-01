@@ -169,6 +169,58 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('CheckImetaDim');
       return { expr: `CheckImetaDim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('CheckDim');
+      return { expr: `CheckDim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('CheckNoUppercase');
+      return { expr: `CheckNoUppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('CheckDottedDigits');
+      return { expr: `CheckDottedDigits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('CheckSlashSegments');
+      return { expr: `CheckSlashSegments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('CheckSpaceSeparatedTokens');
+      helpers.add('IsEcmaWs');
+      return { expr: `CheckSpaceSeparatedTokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('CheckStartsWithCharset');
+      return { expr: `CheckStartsWithCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('CheckBase64');
+      helpers.add('IsB64Char');
+      return { expr: `CheckBase64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('CheckNostrUri');
+      helpers.add('IsBech32Char');
+      return { expr: `CheckNostrUri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('CheckNip04Encrypted');
+      helpers.add('IsB64Char');
+      return { expr: `CheckNip04Encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('CheckNip05Identifier');
+      return { expr: `CheckNip05Identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('CheckMimeTypeStrict');
+      return { expr: `CheckMimeTypeStrict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('CheckPrefixDelimRest');
+      return { expr: `CheckPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -974,6 +1026,250 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('            while (i < s.Length && s[i] >= \'0\' && s[i] <= \'9\') { i++; dc++; }');
     lines.push('            if (dc < 1 || dc > 5) return false;');
     lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckDim')) {
+    lines.push('        /* ^[0-9]+x[0-9]+$ */');
+    lines.push('        private static bool CheckDim(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("            if (i >= s.Length || s[i] != 'x') return false;");
+    lines.push('            i++;');
+    lines.push("            if (i >= s.Length || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckNoUppercase')) {
+    lines.push('        /* ^[^A-Z]+$ */');
+    lines.push('        private static bool CheckNoUppercase(string s)');
+    lines.push("            => s != null && s.Length > 0 && s.All(c => c < 'A' || c > 'Z');");
+    lines.push('');
+  }
+
+  if (helpers.has('CheckDottedDigits')) {
+    lines.push('        /* ^[0-9]+(\\.[0-9]+)*$ */');
+    lines.push('        private static bool CheckDottedDigits(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            if (s[i] < '0' || s[i] > '9') return false;");
+    lines.push("            while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push("            while (i < s.Length && s[i] == '.') {");
+    lines.push('                i++;');
+    lines.push("                if (i >= s.Length || s[i] < '0' || s[i] > '9') return false;");
+    lines.push("                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;");
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckSlashSegments')) {
+    lines.push('        /* ^[charset]+(/[charset]+)*$ */');
+    lines.push('        private static bool CheckSlashSegments(string s, string charset)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            if (charset.IndexOf(s[i]) < 0) return false;');
+    lines.push('            while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
+    lines.push("            while (i < s.Length && s[i] == '/') {");
+    lines.push('                i++;');
+    lines.push('                if (i >= s.Length || charset.IndexOf(s[i]) < 0) return false;');
+    lines.push('                while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckSpaceSeparatedTokens')) {
+    lines.push('        /* ^\\S+( \\S+)*$ */');
+    lines.push('        private static bool CheckSpaceSeparatedTokens(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            /* first token: 1+ non-whitespace chars */');
+    lines.push('            if (IsEcmaWs(s[i])) return false;');
+    lines.push('            while (i < s.Length && !IsEcmaWs(s[i])) i++;');
+    lines.push("            while (i < s.Length && s[i] == ' ') {");
+    lines.push('                i++;');
+    lines.push('                if (i >= s.Length || IsEcmaWs(s[i])) return false;');
+    lines.push('                while (i < s.Length && !IsEcmaWs(s[i])) i++;');
+    lines.push('            }');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckStartsWithCharset')) {
+    lines.push('        /* ^[charset]+ (no end anchor) */');
+    lines.push('        private static bool CheckStartsWithCharset(string s, string charset)');
+    lines.push('            => s != null && s.Length > 0 && charset.IndexOf(s[0]) >= 0;');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckBase64') || helpers.has('IsB64Char')) {
+    lines.push('        private static bool IsB64Char(char c)');
+    lines.push("            => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/';");
+    lines.push('');
+  }
+
+  if (helpers.has('CheckBase64')) {
+    lines.push('        /* ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$ */');
+    lines.push('        private static bool CheckBase64(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null) return false;');
+    lines.push('            if (s.Length == 0) return true;');
+    lines.push('            if (s.Length % 4 != 0) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            while (i < s.Length && s[i] != '=') {");
+    lines.push('                if (!IsB64Char(s[i])) return false;');
+    lines.push('                i++;');
+    lines.push('            }');
+    lines.push('            int dataLen = i;');
+    lines.push('            int padLen = s.Length - dataLen;');
+    lines.push('            if (padLen > 2) return false;');
+    lines.push('            if (padLen == 1 && dataLen % 4 != 3) return false;');
+    lines.push('            if (padLen == 2 && dataLen % 4 != 2) return false;');
+    lines.push("            while (i < s.Length) { if (s[i] != '=') return false; i++; }");
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckNostrUri')) {
+    lines.push('        /* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
+    lines.push('        private static bool CheckNostrUri(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null || !s.StartsWith("nostr:", StringComparison.Ordinal)) return false;');
+    lines.push('            var p = s.Substring(6);');
+    lines.push('            /* npub1 or note1 + exactly 58 data chars */');
+    lines.push('            if (p.Length == 63 && (p.StartsWith("npub1", StringComparison.Ordinal) || p.StartsWith("note1", StringComparison.Ordinal))) {');
+    lines.push('                for (int i = 5; i < 63; i++) if (!IsBech32Char(p[i])) return false;');
+    lines.push('                return true;');
+    lines.push('            }');
+    lines.push('            /* nprofile1, nevent1, naddr1 + 1+ data chars */');
+    lines.push('            int prefixLen;');
+    lines.push('            if (p.StartsWith("nprofile1", StringComparison.Ordinal)) prefixLen = 9;');
+    lines.push('            else if (p.StartsWith("nevent1", StringComparison.Ordinal)) prefixLen = 7;');
+    lines.push('            else if (p.StartsWith("naddr1", StringComparison.Ordinal)) prefixLen = 6;');
+    lines.push('            else return false;');
+    lines.push('            if (p.Length <= prefixLen) return false;');
+    lines.push('            for (int i = prefixLen; i < p.Length; i++) if (!IsBech32Char(p[i])) return false;');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckNip04Encrypted')) {
+    lines.push('        /* ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$ */');
+    lines.push('        private static bool CheckNip04Encrypted(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int sep = s.IndexOf("?iv=", StringComparison.Ordinal);');
+    lines.push('            if (sep <= 0) return false;');
+    lines.push('            int rightStart = sep + 4;');
+    lines.push('            if (rightStart >= s.Length) return false;');
+    lines.push('            /* check left half: 1+ b64 chars + 0-2 = */');
+    lines.push('            int i = 0;');
+    lines.push('            while (i < sep && IsB64Char(s[i])) i++;');
+    lines.push('            if (i == 0) return false;');
+    lines.push('            int eq = 0;');
+    lines.push("            while (i < sep && s[i] == '=') { i++; eq++; }");
+    lines.push('            if (i != sep || eq > 2) return false;');
+    lines.push('            /* check right half */');
+    lines.push('            i = rightStart;');
+    lines.push('            int dataStart = i;');
+    lines.push('            while (i < s.Length && IsB64Char(s[i])) i++;');
+    lines.push('            if (i == dataStart) return false;');
+    lines.push('            eq = 0;');
+    lines.push("            while (i < s.Length && s[i] == '=') { i++; eq++; }");
+    lines.push('            return i == s.Length && eq <= 2;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckNip05Identifier')) {
+    lines.push('        private static bool IsNip05LocalChar(char c)');
+    lines.push("            => c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-';");
+    lines.push('');
+    lines.push('        private static bool IsDomainChar(char c)');
+    lines.push("            => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';");
+    lines.push('');
+    lines.push('        private static bool IsAlnum(char c)');
+    lines.push("            => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');");
+    lines.push('');
+    lines.push('        /* NIP-05: local@domain.tld */');
+    lines.push('        private static bool CheckNip05Identifier(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push("            int at = s.LastIndexOf('@');");
+    lines.push('            if (at <= 0) return false;');
+    lines.push('            /* local part */');
+    lines.push('            for (int i = 0; i < at; i++) {');
+    lines.push('                if (!IsNip05LocalChar(s[i])) return false;');
+    lines.push('            }');
+    lines.push('            /* domain: 2+ dot-separated labels */');
+    lines.push('            var d = s.Substring(at + 1);');
+    lines.push('            if (d.Length == 0) return false;');
+    lines.push('            int dotCount = 0;');
+    lines.push('            int di = 0;');
+    lines.push('            while (di < d.Length) {');
+    lines.push('                if (!IsAlnum(d[di])) return false;');
+    lines.push('                while (di < d.Length && IsDomainChar(d[di])) di++;');
+    lines.push('                if (di > 0 && !IsAlnum(d[di - 1])) return false;');
+    lines.push("                if (di < d.Length && d[di] == '.') { dotCount++; di++; }");
+    lines.push('                else if (di < d.Length) return false;');
+    lines.push('            }');
+    lines.push('            return dotCount >= 1 && IsAlnum(d[d.Length - 1]);');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckMimeTypeStrict')) {
+    lines.push('        private static bool IsMimeStrictChar(char c)');
+    lines.push("            => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-';");
+    lines.push('');
+    lines.push('        /* ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$ */');
+    lines.push('        private static bool CheckMimeTypeStrict(string s)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push("            if (!((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('            i++;');
+    lines.push('            while (i < s.Length && IsMimeStrictChar(s[i])) i++;');
+    lines.push("            if (i >= s.Length || s[i] != '/') return false;");
+    lines.push('            i++;');
+    lines.push("            if (i >= s.Length || !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9'))) return false;");
+    lines.push('            i++;');
+    lines.push('            while (i < s.Length && IsMimeStrictChar(s[i])) i++;');
+    lines.push('            return i == s.Length;');
+    lines.push('        }');
+    lines.push('');
+  }
+
+  if (helpers.has('CheckPrefixDelimRest')) {
+    lines.push('        /* ^[charset]+<delim>.+ (no end anchor) */');
+    lines.push('        private static bool CheckPrefixDelimRest(string s, string charset, string delimiter)');
+    lines.push('        {');
+    lines.push('            if (string.IsNullOrEmpty(s)) return false;');
+    lines.push('            int i = 0;');
+    lines.push('            if (charset.IndexOf(s[i]) < 0) return false;');
+    lines.push('            while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
+    lines.push('            if (i + delimiter.Length >= s.Length) return false;');
+    lines.push('            if (s.Substring(i, delimiter.Length) != delimiter) return false;');
+    lines.push('            i += delimiter.Length;');
+    lines.push('            if (i >= s.Length) return false;');
+    lines.push('            /* .+ first char must not be a line terminator (C# Regex . excludes \\n only) */');
+    lines.push("            return s[i] != '\\n';");
     lines.push('        }');
     lines.push('');
   }

@@ -227,6 +227,16 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  it('relay URL without underscore falls back to regex (allowlisted, see #32)', () => {
+    const r = classifyRegex('^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$');
+    assert.strictEqual(r.op, 'regex');
+  });
+
+  it('legacy optional relay URL falls back to regex (allowlisted, see #32)', () => {
+    const r = classifyRegex('^((ws://|wss://).+)?$');
+    assert.strictEqual(r.op, 'regex');
+  });
+
   // --- wrapped ---
 
   it('classifies PGP signature as wrapped', () => {
@@ -445,6 +455,169 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck({ op: 'datetime_iso' }));
   });
 
+  // --- dim ---
+
+  it('classifies ^[0-9]+x[0-9]+$ as dim', () => {
+    const r = classifyRegex('^[0-9]+x[0-9]+$');
+    assert.deepStrictEqual(r, { op: 'dim' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^\\d+x\\d+$ as dim (\\d variant)', () => {
+    const r = classifyRegex('^\\d+x\\d+$');
+    assert.deepStrictEqual(r, { op: 'dim' });
+  });
+
+  // --- no_uppercase ---
+
+  it('classifies ^[^A-Z]+$ as no_uppercase', () => {
+    const r = classifyRegex('^[^A-Z]+$');
+    assert.deepStrictEqual(r, { op: 'no_uppercase' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- dotted_digits ---
+
+  it('classifies ^[0-9]+(\\.[0-9]+)*$ as dotted_digits', () => {
+    const r = classifyRegex('^[0-9]+(\\.[0-9]+)*$');
+    assert.deepStrictEqual(r, { op: 'dotted_digits' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- slash_segments ---
+
+  it('classifies ^[A-Za-z0-9_\\-+]+(?:/[A-Za-z0-9_\\-+]+)*$ as slash_segments', () => {
+    const r = classifyRegex('^[A-Za-z0-9_\\-+]+(?:/[A-Za-z0-9_\\-+]+)*$');
+    assert.strictEqual(r.op, 'slash_segments');
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies slash_segments with escaped slashes', () => {
+    const r = classifyRegex('^[A-Za-z0-9_\\-+]+(?:\\/[A-Za-z0-9_\\-+]+)*$');
+    assert.strictEqual(r.op, 'slash_segments');
+  });
+
+  // --- space_separated_tokens ---
+
+  it('classifies ^\\S+( \\S+)*$ as space_separated_tokens', () => {
+    const r = classifyRegex('^\\S+( \\S+)*$');
+    assert.deepStrictEqual(r, { op: 'space_separated_tokens' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- starts_with_charset ---
+
+  it('classifies ^[0-9bcdefghjkmnpqrstuvwxyz]+ as starts_with_charset', () => {
+    const r = classifyRegex('^[0-9bcdefghjkmnpqrstuvwxyz]+');
+    assert.strictEqual(r.op, 'starts_with_charset');
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- base64 ---
+
+  it('classifies base64 pattern as base64', () => {
+    const r = classifyRegex('^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$');
+    assert.deepStrictEqual(r, { op: 'base64' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- nostr_uri ---
+
+  it('classifies nostr URI pattern as nostr_uri', () => {
+    const r = classifyRegex('^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$');
+    assert.deepStrictEqual(r, { op: 'nostr_uri' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- nip04_encrypted ---
+
+  it('classifies NIP-04 encrypted pattern as nip04_encrypted', () => {
+    const r = classifyRegex('^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$');
+    assert.deepStrictEqual(r, { op: 'nip04_encrypted' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- nip05_identifier ---
+
+  it('classifies NIP-05 identifier pattern as nip05_identifier', () => {
+    const r = classifyRegex('^(([_A-Za-z0-9.-]+)|_)@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$');
+    assert.deepStrictEqual(r, { op: 'nip05_identifier' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- mime_type_strict ---
+
+  it('classifies strict MIME type pattern as mime_type_strict', () => {
+    const r = classifyRegex('^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$');
+    assert.deepStrictEqual(r, { op: 'mime_type_strict' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- prefix_delim_rest ---
+
+  it('classifies ^[0-9]+:.+ as prefix_delim_rest', () => {
+    const r = classifyRegex('^[0-9]+:.+');
+    assert.strictEqual(r.op, 'prefix_delim_rest');
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^[a-zA-Z0-9_-]+: .+ as prefix_delim_rest', () => {
+    const r = classifyRegex('^[a-zA-Z0-9_-]+: .+');
+    assert.strictEqual(r.op, 'prefix_delim_rest');
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- Compound: compressed pubkey ---
+
+  it('classifies ^(02|03)[a-f0-9]{64}$ as compound', () => {
+    const r = classifyRegex('^(02|03)[a-f0-9]{64}$');
+    assert.strictEqual(r.op, 'compound');
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- Existing ops via classifier improvement ---
+
+  it('classifies ^refs/.* as starts_with_any', () => {
+    const r = classifyRegex('^refs/.*');
+    assert.deepStrictEqual(r, { op: 'starts_with_any', prefixes: ['refs/'] });
+  });
+
+  it('classifies ^refs/(heads|tags)/[^\\s]+$ as prefix_no_whitespace', () => {
+    const r = classifyRegex('^refs/(heads|tags)/[^\\s]+$');
+    assert.deepStrictEqual(r, { op: 'prefix_no_whitespace', prefixes: ['refs/heads/', 'refs/tags/'] });
+  });
+
+  it('classifies ^refs/(heads|tags) with escaped slashes', () => {
+    const r = classifyRegex('^refs\\/(heads|tags)\\/[^\\s]+$');
+    assert.deepStrictEqual(r, { op: 'prefix_no_whitespace', prefixes: ['refs/heads/', 'refs/tags/'] });
+  });
+
+  it('classifies ^https?://\\S+$ as prefix_no_whitespace', () => {
+    const r = classifyRegex('^https?://\\S+$');
+    assert.deepStrictEqual(r, { op: 'prefix_no_whitespace', prefixes: ['http://', 'https://'] });
+  });
+
+  // --- errorMessage filter ---
+
+  it('classifies errorMessage strings as regex (not native)', () => {
+    const msgs = [
+      'server URL must be http(s) and must not include additional path segments',
+      'notification types must be space-separated non-whitespace tokens',
+      'content must be valid Base64-encoded OpenTimestamps data',
+    ];
+    for (const msg of msgs) {
+      const r = classifyRegex(msg);
+      assert.strictEqual(r.op, 'regex', `Expected regex for: ${msg}`);
+    }
+  });
+
+  // --- Slash normalization ---
+
+  it('normalizes escaped slashes in patterns', () => {
+    const r = classifyRegex('^https?:\\/\\/\\S+$');
+    assert.deepStrictEqual(r, { op: 'prefix_no_whitespace', prefixes: ['http://', 'https://'] });
+  });
+
   // --- isNativeCheck ---
 
   it('isNativeCheck returns false for regex', () => {
@@ -542,17 +715,43 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^10\\.\\d{4,9}/.+$',
     '^[a-z0-9._\\-/]+:.+',
     '^ref: refs/heads/[^\\s]+$',
+    // New patterns (PR #30: eliminate all regex fallbacks)
+    '^[0-9]+x[0-9]+$',
+    '^\\d+x\\d+$',
+    '^[^A-Z]+$',
+    '^[0-9]+(\\.[0-9]+)*$',
+    '^[A-Za-z0-9_\\-+]+(?:/[A-Za-z0-9_\\-+]+)*$',
+    '^\\S+( \\S+)*$',
+    '^[0-9bcdefghjkmnpqrstuvwxyz]+',
+    '^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$',
+    '^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$',
+    '^(([_A-Za-z0-9.-]+)|_)@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$',
+    '^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$',
+    '^[0-9]+:.+',
+    '^[a-zA-Z0-9_-]+: .+',
+    '^(02|03)[a-f0-9]{64}$',
+    '^refs/.*',
+    '^refs/(heads|tags)/[^\\s]+$',
+    '^https?://\\S+$',
+    '^dim [0-9]{1,5}x[0-9]{1,5}$',
+  ];
+
+  // Patterns only in schemata v0.3.0 (fixed upstream, allowlisted until CI bumps past v0.3.0)
+  // See: https://github.com/nostrability/schemata-codegen/issues/32
+  const allowlistedPatterns = [
+    '^wss?://[a-zA-Z0-9.-]+(?::[0-9]+)?(?:/.*)?$',  // P2: no-underscore hostname charset
+    '^((ws://|wss://).+)?$',                          // P1: optional group accepts empty string
   ];
 
   it('processes all schemata patterns without throwing', () => {
-    for (const p of patterns) {
+    for (const p of [...patterns, ...allowlistedPatterns]) {
       const result = classifyRegex(p);
       assert.ok(result, `classifyRegex should return for: ${p}`);
       assert.ok(result.op, `result should have op for: ${p}`);
     }
   });
 
-  it('classifies majority of patterns as native', () => {
+  it('classifies all non-allowlisted patterns as native (100%)', () => {
     let nativeCount = 0;
     const regexPatterns: string[] = [];
     for (const p of patterns) {
@@ -563,9 +762,16 @@ describe('classifyRegex coverage of schemata patterns', () => {
         regexPatterns.push(p);
       }
     }
-    // Should have very few regex fallbacks (base64 only)
-    assert.ok(nativeCount >= patterns.length * 0.9,
-      `Expected >= 90% native, got ${nativeCount}/${patterns.length}. Regex: ${regexPatterns.join(', ')}`);
+    assert.strictEqual(nativeCount, patterns.length,
+      `Expected 100% native, got ${nativeCount}/${patterns.length}. Regex: ${regexPatterns.join(', ')}`);
+  });
+
+  it('allowlisted patterns fall back to regex', () => {
+    for (const p of allowlistedPatterns) {
+      const r = classifyRegex(p);
+      assert.strictEqual(r.op, 'regex',
+        `Allowlisted pattern should fall back to regex: ${p}`);
+    }
   });
 });
 
@@ -1311,6 +1517,18 @@ describe('isNativeCheck for new ops', () => {
   it('returns true for prefix_no_whitespace', () => assert.ok(isNativeCheck({ op: 'prefix_no_whitespace', prefixes: ['x'] })));
   it('returns true for external_identity', () => assert.ok(isNativeCheck({ op: 'external_identity' })));
   it('returns true for package_id', () => assert.ok(isNativeCheck({ op: 'package_id' })));
+  it('returns true for dim', () => assert.ok(isNativeCheck({ op: 'dim' })));
+  it('returns true for no_uppercase', () => assert.ok(isNativeCheck({ op: 'no_uppercase' })));
+  it('returns true for dotted_digits', () => assert.ok(isNativeCheck({ op: 'dotted_digits' })));
+  it('returns true for slash_segments', () => assert.ok(isNativeCheck({ op: 'slash_segments', charset: 'abc' })));
+  it('returns true for space_separated_tokens', () => assert.ok(isNativeCheck({ op: 'space_separated_tokens' })));
+  it('returns true for starts_with_charset', () => assert.ok(isNativeCheck({ op: 'starts_with_charset', charset: '0-9' })));
+  it('returns true for base64', () => assert.ok(isNativeCheck({ op: 'base64' })));
+  it('returns true for nostr_uri', () => assert.ok(isNativeCheck({ op: 'nostr_uri' })));
+  it('returns true for nip04_encrypted', () => assert.ok(isNativeCheck({ op: 'nip04_encrypted' })));
+  it('returns true for nip05_identifier', () => assert.ok(isNativeCheck({ op: 'nip05_identifier' })));
+  it('returns true for mime_type_strict', () => assert.ok(isNativeCheck({ op: 'mime_type_strict' })));
+  it('returns true for prefix_delim_rest', () => assert.ok(isNativeCheck({ op: 'prefix_delim_rest', charset: '0-9', delimiter: ':' })));
 });
 
 // --- B11: Missing equivalence tests for new ops ---
@@ -1751,6 +1969,447 @@ describe('check_external_identity dot-tail (B10)', () => {
     ];
     for (const input of inputs) {
       assert.strictEqual(checkExternalIdentity(input), regex.test(input),
+        `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+// ========== New op behavioral correctness + regex equivalence tests ==========
+
+describe('check_dim behavioral correctness', () => {
+  function checkDim(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (s[i] < '0' || s[i] > '9') return false;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    if (i >= s.length || s[i] !== 'x') return false;
+    i++;
+    if (i >= s.length || s[i] < '0' || s[i] > '9') return false;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    return i === s.length;
+  }
+
+  it('accepts 1920x1080', () => assert.ok(checkDim('1920x1080')));
+  it('accepts 1x1', () => assert.ok(checkDim('1x1')));
+  it('accepts 0x0', () => assert.ok(checkDim('0x0')));
+  it('rejects empty', () => assert.ok(!checkDim('')));
+  it('rejects x1080', () => assert.ok(!checkDim('x1080')));
+  it('rejects 1920x', () => assert.ok(!checkDim('1920x')));
+  it('rejects 1920X1080', () => assert.ok(!checkDim('1920X1080')));
+  it('rejects 1920x1080x', () => assert.ok(!checkDim('1920x1080x')));
+
+  it('matches regex ^[0-9]+x[0-9]+$', () => {
+    const regex = /^[0-9]+x[0-9]+$/;
+    const inputs = ['1920x1080', '1x1', '0x0', '', 'x1080', '1920x', '1920X1080', 'axb', '1920x1080x'];
+    for (const input of inputs) {
+      assert.strictEqual(checkDim(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_no_uppercase behavioral correctness', () => {
+  function checkNoUppercase(s: string): boolean {
+    if (s.length === 0) return false;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] >= 'A' && s[i] <= 'Z') return false;
+    }
+    return true;
+  }
+
+  it('accepts lowercase', () => assert.ok(checkNoUppercase('abc')));
+  it('accepts digits', () => assert.ok(checkNoUppercase('123')));
+  it('accepts mixed lower+digits+special', () => assert.ok(checkNoUppercase('abc-123_foo')));
+  it('rejects empty', () => assert.ok(!checkNoUppercase('')));
+  it('rejects uppercase', () => assert.ok(!checkNoUppercase('ABC')));
+  it('rejects mixed case', () => assert.ok(!checkNoUppercase('abcDef')));
+
+  it('matches regex ^[^A-Z]+$', () => {
+    const regex = /^[^A-Z]+$/;
+    const inputs = ['abc', '123', 'abc-123_foo', '', 'ABC', 'abcDef', ' ', '\n'];
+    for (const input of inputs) {
+      assert.strictEqual(checkNoUppercase(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_dotted_digits behavioral correctness', () => {
+  function checkDottedDigits(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (s[i] < '0' || s[i] > '9') return false;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    while (i < s.length && s[i] === '.') {
+      i++;
+      if (i >= s.length || s[i] < '0' || s[i] > '9') return false;
+      while (i < s.length && s[i] >= '0' && s[i] <= '9') i++;
+    }
+    return i === s.length;
+  }
+
+  it('accepts 1', () => assert.ok(checkDottedDigits('1')));
+  it('accepts 1.2', () => assert.ok(checkDottedDigits('1.2')));
+  it('accepts 1.2.3', () => assert.ok(checkDottedDigits('1.2.3')));
+  it('accepts 10.20.30', () => assert.ok(checkDottedDigits('10.20.30')));
+  it('rejects empty', () => assert.ok(!checkDottedDigits('')));
+  it('rejects leading dot', () => assert.ok(!checkDottedDigits('.1')));
+  it('rejects trailing dot', () => assert.ok(!checkDottedDigits('1.')));
+  it('rejects consecutive dots', () => assert.ok(!checkDottedDigits('1..2')));
+  it('rejects letters', () => assert.ok(!checkDottedDigits('1.2a')));
+
+  it('matches regex ^[0-9]+(\\.[0-9]+)*$', () => {
+    const regex = /^[0-9]+(\.[0-9]+)*$/;
+    const inputs = ['1', '1.2', '1.2.3', '10.20.30', '', '.1', '1.', '1..2', '1.2a', '0', '00.00'];
+    for (const input of inputs) {
+      assert.strictEqual(checkDottedDigits(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_slash_segments behavioral correctness', () => {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+';
+  function checkSlashSegments(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (!charset.includes(s[i])) return false;
+    while (i < s.length && charset.includes(s[i])) i++;
+    while (i < s.length && s[i] === '/') {
+      i++;
+      if (i >= s.length || !charset.includes(s[i])) return false;
+      while (i < s.length && charset.includes(s[i])) i++;
+    }
+    return i === s.length;
+  }
+
+  it('accepts single segment', () => assert.ok(checkSlashSegments('foo')));
+  it('accepts two segments', () => assert.ok(checkSlashSegments('foo/bar')));
+  it('accepts three segments', () => assert.ok(checkSlashSegments('a/b/c')));
+  it('accepts special chars', () => assert.ok(checkSlashSegments('foo-bar_baz+qux')));
+  it('rejects empty', () => assert.ok(!checkSlashSegments('')));
+  it('rejects leading slash', () => assert.ok(!checkSlashSegments('/foo')));
+  it('rejects trailing slash', () => assert.ok(!checkSlashSegments('foo/')));
+  it('rejects consecutive slashes', () => assert.ok(!checkSlashSegments('foo//bar')));
+
+  it('matches regex ^[A-Za-z0-9_\\-+]+(?:/[A-Za-z0-9_\\-+]+)*$', () => {
+    const regex = /^[A-Za-z0-9_\-+]+(?:\/[A-Za-z0-9_\-+]+)*$/;
+    const inputs = ['foo', 'foo/bar', 'a/b/c', 'foo-bar_baz+qux', '', '/foo', 'foo/', 'foo//bar', 'a b'];
+    for (const input of inputs) {
+      assert.strictEqual(checkSlashSegments(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_space_separated_tokens behavioral correctness', () => {
+  const WS = new Set([
+    '\t', '\n', '\x0B', '\x0C', '\r', ' ', '\xA0',
+    '\u1680', '\u2000', '\u2001', '\u2002', '\u2003', '\u2004',
+    '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200A',
+    '\u2028', '\u2029', '\u202F', '\u205F', '\u3000', '\uFEFF',
+  ]);
+  function checkSpaceSepTokens(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (WS.has(s[i])) return false;
+    while (i < s.length && !WS.has(s[i])) i++;
+    while (i < s.length && s[i] === ' ') {
+      i++;
+      if (i >= s.length || WS.has(s[i])) return false;
+      while (i < s.length && !WS.has(s[i])) i++;
+    }
+    return i === s.length;
+  }
+
+  it('accepts single token', () => assert.ok(checkSpaceSepTokens('hello')));
+  it('accepts two tokens', () => assert.ok(checkSpaceSepTokens('hello world')));
+  it('accepts three tokens', () => assert.ok(checkSpaceSepTokens('a b c')));
+  it('rejects empty', () => assert.ok(!checkSpaceSepTokens('')));
+  it('rejects leading space', () => assert.ok(!checkSpaceSepTokens(' hello')));
+  it('rejects trailing space', () => assert.ok(!checkSpaceSepTokens('hello ')));
+  it('rejects consecutive spaces', () => assert.ok(!checkSpaceSepTokens('hello  world')));
+  it('rejects tab', () => assert.ok(!checkSpaceSepTokens('hello\tworld')));
+
+  it('matches regex ^\\S+( \\S+)*$', () => {
+    const regex = /^\S+( \S+)*$/;
+    const inputs = ['hello', 'hello world', 'a b c', '', ' hello', 'hello ', 'hello  world', 'hello\tworld'];
+    for (const input of inputs) {
+      assert.strictEqual(checkSpaceSepTokens(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_starts_with_charset behavioral correctness', () => {
+  const charset = '0123456789bcdefghjkmnpqrstuvwxyz';
+  function checkStartsWithCharset(s: string): boolean {
+    return s.length >= 1 && charset.includes(s[0]);
+  }
+
+  it('accepts starting with digit', () => assert.ok(checkStartsWithCharset('9abc')));
+  it('accepts starting with bech32 letter', () => assert.ok(checkStartsWithCharset('b123')));
+  it('accepts single char', () => assert.ok(checkStartsWithCharset('0')));
+  it('accepts with trailing junk (unanchored)', () => assert.ok(checkStartsWithCharset('9XYZ')));
+  it('rejects empty', () => assert.ok(!checkStartsWithCharset('')));
+  it('rejects starting with A', () => assert.ok(!checkStartsWithCharset('A123')));
+  it('rejects starting with a (not in bech32)', () => assert.ok(!checkStartsWithCharset('a123')));
+
+  it('matches regex ^[0-9bcdefghjkmnpqrstuvwxyz]+ (unanchored)', () => {
+    const regex = /^[0-9bcdefghjkmnpqrstuvwxyz]+/;
+    const inputs = ['9abc', 'b123', '0', '9XYZ', '', 'A123', 'a123'];
+    for (const input of inputs) {
+      assert.strictEqual(checkStartsWithCharset(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_base64 behavioral correctness', () => {
+  function isB64Char(c: string): boolean {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/';
+  }
+  function checkBase64(s: string): boolean {
+    if (s.length === 0) return true;
+    if (s.length % 4 !== 0) return false;
+    let i = 0;
+    while (i < s.length && isB64Char(s[i])) i++;
+    const dataLen = i;
+    const padLen = s.length - dataLen;
+    if (padLen > 2) return false;
+    if (padLen === 1 && dataLen % 4 !== 3) return false;
+    if (padLen === 2 && dataLen % 4 !== 2) return false;
+    for (let j = dataLen; j < s.length; j++) {
+      if (s[j] !== '=') return false;
+    }
+    return true;
+  }
+
+  it('accepts empty string', () => assert.ok(checkBase64('')));
+  it('accepts SGVsbG8=', () => assert.ok(checkBase64('SGVsbG8=')));
+  it('accepts SGVsbA==', () => assert.ok(checkBase64('SGVsbA==')));
+  it('accepts AAAA', () => assert.ok(checkBase64('AAAA')));
+  it('accepts AAAAAAAA', () => assert.ok(checkBase64('AAAAAAAA')));
+  it('rejects single char', () => assert.ok(!checkBase64('A')));
+  it('rejects odd length', () => assert.ok(!checkBase64('ABC')));
+  it('rejects ====', () => assert.ok(!checkBase64('====')));
+  it('rejects padding in middle', () => assert.ok(!checkBase64('AA==AAAA')));
+
+  it('matches regex', () => {
+    const regex = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+    const inputs = ['', 'SGVsbG8=', 'SGVsbA==', 'AAAA', 'AAAAAAAA', 'A', 'ABC', '====', 'AA==AAAA', '+/+/+/+/'];
+    for (const input of inputs) {
+      assert.strictEqual(checkBase64(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_nostr_uri behavioral correctness', () => {
+  const BECH32 = '023456789acdefghjklmnpqrstuvwxyz';
+  function checkNostrUri(s: string): boolean {
+    if (!s.startsWith('nostr:')) return false;
+    const p = s.slice(6);
+    if (p.length === 0) return false;
+    if (p.length === 63 && (p.startsWith('npub1') || p.startsWith('note1'))) {
+      for (let i = 5; i < 63; i++) if (!BECH32.includes(p[i])) return false;
+      return true;
+    }
+    let prefixLen = 0;
+    if (p.startsWith('nprofile1')) prefixLen = 9;
+    else if (p.startsWith('nevent1')) prefixLen = 7;
+    else if (p.startsWith('naddr1')) prefixLen = 6;
+    if (prefixLen === 0 || p.length <= prefixLen) return false;
+    for (let i = prefixLen; i < p.length; i++) if (!BECH32.includes(p[i])) return false;
+    return true;
+  }
+
+  it('accepts valid npub URI', () => assert.ok(checkNostrUri('nostr:npub1' + '0'.repeat(58))));
+  it('accepts valid note URI', () => assert.ok(checkNostrUri('nostr:note1' + '0'.repeat(58))));
+  it('accepts valid nprofile URI', () => assert.ok(checkNostrUri('nostr:nprofile1' + '0'.repeat(10))));
+  it('accepts valid nevent URI', () => assert.ok(checkNostrUri('nostr:nevent1' + '0'.repeat(10))));
+  it('accepts valid naddr URI', () => assert.ok(checkNostrUri('nostr:naddr1' + '0'.repeat(10))));
+  it('rejects missing prefix', () => assert.ok(!checkNostrUri('npub1' + '0'.repeat(58))));
+  it('rejects empty after nostr:', () => assert.ok(!checkNostrUri('nostr:')));
+  it('rejects wrong length for npub', () => assert.ok(!checkNostrUri('nostr:npub1' + '0'.repeat(57))));
+
+  it('matches regex', () => {
+    const regex = /^nostr:((npub|note)1[02-9ac-hj-np-z]{58}|(nprofile|nevent|naddr)1[02-9ac-hj-np-z]+)$/;
+    const inputs = [
+      'nostr:npub1' + '0'.repeat(58),
+      'nostr:note1' + '0'.repeat(58),
+      'nostr:nprofile1' + '0'.repeat(10),
+      'nostr:nevent1' + '0'.repeat(10),
+      'nostr:naddr1' + '0'.repeat(10),
+      'npub1' + '0'.repeat(58),
+      'nostr:',
+      'nostr:npub1' + '0'.repeat(57),
+      '',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkNostrUri(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_nip04_encrypted behavioral correctness', () => {
+  function isB64Char(c: string): boolean {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/';
+  }
+  function checkNip04(s: string): boolean {
+    if (s.length === 0) return false;
+    const sep = s.indexOf('?iv=');
+    if (sep <= 0) return false;
+    const rightStart = sep + 4;
+    if (rightStart >= s.length) return false;
+    let i = 0;
+    while (i < sep && isB64Char(s[i])) i++;
+    if (i === 0) return false;
+    let eq = 0;
+    while (i < sep && s[i] === '=') { i++; eq++; }
+    if (i !== sep || eq > 2) return false;
+    i = rightStart;
+    const dataStart = i;
+    while (i < s.length && isB64Char(s[i])) i++;
+    if (i === dataStart) return false;
+    eq = 0;
+    while (i < s.length && s[i] === '=') { i++; eq++; }
+    return i === s.length && eq <= 2;
+  }
+
+  it('accepts valid NIP-04', () => assert.ok(checkNip04('AAAA?iv=BBBB')));
+  it('accepts with padding', () => assert.ok(checkNip04('AA==?iv=BB==')));
+  it('accepts long data', () => assert.ok(checkNip04('AAAAAA==?iv=BBBB')));
+  it('rejects empty', () => assert.ok(!checkNip04('')));
+  it('rejects no ?iv=', () => assert.ok(!checkNip04('AAAA')));
+  it('rejects empty left', () => assert.ok(!checkNip04('?iv=BBBB')));
+  it('rejects empty right', () => assert.ok(!checkNip04('AAAA?iv=')));
+
+  it('matches regex', () => {
+    const regex = /^[A-Za-z0-9+/]+={0,2}\?iv=[A-Za-z0-9+/]+={0,2}$/;
+    const inputs = ['AAAA?iv=BBBB', 'AA==?iv=BB==', 'AAAAAA==?iv=BBBB', '', 'AAAA', '?iv=BBBB', 'AAAA?iv='];
+    for (const input of inputs) {
+      assert.strictEqual(checkNip04(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_nip05_identifier behavioral correctness', () => {
+  function isAlnum(c: string): boolean {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+  }
+  function isLocalChar(c: string): boolean {
+    return c === '_' || isAlnum(c) || c === '.' || c === '-';
+  }
+  function isDomainChar(c: string): boolean {
+    return isAlnum(c) || c === '-';
+  }
+  function checkNip05(s: string): boolean {
+    if (s.length === 0) return false;
+    const at = s.lastIndexOf('@');
+    if (at <= 0) return false;
+    for (let i = 0; i < at; i++) if (!isLocalChar(s[i])) return false;
+    const d = s.slice(at + 1);
+    if (d.length === 0) return false;
+    let dotCount = 0;
+    let di = 0;
+    while (di < d.length) {
+      if (!isAlnum(d[di])) return false;
+      while (di < d.length && isDomainChar(d[di])) di++;
+      if (di > 0 && !isAlnum(d[di - 1])) return false;
+      if (di < d.length && d[di] === '.') { dotCount++; di++; }
+      else if (di < d.length) return false;
+    }
+    return dotCount >= 1 && isAlnum(d[d.length - 1]);
+  }
+
+  it('accepts user@example.com', () => assert.ok(checkNip05('user@example.com')));
+  it('accepts _@domain.tld', () => assert.ok(checkNip05('_@domain.tld')));
+  it('accepts user.name@sub.domain.com', () => assert.ok(checkNip05('user.name@sub.domain.com')));
+  it('rejects empty', () => assert.ok(!checkNip05('')));
+  it('rejects no @', () => assert.ok(!checkNip05('user')));
+  it('rejects no domain dots', () => assert.ok(!checkNip05('user@localhost')));
+  it('rejects trailing hyphen in domain', () => assert.ok(!checkNip05('user@exam-.com')));
+  it('rejects leading hyphen in domain', () => assert.ok(!checkNip05('user@-example.com')));
+
+  it('matches regex', () => {
+    const regex = /^(([_A-Za-z0-9.-]+)|_)@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+    const inputs = [
+      'user@example.com', '_@domain.tld', 'user.name@sub.domain.com',
+      '', 'user', 'user@localhost', 'user@exam-.com', 'user@-example.com',
+      'a@b.c', '@domain.com',
+    ];
+    for (const input of inputs) {
+      assert.strictEqual(checkNip05(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_mime_type_strict behavioral correctness', () => {
+  function isAlnum(c: string): boolean {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+  }
+  const MIME_EXTRA = '!#$&^_.+-';
+  function isMimeChar(c: string): boolean {
+    return isAlnum(c) || MIME_EXTRA.includes(c);
+  }
+  function checkMimeStrict(s: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (!isAlnum(s[i])) return false;
+    i++;
+    while (i < s.length && isMimeChar(s[i])) i++;
+    if (i >= s.length || s[i] !== '/') return false;
+    i++;
+    if (i >= s.length || !isAlnum(s[i])) return false;
+    i++;
+    while (i < s.length && isMimeChar(s[i])) i++;
+    return i === s.length;
+  }
+
+  it('accepts text/plain', () => assert.ok(checkMimeStrict('text/plain')));
+  it('accepts application/vnd.api+json', () => assert.ok(checkMimeStrict('application/vnd.api+json')));
+  it('accepts image/svg+xml', () => assert.ok(checkMimeStrict('image/svg+xml')));
+  it('rejects empty', () => assert.ok(!checkMimeStrict('')));
+  it('rejects no slash', () => assert.ok(!checkMimeStrict('text')));
+  it('rejects leading special', () => assert.ok(!checkMimeStrict('!text/plain')));
+  it('rejects slash at end', () => assert.ok(!checkMimeStrict('text/')));
+
+  it('matches regex', () => {
+    const regex = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
+    const inputs = ['text/plain', 'application/vnd.api+json', 'image/svg+xml', '', 'text', '!text/plain', 'text/', '/json'];
+    for (const input of inputs) {
+      assert.strictEqual(checkMimeStrict(input), regex.test(input), `Mismatch for ${JSON.stringify(input)}`);
+    }
+  });
+});
+
+describe('check_prefix_delim_rest behavioral correctness', () => {
+  function checkPrefixDelimRest(s: string, charset: string, delim: string): boolean {
+    if (s.length === 0) return false;
+    let i = 0;
+    if (!charset.includes(s[i])) return false;
+    while (i < s.length && charset.includes(s[i])) i++;
+    if (i + delim.length >= s.length) return false;
+    if (s.slice(i, i + delim.length) !== delim) return false;
+    i += delim.length;
+    if (i >= s.length) return false;
+    // .+ first char must not be a line terminator (ECMA-262)
+    const c = s[i];
+    if (c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029') return false;
+    return true;
+  }
+
+  it('accepts 123:hello', () => assert.ok(checkPrefixDelimRest('123:hello', '0123456789', ':')));
+  it('accepts foo: bar', () => assert.ok(checkPrefixDelimRest('foo: bar', 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-', ': ')));
+  it('rejects empty', () => assert.ok(!checkPrefixDelimRest('', '0123456789', ':')));
+  it('rejects no delimiter', () => assert.ok(!checkPrefixDelimRest('123', '0123456789', ':')));
+  it('rejects nothing after delimiter', () => assert.ok(!checkPrefixDelimRest('123:', '0123456789', ':')));
+  it('rejects newline after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\n', '0123456789', ':')));
+  it('rejects CR after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\r', '0123456789', ':')));
+  it('rejects LS after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\u2028', '0123456789', ':')));
+  it('rejects PS after delimiter', () => assert.ok(!checkPrefixDelimRest('123:\u2029', '0123456789', ':')));
+  it('accepts newline in middle of content', () => assert.ok(checkPrefixDelimRest('123:hello\nmore', '0123456789', ':')));
+
+  it('matches regex ^[0-9]+:.+ (unanchored)', () => {
+    const regex = /^[0-9]+:.+/;
+    const inputs = ['123:hello', '0:x', '', '123', '123:', 'abc:def', '123:hello\nmore',
+      '123:\n', '123:\r', '123:\u2028', '123:\u2029', '123:\nfoo', '123:\rfoo'];
+    for (const input of inputs) {
+      assert.strictEqual(checkPrefixDelimRest(input, '0123456789', ':'), regex.test(input),
         `Mismatch for ${JSON.stringify(input)}`);
     }
   });

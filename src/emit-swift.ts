@@ -172,6 +172,59 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('checkImetaDim');
       return { expr: `checkImetaDim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('checkDim');
+      return { expr: `checkDim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('checkNoUppercase');
+      return { expr: `checkNoUppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('checkDottedDigits');
+      return { expr: `checkDottedDigits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('checkSlashSegments');
+      return { expr: `checkSlashSegments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('checkSpaceSeparatedTokens');
+      helpers.add('isEcmaWs');
+      return { expr: `checkSpaceSeparatedTokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('checkStartsWithCharset');
+      return { expr: `checkStartsWithCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('checkBase64');
+      return { expr: `checkBase64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('checkNostrUri');
+      helpers.add('checkBech32'); // triggers isBech32Char
+      return { expr: `checkNostrUri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('checkNip04Encrypted');
+      helpers.add('checkBase64'); // triggers isB64Char
+      return { expr: `checkNip04Encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('checkNip05Identifier');
+      helpers.add('isAlnumByte');
+      return { expr: `checkNip05Identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('checkMimeTypeStrict');
+      helpers.add('isAlnumByte');
+      return { expr: `checkMimeTypeStrict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('checkPrefixDelimRest');
+      return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -998,6 +1051,300 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('        while i < u.count && isPkgIdChar(u[i]) { i += 1 }');
     lines.push('    }');
     lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDim')) {
+    lines.push('// ^[0-9]+x[0-9]+$');
+    lines.push('private func checkDim(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if u[i] < 0x30 || u[i] > 0x39 { return false }');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    if i >= u.count || u[i] != 0x78 { return false }');
+    lines.push('    i += 1');
+    lines.push('    if i >= u.count || u[i] < 0x30 || u[i] > 0x39 { return false }');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoUppercase')) {
+    lines.push('// ^[^A-Z]+$');
+    lines.push('private func checkNoUppercase(_ s: String) -> Bool {');
+    lines.push('    if s.isEmpty { return false }');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    for b in u {');
+    lines.push('        if b >= 0x41 && b <= 0x5A { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDottedDigits')) {
+    lines.push('// ^[0-9]+(\\.[0-9]+)*$');
+    lines.push('private func checkDottedDigits(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if u[i] < 0x30 || u[i] > 0x39 { return false }');
+    lines.push('    while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    while i < u.count && u[i] == 0x2E {');
+    lines.push('        i += 1');
+    lines.push('        if i >= u.count || u[i] < 0x30 || u[i] > 0x39 { return false }');
+    lines.push('        while i < u.count && u[i] >= 0x30 && u[i] <= 0x39 { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkSlashSegments')) {
+    lines.push('// ^[charset]+(/[charset]+)*$');
+    lines.push('private func checkSlashSegments(_ s: String, _ charset: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let cs = Array(charset.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if !cs.contains(u[i]) { return false }');
+    lines.push('    while i < u.count && cs.contains(u[i]) { i += 1 }');
+    lines.push('    while i < u.count && u[i] == 0x2F {');
+    lines.push('        i += 1');
+    lines.push('        if i >= u.count || !cs.contains(u[i]) { return false }');
+    lines.push('        while i < u.count && cs.contains(u[i]) { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkSpaceSeparatedTokens')) {
+    lines.push('// ^\\S+( \\S+)*$');
+    lines.push('private func checkSpaceSeparatedTokens(_ s: String) -> Bool {');
+    lines.push('    if s.isEmpty { return false }');
+    lines.push('    let chars = Array(s)');
+    lines.push('    var i = 0');
+    lines.push('    // first token: 1+ non-whitespace');
+    lines.push('    while i < chars.count && !isEcmaWs(chars[i]) { i += 1 }');
+    lines.push('    if i == 0 { return false }');
+    lines.push('    while i < chars.count && chars[i] == Character(" ") {');
+    lines.push('        i += 1');
+    lines.push('        if i >= chars.count || isEcmaWs(chars[i]) { return false }');
+    lines.push('        while i < chars.count && !isEcmaWs(chars[i]) { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == chars.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkStartsWithCharset')) {
+    lines.push('// ^[charset]+ (no end anchor)');
+    lines.push('private func checkStartsWithCharset(_ s: String, _ charset: String) -> Bool {');
+    lines.push('    if s.isEmpty { return false }');
+    lines.push('    let cs = Array(charset.utf8)');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    return cs.contains(u[0])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBase64')) {
+    lines.push('private func isB64Char(_ b: UInt8) -> Bool {');
+    lines.push('    (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || (b >= 0x30 && b <= 0x39) || b == 0x2B || b == 0x2F');
+    lines.push('}');
+    lines.push('');
+    lines.push('// standard base64');
+    lines.push('private func checkBase64(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let len = u.count');
+    lines.push('    if len == 0 { return true }');
+    lines.push('    if len % 4 != 0 { return false }');
+    lines.push('    var i = 0');
+    lines.push('    while i < len {');
+    lines.push('        if u[i] == 0x3D { break }');
+    lines.push('        if !isB64Char(u[i]) { return false }');
+    lines.push('        i += 1');
+    lines.push('    }');
+    lines.push('    let dataLen = i');
+    lines.push('    let padLen = len - dataLen');
+    lines.push('    if padLen > 2 { return false }');
+    lines.push('    if padLen == 1 && dataLen % 4 != 3 { return false }');
+    lines.push('    if padLen == 2 && dataLen % 4 != 2 { return false }');
+    lines.push('    while i < len {');
+    lines.push('        if u[i] != 0x3D { return false }');
+    lines.push('        i += 1');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNostrUri')) {
+    lines.push('private func isNostrBech32DataChar(_ b: UInt8) -> Bool {');
+    lines.push('    (b >= 0x30 && b <= 0x39 && b != 0x31) || (b >= 0x61 && b <= 0x7A && b != 0x62 && b != 0x69 && b != 0x6F)');
+    lines.push('}');
+    lines.push('');
+    lines.push('// ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$');
+    lines.push('private func checkNostrUri(_ s: String) -> Bool {');
+    lines.push('    guard s.hasPrefix("nostr:") else { return false }');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let rest = u.count - 6');
+    lines.push('    // npub1 or note1 + exactly 58 data chars = 63');
+    lines.push('    if rest == 63 {');
+    lines.push('        let p = Array(u[6...])');
+    lines.push('        if (p[0] == 0x6E && p[1] == 0x70 && p[2] == 0x75 && p[3] == 0x62 && p[4] == 0x31) ||');
+    lines.push('           (p[0] == 0x6E && p[1] == 0x6F && p[2] == 0x74 && p[3] == 0x65 && p[4] == 0x31) {');
+    lines.push('            for j in 5..<63 {');
+    lines.push('                if !isNostrBech32DataChar(p[j]) { return false }');
+    lines.push('            }');
+    lines.push('            return true');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    // nprofile1, nevent1, naddr1 + 1+ data chars');
+    lines.push('    let p = Array(u[6...])');
+    lines.push('    var prefixLen = 0');
+    lines.push('    if rest > 9 && p[0] == 0x6E && p[1] == 0x70 && p[2] == 0x72 && p[3] == 0x6F && p[4] == 0x66 && p[5] == 0x69 && p[6] == 0x6C && p[7] == 0x65 && p[8] == 0x31 { prefixLen = 9 }');
+    lines.push('    else if rest > 7 && p[0] == 0x6E && p[1] == 0x65 && p[2] == 0x76 && p[3] == 0x65 && p[4] == 0x6E && p[5] == 0x74 && p[6] == 0x31 { prefixLen = 7 }');
+    lines.push('    else if rest > 6 && p[0] == 0x6E && p[1] == 0x61 && p[2] == 0x64 && p[3] == 0x64 && p[4] == 0x72 && p[5] == 0x31 { prefixLen = 6 }');
+    lines.push('    if prefixLen == 0 || rest <= prefixLen { return false }');
+    lines.push('    for j in prefixLen..<rest {');
+    lines.push('        if !isNostrBech32DataChar(p[j]) { return false }');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNip04Encrypted')) {
+    lines.push('// ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$');
+    lines.push('private func checkNip04Encrypted(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    // find "?iv=" separator');
+    lines.push('    var sep = -1');
+    lines.push('    for j in 0..<(u.count < 4 ? 0 : u.count - 3) {');
+    lines.push('        if u[j] == 0x3F && u[j+1] == 0x69 && u[j+2] == 0x76 && u[j+3] == 0x3D {');
+    lines.push('            sep = j');
+    lines.push('            break');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    if sep <= 0 { return false }');
+    lines.push('    if sep + 4 >= u.count { return false }');
+    lines.push('    // check left half: 1+ b64 chars + 0-2 =');
+    lines.push('    var i = 0');
+    lines.push('    while i < sep && isB64Char(u[i]) { i += 1 }');
+    lines.push('    if i == 0 { return false }');
+    lines.push('    var eq = 0');
+    lines.push('    while i < sep && u[i] == 0x3D { i += 1; eq += 1 }');
+    lines.push('    if i != sep || eq > 2 { return false }');
+    lines.push('    // check right half');
+    lines.push('    i = sep + 4');
+    lines.push('    let dataStart = i');
+    lines.push('    while i < u.count && isB64Char(u[i]) { i += 1 }');
+    lines.push('    if i == dataStart { return false }');
+    lines.push('    eq = 0');
+    lines.push('    while i < u.count && u[i] == 0x3D { i += 1; eq += 1 }');
+    lines.push('    return i == u.count && eq <= 2');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('isAlnumByte')) {
+    lines.push('private func isAlnumByte(_ b: UInt8) -> Bool {');
+    lines.push('    (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || (b >= 0x30 && b <= 0x39)');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNip05Identifier')) {
+    lines.push('private func isNip05LocalChar(_ b: UInt8) -> Bool {');
+    lines.push('    b == 0x5F || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || (b >= 0x30 && b <= 0x39) || b == 0x2E || b == 0x2D');
+    lines.push('}');
+    lines.push('');
+    lines.push('private func isDomainChar(_ b: UInt8) -> Bool {');
+    lines.push('    (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || (b >= 0x30 && b <= 0x39) || b == 0x2D');
+    lines.push('}');
+    lines.push('');
+    lines.push('// NIP-05: local@domain.tld');
+    lines.push('private func checkNip05Identifier(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    // find last @');
+    lines.push('    var atPos = -1');
+    lines.push('    for j in 0..<u.count {');
+    lines.push('        if u[j] == 0x40 { atPos = j }');
+    lines.push('    }');
+    lines.push('    if atPos <= 0 { return false }');
+    lines.push('    // local part: [_A-Za-z0-9.-]+');
+    lines.push('    for j in 0..<atPos {');
+    lines.push('        if !isNip05LocalChar(u[j]) { return false }');
+    lines.push('    }');
+    lines.push('    // domain: 2+ dot-separated labels');
+    lines.push('    let dStart = atPos + 1');
+    lines.push('    let dLen = u.count - dStart');
+    lines.push('    if dLen == 0 { return false }');
+    lines.push('    var dotCount = 0');
+    lines.push('    var di = dStart');
+    lines.push('    while di < u.count {');
+    lines.push('        if !isAlnumByte(u[di]) { return false }');
+    lines.push('        while di < u.count && isDomainChar(u[di]) { di += 1 }');
+    lines.push('        if !isAlnumByte(u[di - 1]) { return false }');
+    lines.push('        if di < u.count && u[di] == 0x2E { dotCount += 1; di += 1 }');
+    lines.push('        else if di < u.count { return false }');
+    lines.push('    }');
+    lines.push('    return dotCount >= 1 && isAlnumByte(u[u.count - 1])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeTypeStrict')) {
+    lines.push('private func isMimeStrictChar(_ b: UInt8) -> Bool {');
+    lines.push('    (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || (b >= 0x30 && b <= 0x39) || b == 0x21 || b == 0x23 || b == 0x24 || b == 0x26 || b == 0x5E || b == 0x5F || b == 0x2E || b == 0x2B || b == 0x2D');
+    lines.push('}');
+    lines.push('');
+    lines.push('// ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$');
+    lines.push('private func checkMimeTypeStrict(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if !isAlnumByte(u[i]) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < u.count && isMimeStrictChar(u[i]) { i += 1 }');
+    lines.push('    if i >= u.count || u[i] != 0x2F { return false }');
+    lines.push('    i += 1');
+    lines.push('    if i >= u.count || !isAlnumByte(u[i]) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < u.count && isMimeStrictChar(u[i]) { i += 1 }');
+    lines.push('    return i == u.count');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPrefixDelimRest')) {
+    lines.push('// ^[charset]+<delim>.+ (no end anchor)');
+    lines.push('private func checkPrefixDelimRest(_ s: String, _ charset: String, _ delimiter: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    let cs = Array(charset.utf8)');
+    lines.push('    let del = Array(delimiter.utf8)');
+    lines.push('    if u.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if !cs.contains(u[i]) { return false }');
+    lines.push('    while i < u.count && cs.contains(u[i]) { i += 1 }');
+    lines.push('    if i + del.count >= u.count { return false }');
+    lines.push('    for j in 0..<del.count {');
+    lines.push('        if u[i + j] != del[j] { return false }');
+    lines.push('    }');
+    lines.push('    i += del.count');
+    lines.push('    if i >= u.count { return false }');
+    lines.push('    // .+ first char must not be a line terminator (Swift . excludes \\n, \\r, NEL, LS, PS)');
+    lines.push('    if u[i] == 0x0A || u[i] == 0x0D { return false }');
+    lines.push('    if u[i] == 0xC2 && i + 1 < u.count && u[i+1] == 0x85 { return false }');
+    lines.push('    if u[i] == 0xE2 && i + 2 < u.count && u[i+1] == 0x80 && (u[i+2] == 0xA8 || u[i+2] == 0xA9) { return false }');
+    lines.push('    return true');
     lines.push('}');
     lines.push('');
   }

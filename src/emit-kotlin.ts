@@ -168,6 +168,57 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('checkImetaDim');
       return { expr: `checkImetaDim(${varExpr})`, helpers };
     }
+    case 'dim': {
+      helpers.add('checkDim');
+      return { expr: `checkDim(${varExpr})`, helpers };
+    }
+    case 'no_uppercase': {
+      helpers.add('checkNoUppercase');
+      return { expr: `checkNoUppercase(${varExpr})`, helpers };
+    }
+    case 'dotted_digits': {
+      helpers.add('checkDottedDigits');
+      return { expr: `checkDottedDigits(${varExpr})`, helpers };
+    }
+    case 'slash_segments': {
+      helpers.add('checkSlashSegments');
+      return { expr: `checkSlashSegments(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'space_separated_tokens': {
+      helpers.add('checkSpaceSeparatedTokens');
+      helpers.add('isEcmaWs');
+      return { expr: `checkSpaceSeparatedTokens(${varExpr})`, helpers };
+    }
+    case 'starts_with_charset': {
+      helpers.add('checkStartsWithCharset');
+      return { expr: `checkStartsWithCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'base64': {
+      helpers.add('checkBase64');
+      return { expr: `checkBase64(${varExpr})`, helpers };
+    }
+    case 'nostr_uri': {
+      helpers.add('checkNostrUri');
+      helpers.add('checkBech32'); // triggers isBech32Char
+      return { expr: `checkNostrUri(${varExpr})`, helpers };
+    }
+    case 'nip04_encrypted': {
+      helpers.add('checkNip04Encrypted');
+      helpers.add('checkBase64'); // triggers isB64Char
+      return { expr: `checkNip04Encrypted(${varExpr})`, helpers };
+    }
+    case 'nip05_identifier': {
+      helpers.add('checkNip05Identifier');
+      return { expr: `checkNip05Identifier(${varExpr})`, helpers };
+    }
+    case 'mime_type_strict': {
+      helpers.add('checkMimeTypeStrict');
+      return { expr: `checkMimeTypeStrict(${varExpr})`, helpers };
+    }
+    case 'prefix_delim_rest': {
+      helpers.add('checkPrefixDelimRest');
+      return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -894,6 +945,237 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    val d2len = i - d2');
     lines.push('    if (d2len < 1 || d2len > 5) return false');
     lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkDim')) {
+    lines.push('/* ^[0-9]+x[0-9]+$ */');
+    lines.push('private fun checkDim(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push("    if (s[i] !in '0'..'9') return false");
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push("    if (i >= s.length || s[i] != 'x') return false");
+    lines.push('    i++');
+    lines.push("    if (i >= s.length || s[i] !in '0'..'9') return false");
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNoUppercase')) {
+    lines.push('/* ^[^A-Z]+$ */');
+    lines.push('private fun checkNoUppercase(s: String): Boolean =');
+    lines.push("    s.isNotEmpty() && s.none { it in 'A'..'Z' }");
+    lines.push('');
+  }
+
+  if (helpers.has('checkDottedDigits')) {
+    lines.push('/* ^[0-9]+(\\.[0-9]+)*$ */');
+    lines.push('private fun checkDottedDigits(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push("    if (s[i] !in '0'..'9') return false");
+    lines.push("    while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push("    while (i < s.length && s[i] == '.') {");
+    lines.push('        i++');
+    lines.push("        if (i >= s.length || s[i] !in '0'..'9') return false");
+    lines.push("        while (i < s.length && s[i] in '0'..'9') i++");
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkSlashSegments')) {
+    lines.push('/* ^[charset]+(/[charset]+)*$ */');
+    lines.push('private fun checkSlashSegments(s: String, charset: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push('    if (s[i] !in charset) return false');
+    lines.push('    while (i < s.length && s[i] in charset) i++');
+    lines.push("    while (i < s.length && s[i] == '/') {");
+    lines.push('        i++');
+    lines.push('        if (i >= s.length || s[i] !in charset) return false');
+    lines.push('        while (i < s.length && s[i] in charset) i++');
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkSpaceSeparatedTokens')) {
+    lines.push('/* ^\\S+( \\S+)*$ */');
+    lines.push('private fun checkSpaceSeparatedTokens(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push('    /* first token: 1+ non-whitespace chars */');
+    lines.push('    if (isEcmaWs(s[i])) return false');
+    lines.push('    while (i < s.length && !isEcmaWs(s[i])) i++');
+    lines.push("    while (i < s.length && s[i] == ' ') {");
+    lines.push('        i++');
+    lines.push('        if (i >= s.length || isEcmaWs(s[i])) return false');
+    lines.push('        while (i < s.length && !isEcmaWs(s[i])) i++');
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkStartsWithCharset')) {
+    lines.push('/* ^[charset]+ (no end anchor, just check first char) */');
+    lines.push('private fun checkStartsWithCharset(s: String, charset: String): Boolean =');
+    lines.push('    s.isNotEmpty() && s[0] in charset');
+    lines.push('');
+  }
+
+  if (helpers.has('checkBase64')) {
+    lines.push('private fun isB64Char(c: Char): Boolean =');
+    lines.push("    c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '+' || c == '/'");
+    lines.push('');
+    lines.push('/* ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$ */');
+    lines.push('private fun checkBase64(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return true');
+    lines.push('    if (s.length % 4 != 0) return false');
+    lines.push('    var i = 0');
+    lines.push("    while (i < s.length && s[i] != '=') {");
+    lines.push('        if (!isB64Char(s[i])) return false');
+    lines.push('        i++');
+    lines.push('    }');
+    lines.push('    val dataLen = i');
+    lines.push('    val padLen = s.length - dataLen');
+    lines.push('    if (padLen > 2) return false');
+    lines.push('    if (padLen == 1 && dataLen % 4 != 3) return false');
+    lines.push('    if (padLen == 2 && dataLen % 4 != 2) return false');
+    lines.push("    while (i < s.length) { if (s[i] != '=') return false; i++ }");
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNostrUri')) {
+    lines.push('/* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
+    lines.push('private fun checkNostrUri(s: String): Boolean {');
+    lines.push('    if (!s.startsWith("nostr:")) return false');
+    lines.push('    val p = s.substring(6)');
+    lines.push('    /* npub1 or note1 + exactly 58 data chars */');
+    lines.push('    if (p.length == 63 && (p.startsWith("npub1") || p.startsWith("note1"))) {');
+    lines.push('        for (i in 5 until 63) if (!isBech32Char(p[i])) return false');
+    lines.push('        return true');
+    lines.push('    }');
+    lines.push('    /* nprofile1, nevent1, naddr1 + 1+ data chars */');
+    lines.push('    val prefixLen: Int');
+    lines.push('    if (p.startsWith("nprofile1")) prefixLen = 9');
+    lines.push('    else if (p.startsWith("nevent1")) prefixLen = 7');
+    lines.push('    else if (p.startsWith("naddr1")) prefixLen = 6');
+    lines.push('    else return false');
+    lines.push('    if (p.length <= prefixLen) return false');
+    lines.push('    for (i in prefixLen until p.length) if (!isBech32Char(p[i])) return false');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNip04Encrypted')) {
+    lines.push('/* ^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$ */');
+    lines.push('private fun checkNip04Encrypted(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    val sep = s.indexOf("?iv=")');
+    lines.push('    if (sep <= 0) return false');
+    lines.push('    val rightStart = sep + 4');
+    lines.push('    if (rightStart >= s.length) return false');
+    lines.push('    /* check left half: 1+ b64 chars + 0-2 = */');
+    lines.push('    var i = 0');
+    lines.push('    while (i < sep && isB64Char(s[i])) i++');
+    lines.push('    if (i == 0) return false');
+    lines.push('    var eq = 0');
+    lines.push("    while (i < sep && s[i] == '=') { i++; eq++ }");
+    lines.push('    if (i != sep || eq > 2) return false');
+    lines.push('    /* check right half */');
+    lines.push('    i = rightStart');
+    lines.push('    val dataStart = i');
+    lines.push('    while (i < s.length && isB64Char(s[i])) i++');
+    lines.push('    if (i == dataStart) return false');
+    lines.push('    eq = 0');
+    lines.push("    while (i < s.length && s[i] == '=') { i++; eq++ }");
+    lines.push('    return i == s.length && eq <= 2');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkNip05Identifier')) {
+    lines.push('private fun isNip05LocalChar(c: Char): Boolean =');
+    lines.push("    c == '_' || c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '.' || c == '-'");
+    lines.push('');
+    lines.push('private fun isDomainChar(c: Char): Boolean =');
+    lines.push("    c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-'");
+    lines.push('');
+    lines.push('private fun isAlnum(c: Char): Boolean =');
+    lines.push("    c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9'");
+    lines.push('');
+    lines.push('/* NIP-05: local@domain.tld */');
+    lines.push('private fun checkNip05Identifier(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push("    val at = s.lastIndexOf('@')");
+    lines.push('    if (at <= 0) return false');
+    lines.push('    /* local part */');
+    lines.push('    for (i in 0 until at) {');
+    lines.push('        if (!isNip05LocalChar(s[i])) return false');
+    lines.push('    }');
+    lines.push('    /* domain: 2+ dot-separated labels */');
+    lines.push('    val d = s.substring(at + 1)');
+    lines.push('    if (d.isEmpty()) return false');
+    lines.push('    var dotCount = 0');
+    lines.push('    var di = 0');
+    lines.push('    while (di < d.length) {');
+    lines.push('        if (!isAlnum(d[di])) return false');
+    lines.push('        while (di < d.length && isDomainChar(d[di])) di++');
+    lines.push('        if (di > 0 && !isAlnum(d[di - 1])) return false');
+    lines.push("        if (di < d.length && d[di] == '.') { dotCount++; di++ }");
+    lines.push('        else if (di < d.length) return false');
+    lines.push('    }');
+    lines.push('    return dotCount >= 1 && isAlnum(d[d.length - 1])');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkMimeTypeStrict')) {
+    lines.push('private fun isMimeStrictChar(c: Char): Boolean =');
+    lines.push("    c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '!' || c == '#' || c == '$' || c == '&' || c == '^' || c == '_' || c == '.' || c == '+' || c == '-'");
+    lines.push('');
+    lines.push('/* ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$ */');
+    lines.push('private fun checkMimeTypeStrict(s: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push("    if (!(s[i] in 'A'..'Z' || s[i] in 'a'..'z' || s[i] in '0'..'9')) return false");
+    lines.push('    i++');
+    lines.push('    while (i < s.length && isMimeStrictChar(s[i])) i++');
+    lines.push("    if (i >= s.length || s[i] != '/') return false");
+    lines.push('    i++');
+    lines.push("    if (i >= s.length || !(s[i] in 'A'..'Z' || s[i] in 'a'..'z' || s[i] in '0'..'9')) return false");
+    lines.push('    i++');
+    lines.push('    while (i < s.length && isMimeStrictChar(s[i])) i++');
+    lines.push('    return i == s.length');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('checkPrefixDelimRest')) {
+    lines.push('/* ^[charset]+<delim>.+ (no end anchor) */');
+    lines.push('private fun checkPrefixDelimRest(s: String, charset: String, delimiter: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push('    if (s[i] !in charset) return false');
+    lines.push('    while (i < s.length && s[i] in charset) i++');
+    lines.push('    if (i + delimiter.length >= s.length) return false');
+    lines.push('    if (s.substring(i, i + delimiter.length) != delimiter) return false');
+    lines.push('    i += delimiter.length');
+    lines.push('    if (i >= s.length) return false');
+    lines.push('    /* .+ first char must not be a line terminator (Kotlin . excludes \\n, \\r, NEL, LS, PS) */');
+    lines.push("    val c = s[i]");
+    lines.push("    return c != '\\n' && c != '\\r' && c != '\\u0085' && c != '\\u2028' && c != '\\u2029'");
     lines.push('}');
     lines.push('');
   }
