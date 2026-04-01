@@ -17,7 +17,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -374,6 +376,195 @@ function renderTagMatcherCondition(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsGo(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        helpers.add('utf8');
+        lines.push(`\tif utf8.RuneCountInString(content) < ${action.min} {`);
+        lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be at least ${action.min} character(s)"})`);
+        lines.push('\t}');
+        break;
+      case 'check_content_max_length':
+        helpers.add('utf8');
+        lines.push(`\tif utf8.RuneCountInString(content) > ${action.max} {`);
+        lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be at most ${action.max} character(s)"})`);
+        lines.push('\t}');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckGo(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`\tif !(${r.expr}) {`);
+        lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must match pattern " + ${JSON.stringify(action.regex)}})`);
+        lines.push('\t}');
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => JSON.stringify(v));
+        const checks = vals.map(v => `content == ${v}`).join(' || ');
+        lines.push(`\tif !(${checks}) {`);
+        lines.push(`\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be one of: " + ${JSON.stringify(action.values.join(', '))}})`);
+        lines.push('\t}');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchGo(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('// ValidateEvent validates an event\'s base fields, content constraints, and tag structure.');
+  lines.push('func ValidateEvent(event map[string]interface{}) []ValidationError {');
+  lines.push('\tvar errors []ValidationError');
+  lines.push('\tkindRaw, ok := event["kind"]');
+  lines.push('\tif !ok {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "kind", Message: "kind must be an integer"})');
+  lines.push('\t\treturn errors');
+  lines.push('\t}');
+  lines.push('\tvar kind int');
+  lines.push('\tswitch k := kindRaw.(type) {');
+  lines.push('\tcase int:');
+  lines.push('\t\tkind = k');
+  lines.push('\tcase int64:');
+  lines.push('\t\tkind = int(k)');
+  lines.push('\tcase float64:');
+  lines.push('\t\tif k != float64(int(k)) {');
+  lines.push('\t\t\terrors = append(errors, ValidationError{Path: "kind", Message: "kind must be an integer"})');
+  lines.push('\t\t\treturn errors');
+  lines.push('\t\t}');
+  lines.push('\t\tkind = int(k)');
+  lines.push('\tdefault:');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "kind", Message: "kind must be an integer"})');
+  lines.push('\t\treturn errors');
+  lines.push('\t}');
+
+  // Base field checks
+  helpers.add('checkHex64');
+  helpers.add('checkHex128');
+
+  lines.push('\tif idRaw, ok := event["id"]; !ok {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "id", Message: "id must be a 64-char lowercase hex string"})');
+  lines.push('\t} else if idStr, ok := idRaw.(string); !ok || !checkHex64(idStr) {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "id", Message: "id must be a 64-char lowercase hex string"})');
+  lines.push('\t}');
+
+  lines.push('\tif pkRaw, ok := event["pubkey"]; !ok {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "pubkey", Message: "pubkey must be a 64-char lowercase hex string"})');
+  lines.push('\t} else if pkStr, ok := pkRaw.(string); !ok || !checkHex64(pkStr) {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "pubkey", Message: "pubkey must be a 64-char lowercase hex string"})');
+  lines.push('\t}');
+
+  lines.push('\tif sigRaw, ok := event["sig"]; !ok {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "sig", Message: "sig must be a 128-char lowercase hex string"})');
+  lines.push('\t} else if sigStr, ok := sigRaw.(string); !ok || !checkHex128(sigStr) {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "sig", Message: "sig must be a 128-char lowercase hex string"})');
+  lines.push('\t}');
+
+  lines.push('\tif caRaw, ok := event["created_at"]; !ok {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "created_at", Message: "created_at must be a non-negative integer"})');
+  lines.push('\t} else {');
+  lines.push('\t\tvar caOk bool');
+  lines.push('\t\tswitch c := caRaw.(type) {');
+  lines.push('\t\tcase int:');
+  lines.push('\t\t\tcaOk = c >= 0');
+  lines.push('\t\tcase int64:');
+  lines.push('\t\t\tcaOk = c >= 0');
+  lines.push('\t\tcase float64:');
+  lines.push('\t\t\tcaOk = c == float64(int64(c)) && c >= 0');
+  lines.push('\t\t}');
+  lines.push('\t\tif !caOk {');
+  lines.push('\t\t\terrors = append(errors, ValidationError{Path: "created_at", Message: "created_at must be a non-negative integer"})');
+  lines.push('\t\t}');
+  lines.push('\t}');
+
+  // Content validation
+  lines.push('\tcontentRaw, hasContent := event["content"]');
+  lines.push('\tif !hasContent {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "content", Message: "content is required"})');
+  lines.push('\t} else if content, ok := contentRaw.(string); ok {');
+  if (contentKinds.length > 0) {
+    lines.push('\t\tswitch kind {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`\t\tcase ${kindNumber}:`);
+      lines.push(...renderContentActionsGo(actions, helpers));
+    }
+    lines.push('\t\t}');
+  }
+  lines.push('\t\t_ = content');
+  lines.push('\t} else {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "content", Message: "content must be a string"})');
+  lines.push('\t}');
+
+  // Tag dispatch
+  lines.push('\ttagsRaw, hasTags := event["tags"]');
+  lines.push('\tif !hasTags {');
+  lines.push('\t\terrors = append(errors, ValidationError{Path: "tags", Message: "tags is required"})');
+  lines.push('\t} else {');
+  lines.push('\t\tvar tags [][]string');
+  lines.push('\t\tvar tagsValid bool');
+  lines.push('\t\tswitch tt := tagsRaw.(type) {');
+  lines.push('\t\tcase [][]string:');
+  lines.push('\t\t\ttags = tt');
+  lines.push('\t\t\ttagsValid = true');
+  lines.push('\t\tcase []interface{}:');
+  lines.push('\t\t\ttagsValid = true');
+  lines.push('\t\t\ttags = make([][]string, 0, len(tt))');
+  lines.push('\t\t\tfor i, raw := range tt {');
+  lines.push('\t\t\t\tswitch inner := raw.(type) {');
+  lines.push('\t\t\t\tcase []string:');
+  lines.push('\t\t\t\t\ttags = append(tags, inner)');
+  lines.push('\t\t\t\tcase []interface{}:');
+  lines.push('\t\t\t\t\tvalid := true');
+  lines.push('\t\t\t\t\tstrs := make([]string, len(inner))');
+  lines.push('\t\t\t\t\tfor j, v := range inner {');
+  lines.push('\t\t\t\t\t\tif s, ok := v.(string); ok {');
+  lines.push('\t\t\t\t\t\t\tstrs[j] = s');
+  lines.push('\t\t\t\t\t\t} else {');
+  lines.push('\t\t\t\t\t\t\tvalid = false');
+  lines.push('\t\t\t\t\t\t\tbreak');
+  lines.push('\t\t\t\t\t\t}');
+  lines.push('\t\t\t\t\t}');
+  lines.push('\t\t\t\t\tif valid {');
+  lines.push('\t\t\t\t\t\ttags = append(tags, strs)');
+  lines.push('\t\t\t\t\t} else {');
+  lines.push('\t\t\t\t\t\terrors = append(errors, ValidationError{Path: fmt.Sprintf("tags[%d]", i), Message: fmt.Sprintf("tags[%d] must be an array of strings", i)})');
+  lines.push('\t\t\t\t\t\ttags = append(tags, nil)');
+  lines.push('\t\t\t\t\t}');
+  lines.push('\t\t\t\tdefault:');
+  lines.push('\t\t\t\t\terrors = append(errors, ValidationError{Path: fmt.Sprintf("tags[%d]", i), Message: fmt.Sprintf("tags[%d] must be an array of strings", i)})');
+  lines.push('\t\t\t\t\ttags = append(tags, nil)');
+  lines.push('\t\t\t\t}');
+  lines.push('\t\t\t}');
+  lines.push('\t\t}');
+  lines.push('\t\tif tagsValid {');
+  lines.push('\t\t\terrors = append(errors, ValidateKindTags(kind, tags)...)');
+  lines.push('\t\t} else {');
+  lines.push('\t\t\terrors = append(errors, ValidationError{Path: "tags", Message: "tags must be an array"})');
+  lines.push('\t\t}');
+  lines.push('\t}');
+  helpers.add('fmt');
+
+  lines.push('\treturn errors');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitGoValidators(kindShapes: KindShape[]): string {
@@ -391,7 +582,16 @@ export function emitGoValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitGoFile(fnBodies, constrainedKinds, allHelpers);
+  // Build content plans
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) {
+      contentPlans.set(shape.kindNumber, contentActions);
+    }
+  }
+
+  return emitGoFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionGo(
@@ -558,7 +758,11 @@ function emitGoFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  // Pre-generate event dispatch to collect helpers before emitting helper functions
+  const eventDispatchCode = emitEventDispatchGo(constrainedKinds, contentPlans, helpers);
+
   const lines: string[] = [
     '// Code generated by @nostrability/schemata-codegen. DO NOT EDIT.',
     '//',
@@ -578,6 +782,9 @@ function emitGoFile(
   }
   if (helpers.has('utf8')) {
     imports.push('"unicode/utf8"');
+  }
+  if (helpers.has('fmt')) {
+    imports.push('"fmt"');
   }
   if (imports.length > 0) {
     if (imports.length === 1) {
@@ -623,6 +830,12 @@ function emitGoFile(
   lines.push('\t}');
   lines.push('}');
   lines.push('');
+
+  // Event validation
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

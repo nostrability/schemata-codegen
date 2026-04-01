@@ -18,7 +18,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -364,6 +366,124 @@ function phpString(s: string): string {
   return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
 }
 
+// --- Content validation ---
+
+function renderContentActionsPhp(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`            if (mb_strlen($content, 'UTF-8') < ${action.min}) {`);
+        lines.push(`                $errors[] = new SchemataValidationError('content', 'content must be at least ${action.min} character(s)');`);
+        lines.push('            }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`            if (mb_strlen($content, 'UTF-8') > ${action.max}) {`);
+        lines.push(`                $errors[] = new SchemataValidationError('content', 'content must be at most ${action.max} character(s)');`);
+        lines.push('            }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckPhp(action.native, '$content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`            if (!(${r.expr})) {`);
+        lines.push(`                $errors[] = new SchemataValidationError('content', 'content must match pattern ${action.regex.replace(/'/g, "\\'")}');`);
+        lines.push('            }');
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => phpString(v)).join(', ');
+        lines.push(`            if (!in_array($content, [${vals}], true)) {`);
+        lines.push(`                $errors[] = new SchemataValidationError('content', ${phpString('content must be one of: ' + action.values.join(', '))});`);
+        lines.push('            }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchPhp(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('/** Validate an event\'s base fields, content constraints, and tag structure. */');
+  lines.push('function schemata_validate_event(array $event): array {');
+  lines.push('    $errors = [];');
+  lines.push('    $kind = $event[\'kind\'] ?? null;');
+  lines.push('    if (!is_int($kind)) {');
+  lines.push("        $errors[] = new SchemataValidationError('kind', 'kind must be an integer');");
+  lines.push('        return $errors;');
+  lines.push('    }');
+
+  helpers.add('schemata_check_hex64');
+  helpers.add('schemata_check_hex128');
+
+  lines.push("    $id = $event['id'] ?? null;");
+  lines.push('    if (!is_string($id) || !schemata_check_hex64($id)) {');
+  lines.push("        $errors[] = new SchemataValidationError('id', 'id must be a 64-char lowercase hex string');");
+  lines.push('    }');
+  lines.push("    $pk = $event['pubkey'] ?? null;");
+  lines.push('    if (!is_string($pk) || !schemata_check_hex64($pk)) {');
+  lines.push("        $errors[] = new SchemataValidationError('pubkey', 'pubkey must be a 64-char lowercase hex string');");
+  lines.push('    }');
+  lines.push("    $sig = $event['sig'] ?? null;");
+  lines.push('    if (!is_string($sig) || !schemata_check_hex128($sig)) {');
+  lines.push("        $errors[] = new SchemataValidationError('sig', 'sig must be a 128-char lowercase hex string');");
+  lines.push('    }');
+  lines.push("    $ca = $event['created_at'] ?? null;");
+  lines.push('    if (!is_int($ca) || $ca < 0) {');
+  lines.push("        $errors[] = new SchemataValidationError('created_at', 'created_at must be a non-negative integer');");
+  lines.push('    }');
+
+  lines.push("    if (!array_key_exists('content', $event)) {");
+  lines.push("        $errors[] = new SchemataValidationError('content', 'content is required');");
+  lines.push("    } elseif (is_string($event['content'])) {");
+  if (contentKinds.length > 0) {
+    lines.push("        $content = $event['content'];");
+    lines.push('        switch ($kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`            case ${kindNumber}:`);
+      lines.push(...renderContentActionsPhp(actions, helpers));
+      lines.push('                break;');
+    }
+    lines.push('        }');
+  }
+  lines.push('    } else {');
+  lines.push("        $errors[] = new SchemataValidationError('content', 'content must be a string');");
+  lines.push('    }');
+
+  lines.push("    if (!array_key_exists('tags', $event)) {");
+  lines.push("        $errors[] = new SchemataValidationError('tags', 'tags is required');");
+  lines.push("    } elseif (is_array($event['tags'])) {");
+  lines.push('        $tags = [];');
+  lines.push("        foreach ($event['tags'] as $i => $t) {");
+  lines.push('            if (is_array($t) && array_reduce($t, fn($carry, $v) => $carry && is_string($v), true)) {');
+  lines.push('                $tags[] = array_values($t);');
+  lines.push('            } else {');
+  lines.push('                $errors[] = new SchemataValidationError("tags[$i]", "tags[$i] must be an array of strings");');
+  lines.push('                $tags[] = [];');
+  lines.push('            }');
+  lines.push('        }');
+  lines.push('        $errors = array_merge($errors, schemata_validate_kind_tags($kind, $tags));');
+  lines.push('    } else {');
+  lines.push("        $errors[] = new SchemataValidationError('tags', 'tags must be an array');");
+  lines.push('    }');
+
+  lines.push('    return $errors;');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitPhpValidators(kindShapes: KindShape[]): string {
@@ -381,7 +501,13 @@ export function emitPhpValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitPhpFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitPhpFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionPhp(
@@ -559,7 +685,10 @@ function emitPhpFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  const eventDispatchCode = emitEventDispatchPhp(constrainedKinds, contentPlans, helpers);
+
   const lines: string[] = [
     '<?php',
     '',
@@ -603,6 +732,11 @@ function emitPhpFile(
   lines.push('    };');
   lines.push('}');
   lines.push('');
+
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

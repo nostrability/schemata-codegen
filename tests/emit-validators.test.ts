@@ -267,3 +267,43 @@ describe('emitValidatorsFile', () => {
     assert.ok(output.includes('content must be one of'));
   });
 });
+
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
+describe('validateEvent', () => {
+  it('contains validateEvent function', () => {
+    const output = emitValidatorsFile([imetaShape], [kindWithContent]);
+    assert.ok(output.includes('function validateEvent('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitValidatorsFile([], [kindWithContent]);
+    assert.ok(output.includes('[a-f0-9]{64}'));
+    assert.ok(output.includes('[a-f0-9]{128}'));
+    assert.ok(output.includes('64-char'));
+    assert.ok(output.includes('128-char'));
+    assert.ok(output.includes('id'));
+    assert.ok(output.includes('pubkey'));
+    assert.ok(output.includes('sig'));
+    assert.ok(output.includes('created_at'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitValidatorsFile([], [kindWithContent]);
+    assert.ok(output.includes('content.length < 1'));
+  });
+
+  it('dispatches to validateKindTags', () => {
+    const output = emitValidatorsFile([], [kindWithContent, kind9735]);
+    assert.ok(output.includes('validateKindTags('));
+  });
+});

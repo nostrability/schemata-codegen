@@ -11,7 +11,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -321,6 +323,131 @@ function dartString(s: string): string {
   return `'${escaped}'`;
 }
 
+// --- Content validation ---
+
+function renderContentActionsDart(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`          if (content.length < ${action.min}) {`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: 'content must be at least ${action.min} character(s)'));`);
+        lines.push('          }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`          if (content.length > ${action.max}) {`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: 'content must be at most ${action.max} character(s)'));`);
+        lines.push('          }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckDart(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`          if (!(${r.expr})) {`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: ${dartString('content must match pattern ' + action.regex)}));`);
+        lines.push('          }');
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => dartString(v)).join(', ');
+        lines.push(`          if (![${vals}].contains(content)) {`);
+        lines.push(`            errors.add(ValidationError(path: 'content', message: ${dartString('content must be one of: ' + action.values.join(', '))}));`);
+        lines.push('          }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchDart(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('/// Validate an event\'s base fields, content constraints, and tag structure.');
+  lines.push('List<ValidationError> validateEvent(Map<String, dynamic> event) {');
+  lines.push('  final errors = <ValidationError>[];');
+  lines.push('  final kind = event[\'kind\'];');
+  lines.push('  if (kind is! int) {');
+  lines.push("    errors.add(ValidationError(path: 'kind', message: 'kind must be an integer'));");
+  lines.push('    return errors;');
+  lines.push('  }');
+
+  helpers.add('_checkHex64');
+  helpers.add('_checkHex128');
+
+  lines.push('  final id = event[\'id\'];');
+  lines.push('  if (id is! String || !_checkHex64(id)) {');
+  lines.push("    errors.add(ValidationError(path: 'id', message: 'id must be a 64-char lowercase hex string'));");
+  lines.push('  }');
+  lines.push('  final pubkey = event[\'pubkey\'];');
+  lines.push('  if (pubkey is! String || !_checkHex64(pubkey)) {');
+  lines.push("    errors.add(ValidationError(path: 'pubkey', message: 'pubkey must be a 64-char lowercase hex string'));");
+  lines.push('  }');
+  lines.push('  final sig = event[\'sig\'];');
+  lines.push('  if (sig is! String || !_checkHex128(sig)) {');
+  lines.push("    errors.add(ValidationError(path: 'sig', message: 'sig must be a 128-char lowercase hex string'));");
+  lines.push('  }');
+  lines.push('  final createdAt = event[\'created_at\'];');
+  lines.push('  if (createdAt is! int || createdAt < 0) {');
+  lines.push("    errors.add(ValidationError(path: 'created_at', message: 'created_at must be a non-negative integer'));");
+  lines.push('  }');
+
+  lines.push('  if (!event.containsKey(\'content\')) {');
+  lines.push("    errors.add(ValidationError(path: 'content', message: 'content is required'));");
+  lines.push('  } else {');
+  lines.push('    final contentRaw = event[\'content\'];');
+  lines.push('    if (contentRaw is String) {');
+  if (contentKinds.length > 0) {
+    lines.push('      final content = contentRaw;');
+    lines.push('      switch (kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`        case ${kindNumber}:`);
+      lines.push(...renderContentActionsDart(actions, helpers));
+      lines.push('          break;');
+    }
+    lines.push('      }');
+  }
+  lines.push('    } else {');
+  lines.push("      errors.add(ValidationError(path: 'content', message: 'content must be a string'));");
+  lines.push('    }');
+  lines.push('  }');
+
+  lines.push('  if (!event.containsKey(\'tags\')) {');
+  lines.push("    errors.add(ValidationError(path: 'tags', message: 'tags is required'));");
+  lines.push('  } else {');
+  lines.push('    final tagsRaw = event[\'tags\'];');
+  lines.push('    if (tagsRaw is List) {');
+  lines.push('      final tags = <List<String>>[];');
+  lines.push('      for (var i = 0; i < tagsRaw.length; i++) {');
+  lines.push('        final t = tagsRaw[i];');
+  lines.push('        if (t is List && t.every((v) => v is String)) {');
+  lines.push('          tags.add(t.cast<String>());');
+  lines.push('        } else {');
+  lines.push("          errors.add(ValidationError(path: 'tags[\$i]', message: 'tags[\$i] must be a list of strings'));");
+  lines.push('          tags.add([]);');
+  lines.push('        }');
+  lines.push('      }');
+  lines.push('      errors.addAll(validateKindTags(kind, tags));');
+  lines.push('    } else {');
+  lines.push("      errors.add(ValidationError(path: 'tags', message: 'tags must be a list'));");
+  lines.push('    }');
+  lines.push('  }');
+
+  lines.push('  return errors;');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitDartValidators(kindShapes: KindShape[]): string {
@@ -338,7 +465,13 @@ export function emitDartValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitDartFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitDartFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionDart(
@@ -456,7 +589,10 @@ function emitDartFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  const eventDispatchCode = emitEventDispatchDart(constrainedKinds, contentPlans, helpers);
+
   const lines: string[] = [
     '// Auto-generated by @nostrability/schemata-codegen',
     '// Do not edit manually.',
@@ -489,6 +625,11 @@ function emitDartFile(
   lines.push('  }');
   lines.push('}');
   lines.push('');
+
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

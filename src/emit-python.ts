@@ -14,7 +14,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -312,6 +314,117 @@ function renderTagMatcherPython(
   return checks.join(' and ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsPython(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`            if len(content) < ${action.min}:`);
+        lines.push(`                errors.append(ValidationError(path="content", message="content must be at least ${action.min} character(s)"))`);
+        break;
+      case 'check_content_max_length':
+        lines.push(`            if len(content) > ${action.max}:`);
+        lines.push(`                errors.append(ValidationError(path="content", message="content must be at most ${action.max} character(s)"))`);
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckPython(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`            if not (${r.expr}):`);
+        lines.push(`                errors.append(ValidationError(path="content", message="content must match pattern " + ${JSON.stringify(action.regex)}))`);
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => JSON.stringify(v)).join(', ');
+        lines.push(`            if content not in [${vals}]:`);
+        lines.push(`                errors.append(ValidationError(path="content", message="content must be one of: " + ${JSON.stringify(vals)}))`);
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchPython(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('');
+  lines.push('def validate_event(event: dict[str, object]) -> list[ValidationError]:');
+  lines.push('    """Validate an event\'s base fields, content constraints, and tag structure."""');
+  lines.push('    if not isinstance(event, dict):');
+  lines.push('        return [ValidationError(path="event", message="event must be a dict")]');
+  lines.push('    errors: list[ValidationError] = []');
+  lines.push('    kind = event.get("kind")');
+  lines.push('    if not isinstance(kind, int) or isinstance(kind, bool):');
+  lines.push('        errors.append(ValidationError(path="kind", message="kind must be an integer"))');
+  lines.push('        return errors');
+
+  // Base field checks
+  helpers.add('_check_hex_64');
+  helpers.add('_check_hex_128');
+
+  lines.push('    _id = event.get("id")');
+  lines.push('    if not isinstance(_id, str) or not _check_hex_64(_id):');
+  lines.push('        errors.append(ValidationError(path="id", message="id must be a 64-char lowercase hex string"))');
+  lines.push('    _pk = event.get("pubkey")');
+  lines.push('    if not isinstance(_pk, str) or not _check_hex_64(_pk):');
+  lines.push('        errors.append(ValidationError(path="pubkey", message="pubkey must be a 64-char lowercase hex string"))');
+  lines.push('    _sig = event.get("sig")');
+  lines.push('    if not isinstance(_sig, str) or not _check_hex_128(_sig):');
+  lines.push('        errors.append(ValidationError(path="sig", message="sig must be a 128-char lowercase hex string"))');
+  lines.push('    _ca = event.get("created_at")');
+  lines.push('    if not isinstance(_ca, int) or isinstance(_ca, bool) or _ca < 0:');
+  lines.push('        errors.append(ValidationError(path="created_at", message="created_at must be a non-negative integer"))');
+
+  // Content validation
+  lines.push('    _content = event.get("content")');
+  lines.push('    if _content is None:');
+  lines.push('        errors.append(ValidationError(path="content", message="content is required"))');
+  lines.push('    elif isinstance(_content, str):');
+  if (contentKinds.length > 0) {
+    lines.push('        content = _content');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`        if kind == ${kindNumber}:`);
+      lines.push(...renderContentActionsPython(actions, helpers));
+    }
+  }
+  lines.push('        pass');
+  lines.push('    else:');
+  lines.push('        errors.append(ValidationError(path="content", message="content must be a string"))');
+
+  // Tag dispatch
+  lines.push('    _tags = event.get("tags")');
+  lines.push('    if _tags is None:');
+  lines.push('        errors.append(ValidationError(path="tags", message="tags is required"))');
+  lines.push('    elif isinstance(_tags, list):');
+  lines.push('        tags: list[list[str]] = []');
+  lines.push('        for i, t in enumerate(_tags):');
+  lines.push('            if isinstance(t, list) and all(isinstance(v, str) for v in t):');
+  lines.push('                tags.append(t)');
+  lines.push('            else:');
+  lines.push('                errors.append(ValidationError(path=f"tags[{i}]", message=f"tags[{i}] must be a list of strings"))');
+  lines.push('                tags.append([])');
+  lines.push('        errors.extend(validate_kind_tags(kind, tags))');
+  lines.push('    else:');
+  lines.push('        errors.append(ValidationError(path="tags", message="tags must be a list"))');
+
+  lines.push('    return errors');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitPythonValidators(kindShapes: KindShape[]): string {
@@ -329,7 +442,16 @@ export function emitPythonValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitPythonFile(fnBodies, constrainedKinds, allHelpers);
+  // Build content plans
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) {
+      contentPlans.set(shape.kindNumber, contentActions);
+    }
+  }
+
+  return emitPythonFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionPython(
@@ -432,7 +554,11 @@ function emitPythonFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  // Pre-generate event dispatch to collect helpers before emitting helper functions
+  const eventDispatchCode = emitEventDispatchPython(constrainedKinds, contentPlans, helpers);
+
   const needsRegex = helpers.has('_regex');
   const lines: string[] = [
     '# Auto-generated by @nostrability/schemata-codegen',
@@ -494,6 +620,12 @@ function emitPythonFile(
     lines.push('    return []');
   }
   lines.push('');
+
+  // Event validation
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

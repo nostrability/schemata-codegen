@@ -12,7 +12,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -320,6 +322,97 @@ function renderTagMatcherCpp(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsCpp(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        helpers.add('utf8_char_count');
+        lines.push(`        if (utf8_char_count(event.content) < ${action.min}) {`);
+        lines.push(`            errors.push_back({"content", "content must be at least ${action.min} character(s)"});`);
+        lines.push('        }');
+        break;
+      case 'check_content_max_length':
+        helpers.add('utf8_char_count');
+        lines.push(`        if (utf8_char_count(event.content) > ${action.max}) {`);
+        lines.push(`            errors.push_back({"content", "content must be at most ${action.max} character(s)"});`);
+        lines.push('        }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckCpp(action.native, 'event.content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`        if (!(${r.expr})) {`);
+        lines.push(`            errors.push_back({"content", "content must match pattern ${action.regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"});`);
+        lines.push('        }');
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `event.content == ${JSON.stringify(v)}`).join(' || ');
+        lines.push(`        if (!(${checks})) {`);
+        lines.push(`            errors.push_back({"content", "content must be one of: ${action.values.join(', ')}"});`);
+        lines.push('        }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchCpp(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('/// Validate an event\'s base fields, content constraints, and tag structure.');
+  lines.push('inline std::vector<ValidationError> validate_event(const SchemataEvent& event) {');
+  lines.push('    std::vector<ValidationError> errors;');
+
+  helpers.add('check_hex_64');
+  helpers.add('check_hex_128');
+
+  lines.push('    if (!check_hex_64(event.id)) {');
+  lines.push('        errors.push_back({"id", "id must be a 64-char lowercase hex string"});');
+  lines.push('    }');
+  lines.push('    if (!check_hex_64(event.pubkey)) {');
+  lines.push('        errors.push_back({"pubkey", "pubkey must be a 64-char lowercase hex string"});');
+  lines.push('    }');
+  lines.push('    if (!check_hex_128(event.sig)) {');
+  lines.push('        errors.push_back({"sig", "sig must be a 128-char lowercase hex string"});');
+  lines.push('    }');
+  lines.push('    if (event.created_at < 0) {');
+  lines.push('        errors.push_back({"created_at", "created_at must be a non-negative integer"});');
+  lines.push('    }');
+
+  if (contentKinds.length > 0) {
+    lines.push('    switch (event.kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`    case ${kindNumber}: {`);
+      lines.push(...renderContentActionsCpp(actions, helpers));
+      lines.push('        break;');
+      lines.push('    }');
+    }
+    lines.push('    }');
+  }
+
+  lines.push('    auto tag_errors = validate_kind_tags(event.kind, event.tags);');
+  lines.push('    errors.insert(errors.end(), tag_errors.begin(), tag_errors.end());');
+
+  lines.push('    return errors;');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitCppValidators(kindShapes: KindShape[]): string {
@@ -337,7 +430,13 @@ export function emitCppValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitCppFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitCppFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionCpp(
@@ -455,7 +554,10 @@ function emitCppFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  const eventDispatchCode = emitEventDispatchCpp(constrainedKinds, contentPlans, helpers);
+
   const needsRegex = helpers.has('regex');
 
   const lines: string[] = [
@@ -470,6 +572,7 @@ function emitCppFile(
     '#include <string>',
     '#include <algorithm>',
     '#include <cstddef>',
+    '#include <cstdint>',
   ];
 
   if (needsRegex) {
@@ -482,6 +585,16 @@ function emitCppFile(
   lines.push('struct ValidationError {');
   lines.push('    const char* path;');
   lines.push('    const char* message;');
+  lines.push('};');
+  lines.push('');
+  lines.push('struct SchemataEvent {');
+  lines.push('    std::string id;');
+  lines.push('    std::string pubkey;');
+  lines.push('    std::string sig;');
+  lines.push('    std::string content;');
+  lines.push('    int64_t created_at;');
+  lines.push('    int kind;');
+  lines.push('    std::vector<std::vector<std::string>> tags;');
   lines.push('};');
   lines.push('');
 
@@ -503,6 +616,11 @@ function emitCppFile(
   lines.push('    }');
   lines.push('}');
   lines.push('');
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
+
   lines.push('} // namespace schemata');
   lines.push('');
 
@@ -511,6 +629,22 @@ function emitCppFile(
 
 function emitCppHelpers(helpers: Set<string>): string {
   const lines: string[] = [];
+
+  if (helpers.has('utf8_char_count')) {
+    lines.push('inline std::size_t utf8_char_count(const std::string& s) {');
+    lines.push('    std::size_t count = 0;');
+    lines.push('    for (std::size_t i = 0; i < s.size(); ) {');
+    lines.push('        auto c = static_cast<unsigned char>(s[i]);');
+    lines.push('        if (c < 0x80) i += 1;');
+    lines.push('        else if ((c & 0xE0) == 0xC0) i += 2;');
+    lines.push('        else if ((c & 0xF0) == 0xE0) i += 3;');
+    lines.push('        else i += 4;');
+    lines.push('        count++;');
+    lines.push('    }');
+    lines.push('    return count;');
+    lines.push('}');
+    lines.push('');
+  }
 
   const hexLengths = new Set<number>();
   const hexMixedLengths = new Set<number>();

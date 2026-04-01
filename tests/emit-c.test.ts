@@ -73,6 +73,17 @@ const conditionalKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitCValidators (generic, default)', () => {
   it('generates header and source files', () => {
     const { header, source } = emitCValidators([kind9735]);
@@ -179,5 +190,42 @@ describe('emitCValidators full run', () => {
     const { header, source } = emitCValidators(kinds);
     assert.ok(header.length > 100);
     assert.ok(source.length > 500);
+  });
+});
+
+describe('validateEvent (generic)', () => {
+  it('generates schemata_validate_event in header', () => {
+    const result = emitCValidators([kindWithContent]);
+    assert.ok(result.header.includes('schemata_validate_event'));
+  });
+
+  it('generates schemata_validate_event in source', () => {
+    const result = emitCValidators([kindWithContent]);
+    assert.ok(result.source.includes('schemata_validate_event'));
+  });
+
+  it('validates hex fields in generic mode', () => {
+    const result = emitCValidators([kindWithContent]);
+    assert.ok(result.source.includes('schemata_check_hex64'));
+    assert.ok(result.source.includes('schemata_check_hex128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const result = emitCValidators([kindWithContent]);
+    assert.ok(result.source.includes('schemata_utf8_char_count'));
+  });
+
+  it('dispatches to schemata_validate', () => {
+    const result = emitCValidators([kindWithContent]);
+    assert.ok(result.source.includes('schemata_validate('));
+  });
+});
+
+describe('validateEvent (nostrdb)', () => {
+  it('generates schemata_validate_event in nostrdb mode', () => {
+    const result = emitCValidators([kindWithContent], 'nostrdb');
+    assert.ok(result.source.includes('schemata_validate_event'));
+    assert.ok(result.source.includes('ndb_note_id'));
+    assert.ok(result.source.includes('ndb_note_content'));
   });
 });

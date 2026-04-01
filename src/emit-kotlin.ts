@@ -11,7 +11,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -311,6 +313,138 @@ function renderTagMatcherKotlin(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsKotlin(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`            if (content.codePointCount(0, content.length) < ${action.min}) {`);
+        lines.push(`                errors.add(ValidationError("content", "content must be at least ${action.min} character(s)"))`);
+        lines.push('            }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`            if (content.codePointCount(0, content.length) > ${action.max}) {`);
+        lines.push(`                errors.add(ValidationError("content", "content must be at most ${action.max} character(s)"))`);
+        lines.push('            }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckKotlin(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`            if (!(${r.expr})) {`);
+        lines.push(`                errors.add(ValidationError("content", "content must match pattern " + ${JSON.stringify(action.regex)}))`);
+        lines.push('            }');
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `content == ${JSON.stringify(v)}`).join(' || ');
+        lines.push(`            if (!(${checks})) {`);
+        lines.push(`                errors.add(ValidationError("content", "content must be one of: " + ${JSON.stringify(action.values.join(', '))}))`);
+        lines.push('            }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchKotlin(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('/** Validate an event\'s base fields, content constraints, and tag structure. */');
+  lines.push('fun validateEvent(event: Map<String, Any?>): List<ValidationError> {');
+  lines.push('    val errors = mutableListOf<ValidationError>()');
+  lines.push('    val kindRaw = event["kind"]');
+  lines.push('    val kind: Int = when (kindRaw) {');
+  lines.push('        is Int -> kindRaw');
+  lines.push('        is Long -> if (kindRaw in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) kindRaw.toInt() else {');
+  lines.push('            errors.add(ValidationError("kind", "kind must be an integer"))');
+  lines.push('            return errors');
+  lines.push('        }');
+  lines.push('        else -> {');
+  lines.push('            errors.add(ValidationError("kind", "kind must be an integer"))');
+  lines.push('            return errors');
+  lines.push('        }');
+  lines.push('    }');
+
+  helpers.add('checkHex64');
+  helpers.add('checkHex128');
+
+  lines.push('    val id = event["id"]');
+  lines.push('    if (id !is String || !checkHex64(id)) {');
+  lines.push('        errors.add(ValidationError("id", "id must be a 64-char lowercase hex string"))');
+  lines.push('    }');
+  lines.push('    val pubkey = event["pubkey"]');
+  lines.push('    if (pubkey !is String || !checkHex64(pubkey)) {');
+  lines.push('        errors.add(ValidationError("pubkey", "pubkey must be a 64-char lowercase hex string"))');
+  lines.push('    }');
+  lines.push('    val sig = event["sig"]');
+  lines.push('    if (sig !is String || !checkHex128(sig)) {');
+  lines.push('        errors.add(ValidationError("sig", "sig must be a 128-char lowercase hex string"))');
+  lines.push('    }');
+  lines.push('    val createdAt = event["created_at"]');
+  lines.push('    if (!((createdAt is Int && createdAt >= 0) || (createdAt is Long && createdAt >= 0L))) {');
+  lines.push('        errors.add(ValidationError("created_at", "created_at must be a non-negative integer"))');
+  lines.push('    }');
+
+  lines.push('    if (!event.containsKey("content")) {');
+  lines.push('        errors.add(ValidationError("content", "content is required"))');
+  lines.push('    } else {');
+  lines.push('        val contentRaw = event["content"]');
+  lines.push('        if (contentRaw is String) {');
+  if (contentKinds.length > 0) {
+    lines.push('            val content = contentRaw');
+    lines.push('            when (kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`                ${kindNumber} -> {`);
+      lines.push(...renderContentActionsKotlin(actions, helpers));
+      lines.push('                }');
+    }
+    lines.push('            }');
+  }
+  lines.push('        } else {');
+  lines.push('            errors.add(ValidationError("content", "content must be a string"))');
+  lines.push('        }');
+  lines.push('    }');
+
+  lines.push('    if (!event.containsKey("tags")) {');
+  lines.push('        errors.add(ValidationError("tags", "tags is required"))');
+  lines.push('    } else {');
+  lines.push('        val tagsRaw = event["tags"]');
+  lines.push('        if (tagsRaw is List<*>) {');
+  lines.push('            val tags = mutableListOf<List<String>>()');
+  lines.push('            for ((i, t) in tagsRaw.withIndex()) {');
+  lines.push('                if (t is List<*> && t.all { it is String }) {');
+  lines.push('                    @Suppress("UNCHECKED_CAST")');
+  lines.push('                    tags.add(t as List<String>)');
+  lines.push('                } else {');
+  lines.push('                    errors.add(ValidationError("tags[$i]", "tags[$i] must be a list of strings"))');
+  lines.push('                    tags.add(emptyList())');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('            errors.addAll(validateKindTags(kind, tags))');
+  lines.push('        } else {');
+  lines.push('            errors.add(ValidationError("tags", "tags must be a list"))');
+  lines.push('        }');
+  lines.push('    }');
+
+  lines.push('    return errors');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitKotlinValidators(kindShapes: KindShape[]): string {
@@ -328,7 +462,13 @@ export function emitKotlinValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitKotlinFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitKotlinFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionKotlin(
@@ -446,7 +586,10 @@ function emitKotlinFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  const eventDispatchCode = emitEventDispatchKotlin(constrainedKinds, contentPlans, helpers);
+
   const needsRegex = helpers.has('regex');
 
   const lines: string[] = [
@@ -481,6 +624,11 @@ function emitKotlinFile(
   lines.push('    else -> emptyList()');
   lines.push('}');
   lines.push('');
+
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

@@ -12,7 +12,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -314,6 +316,131 @@ function renderTagMatcherCSharp(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsCSharp(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`                    if (content.Length < ${action.min}) {`);
+        lines.push(`                        errors.Add(new ValidationError("content", "content must be at least ${action.min} character(s)"));`);
+        lines.push('                    }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`                    if (content.Length > ${action.max}) {`);
+        lines.push(`                        errors.Add(new ValidationError("content", "content must be at most ${action.max} character(s)"));`);
+        lines.push('                    }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckCSharp(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`                    if (!(${r.expr})) {`);
+        lines.push(`                        errors.Add(new ValidationError("content", "content must match pattern " + ${JSON.stringify(action.regex)}));`);
+        lines.push('                    }');
+        break;
+      }
+      case 'check_content_enum': {
+        const checks = action.values.map(v => `content == ${JSON.stringify(v)}`).join(' || ');
+        lines.push(`                    if (!(${checks})) {`);
+        lines.push(`                        errors.Add(new ValidationError("content", "content must be one of: " + ${JSON.stringify(action.values.join(', '))}));`);
+        lines.push('                    }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchCSharp(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('    /// <summary>Validate an event\'s base fields, content constraints, and tag structure.</summary>');
+  lines.push('    public static List<ValidationError> ValidateEvent(IDictionary<string, object?> ev) {');
+  lines.push('        var errors = new List<ValidationError>();');
+  lines.push('        if (!ev.TryGetValue("kind", out var kindRaw)) {');
+  lines.push('            errors.Add(new ValidationError("kind", "kind must be an integer"));');
+  lines.push('            return errors;');
+  lines.push('        }');
+  lines.push('        int kind;');
+  lines.push('        if (kindRaw is int ki) kind = ki;');
+  lines.push('        else if (kindRaw is long kl && kl >= int.MinValue && kl <= int.MaxValue) kind = (int)kl;');
+  lines.push('        else {');
+  lines.push('            errors.Add(new ValidationError("kind", "kind must be an integer"));');
+  lines.push('            return errors;');
+  lines.push('        }');
+
+  helpers.add('CheckHex64');
+  helpers.add('CheckHex128');
+
+  lines.push('        if (!ev.TryGetValue("id", out var idRaw) || idRaw is not string idStr || !CheckHex64(idStr)) {');
+  lines.push('            errors.Add(new ValidationError("id", "id must be a 64-char lowercase hex string"));');
+  lines.push('        }');
+  lines.push('        if (!ev.TryGetValue("pubkey", out var pkRaw) || pkRaw is not string pkStr || !CheckHex64(pkStr)) {');
+  lines.push('            errors.Add(new ValidationError("pubkey", "pubkey must be a 64-char lowercase hex string"));');
+  lines.push('        }');
+  lines.push('        if (!ev.TryGetValue("sig", out var sigRaw) || sigRaw is not string sigStr || !CheckHex128(sigStr)) {');
+  lines.push('            errors.Add(new ValidationError("sig", "sig must be a 128-char lowercase hex string"));');
+  lines.push('        }');
+  lines.push('        {');
+  lines.push('            bool caOk = false;');
+  lines.push('            if (ev.TryGetValue("created_at", out var caRaw)) {');
+  lines.push('                if (caRaw is int ci) caOk = ci >= 0;');
+  lines.push('                else if (caRaw is long cl) caOk = cl >= 0;');
+  lines.push('            }');
+  lines.push('            if (!caOk) errors.Add(new ValidationError("created_at", "created_at must be a non-negative integer"));');
+  lines.push('        }');
+
+  lines.push('        if (!ev.ContainsKey("content")) {');
+  lines.push('            errors.Add(new ValidationError("content", "content is required"));');
+  lines.push('        } else if (ev.TryGetValue("content", out var contentRaw) && contentRaw is string content) {');
+  if (contentKinds.length > 0) {
+    lines.push('            switch (kind) {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`                case ${kindNumber}: {`);
+      lines.push(...renderContentActionsCSharp(actions, helpers));
+      lines.push('                    break;');
+      lines.push('                }');
+    }
+    lines.push('            }');
+  }
+  lines.push('        } else {');
+  lines.push('            errors.Add(new ValidationError("content", "content must be a string"));');
+  lines.push('        }');
+
+  lines.push('        if (!ev.ContainsKey("tags")) {');
+  lines.push('            errors.Add(new ValidationError("tags", "tags is required"));');
+  lines.push('        } else if (ev.TryGetValue("tags", out var tagsRaw) && tagsRaw is System.Collections.IList rawList) {');
+  lines.push('            var tags = new List<List<string>>();');
+  lines.push('            for (var i = 0; i < rawList.Count; i++) {');
+  lines.push('                if (rawList[i] is System.Collections.IList inner && inner.Cast<object?>().All(v => v is string)) {');
+  lines.push('                    tags.Add(inner.Cast<object?>().Select(v => (string)v!).ToList());');
+  lines.push('                } else {');
+  lines.push('                    errors.Add(new ValidationError($"tags[{i}]", $"tags[{i}] must be a list of strings"));');
+  lines.push('                    tags.Add(new List<string>());');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('            errors.AddRange(ValidateKindTags(kind, tags));');
+  lines.push('        } else {');
+  lines.push('            errors.Add(new ValidationError("tags", "tags must be a list"));');
+  lines.push('        }');
+
+  lines.push('        return errors;');
+  lines.push('    }');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitCSharpValidators(kindShapes: KindShape[]): string {
@@ -331,7 +458,13 @@ export function emitCSharpValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitCSharpFile(fnBodies, constrainedKinds, allHelpers);
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) contentPlans.set(shape.kindNumber, contentActions);
+  }
+
+  return emitCSharpFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionCSharp(
@@ -449,7 +582,10 @@ function emitCSharpFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  const eventDispatchCode = emitEventDispatchCSharp(constrainedKinds, contentPlans, helpers);
+
   const needsRegex = helpers.has('regex');
 
   const lines: string[] = [
@@ -459,6 +595,7 @@ function emitCSharpFile(
     '// Runtime validators for Nostr event tag constraints',
     '',
     'using System;',
+    'using System.Collections;',
     'using System.Collections.Generic;',
     'using System.Linq;',
   ];
@@ -500,6 +637,11 @@ function emitCSharpFile(
   lines.push('                _ => new List<ValidationError>(),');
   lines.push('            };');
   lines.push('        }');
+
+  if (eventDispatchCode) {
+    lines.push('');
+    lines.push(eventDispatchCode);
+  }
 
   lines.push('    }');
   lines.push('}');

@@ -14,7 +14,9 @@
 import type { KindShape } from './kind-types.js';
 import {
   planKindValidator,
+  planContentChecks,
   type ValidatorAction,
+  type ContentAction,
   type TagMatcher,
   type ValueCheck,
   type PositionCheck,
@@ -316,6 +318,139 @@ function renderTagMatcherSwift(
   return checks.join(' && ');
 }
 
+// --- Content validation ---
+
+function renderContentActionsSwift(
+  actions: ContentAction[],
+  helpers: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  for (const action of actions) {
+    switch (action.type) {
+      case 'check_content_min_length':
+        lines.push(`            if content.count < ${action.min} {`);
+        lines.push(`                errors.append(ValidationError(path: "content", message: "content must be at least ${action.min} character(s)"))`);
+        lines.push('            }');
+        break;
+      case 'check_content_max_length':
+        lines.push(`            if content.count > ${action.max} {`);
+        lines.push(`                errors.append(ValidationError(path: "content", message: "content must be at most ${action.max} character(s)"))`);
+        lines.push('            }');
+        break;
+      case 'check_content_pattern': {
+        const r = renderPatternCheckSwift(action.native, 'content');
+        for (const h of r.helpers) helpers.add(h);
+        lines.push(`            if !(${r.expr}) {`);
+        lines.push(`                errors.append(ValidationError(path: "content", message: "content must match pattern " + ${JSON.stringify(action.regex)}))`);
+        lines.push('            }');
+        break;
+      }
+      case 'check_content_enum': {
+        const vals = action.values.map(v => JSON.stringify(v)).join(', ');
+        lines.push(`            if ![${vals}].contains(content) {`);
+        lines.push(`                errors.append(ValidationError(path: "content", message: "content must be one of: " + ${JSON.stringify(vals)}))`);
+        lines.push('            }');
+        break;
+      }
+    }
+  }
+  return lines;
+}
+
+// --- Event validation ---
+
+function emitEventDispatchSwift(
+  constrainedKinds: { kindNumber: number; nip: string }[],
+  contentPlans: Map<number, ContentAction[]>,
+  helpers: Set<string>,
+): string {
+  const sorted = [...constrainedKinds].sort((a, b) => a.kindNumber - b.kindNumber);
+  const contentKinds = [...contentPlans.entries()].sort((a, b) => a[0] - b[0]);
+
+  const lines: string[] = [];
+  lines.push('/// Validate an event\'s base fields, content constraints, and tag structure.');
+  lines.push('public func validateEvent(event: [String: Any]) -> [ValidationError] {');
+  lines.push('    var errors: [ValidationError] = []');
+  lines.push('    guard let kind = event["kind"] as? Int else {');
+  lines.push('        errors.append(ValidationError(path: "kind", message: "kind must be an integer"))');
+  lines.push('        return errors');
+  lines.push('    }');
+
+  // Base field checks
+  lines.push('    if let id = event["id"] as? String {');
+  lines.push('        if !checkHex64(id) {');
+  lines.push('            errors.append(ValidationError(path: "id", message: "id must be a 64-char lowercase hex string"))');
+  lines.push('        }');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "id", message: "id must be a 64-char lowercase hex string"))');
+  lines.push('    }');
+  helpers.add('checkHex64');
+
+  lines.push('    if let pubkey = event["pubkey"] as? String {');
+  lines.push('        if !checkHex64(pubkey) {');
+  lines.push('            errors.append(ValidationError(path: "pubkey", message: "pubkey must be a 64-char lowercase hex string"))');
+  lines.push('        }');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "pubkey", message: "pubkey must be a 64-char lowercase hex string"))');
+  lines.push('    }');
+
+  lines.push('    if let sig = event["sig"] as? String {');
+  lines.push('        if !checkHex128(sig) {');
+  lines.push('            errors.append(ValidationError(path: "sig", message: "sig must be a 128-char lowercase hex string"))');
+  lines.push('        }');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "sig", message: "sig must be a 128-char lowercase hex string"))');
+  lines.push('    }');
+  helpers.add('checkHex128');
+
+  lines.push('    if let createdAt = event["created_at"] as? Int {');
+  lines.push('        if createdAt < 0 {');
+  lines.push('            errors.append(ValidationError(path: "created_at", message: "created_at must be a non-negative integer"))');
+  lines.push('        }');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "created_at", message: "created_at must be a non-negative integer"))');
+  lines.push('    }');
+
+  // Content validation
+  lines.push('    if let content = event["content"] as? String {');
+  if (contentKinds.length > 0) {
+    lines.push('        switch kind {');
+    for (const [kindNumber, actions] of contentKinds) {
+      lines.push(`        case ${kindNumber}:`);
+      lines.push(...renderContentActionsSwift(actions, helpers));
+    }
+    lines.push('        default: break');
+    lines.push('        }');
+  }
+  lines.push('    } else if event["content"] != nil {');
+  lines.push('        errors.append(ValidationError(path: "content", message: "content must be a string"))');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "content", message: "content is required"))');
+  lines.push('    }');
+
+  // Tag dispatch
+  lines.push('    if let rawTags = event["tags"] as? [[Any]] {');
+  lines.push('        var tags: [[String]] = []');
+  lines.push('        for (i, t) in rawTags.enumerated() {');
+  lines.push('            if let st = t as? [String] {');
+  lines.push('                tags.append(st)');
+  lines.push('            } else {');
+  lines.push('                errors.append(ValidationError(path: "tags[\\(i)]", message: "tags[\\(i)] must be an array of strings"))');
+  lines.push('                tags.append([])');
+  lines.push('            }');
+  lines.push('        }');
+  lines.push('        errors.append(contentsOf: validateKindTags(kind: kind, tags: tags))');
+  lines.push('    } else if event["tags"] != nil {');
+  lines.push('        errors.append(ValidationError(path: "tags", message: "tags must be an array"))');
+  lines.push('    } else {');
+  lines.push('        errors.append(ValidationError(path: "tags", message: "tags is required"))');
+  lines.push('    }');
+
+  lines.push('    return errors');
+  lines.push('}');
+  return lines.join('\n');
+}
+
 // --- Main emitter ---
 
 export function emitSwiftValidators(kindShapes: KindShape[]): string {
@@ -333,7 +468,16 @@ export function emitSwiftValidators(kindShapes: KindShape[]): string {
     for (const h of helpers) allHelpers.add(h);
   }
 
-  return emitSwiftFile(fnBodies, constrainedKinds, allHelpers);
+  // Build content plans
+  const contentPlans = new Map<number, ContentAction[]>();
+  for (const shape of kindShapes) {
+    const contentActions = planContentChecks(shape);
+    if (contentActions) {
+      contentPlans.set(shape.kindNumber, contentActions);
+    }
+  }
+
+  return emitSwiftFile(fnBodies, constrainedKinds, allHelpers, contentPlans);
 }
 
 function emitKindFunctionSwift(
@@ -451,7 +595,11 @@ function emitSwiftFile(
   fnBodies: string[],
   constrainedKinds: { kindNumber: number; nip: string }[],
   helpers: Set<string>,
+  contentPlans: Map<number, ContentAction[]>,
 ): string {
+  // Pre-generate event dispatch to collect helpers before emitting helper functions
+  const eventDispatchCode = emitEventDispatchSwift(constrainedKinds, contentPlans, helpers);
+
   const needsFoundation = helpers.has('regex');
 
   const lines: string[] = [
@@ -495,6 +643,12 @@ function emitSwiftFile(
   lines.push('    }');
   lines.push('}');
   lines.push('');
+
+  // Event validation
+  if (eventDispatchCode) {
+    lines.push(eventDispatchCode);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

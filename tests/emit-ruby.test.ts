@@ -77,6 +77,17 @@ const anyOfKind: KindShape = {
   category: 'conditional',
 };
 
+const kindWithContent: KindShape = {
+  kindNumber: 13,
+  nip: 'nip-59',
+  requiredTags: [],
+  perItemConditionals: [],
+  arrayLevelConditionals: [],
+  anyOfTagGroups: [],
+  contentConstraints: { minLength: 1 },
+  category: 'bare',
+};
+
 describe('emitRubyValidators', () => {
   it('generates ValidationError Struct', () => {
     const output = emitRubyValidators([kind9735]);
@@ -179,5 +190,33 @@ describe('emitRubyValidators', () => {
   it('generates dispatch with else empty array', () => {
     const output = emitRubyValidators([kind9735]);
     assert.ok(output.includes('else []'));
+  });
+});
+
+describe('validate_event', () => {
+  it('contains validate_event function', () => {
+    const output = emitRubyValidators([kindWithContent]);
+    assert.ok(output.includes('def self.validate_event('));
+  });
+
+  it('validates base fields', () => {
+    const output = emitRubyValidators([kindWithContent]);
+    assert.ok(output.includes('check_hex_64'));
+    assert.ok(output.includes('check_hex_128'));
+  });
+
+  it('validates content for constrained kinds', () => {
+    const output = emitRubyValidators([kindWithContent]);
+    assert.ok(output.includes('.length < 1'));
+  });
+
+  it('dispatches to validate_kind_tags', () => {
+    const output = emitRubyValidators([kindWithContent]);
+    assert.ok(output.includes('validate_kind_tags('));
+  });
+
+  it('includes hex128 helper', () => {
+    const output = emitRubyValidators([kindWithContent]);
+    assert.ok(output.includes('def self.check_hex_128'));
   });
 });
