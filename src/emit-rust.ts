@@ -258,6 +258,19 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_base64');
       return { expr: `check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `check_hex_${len}` : `check_hex_${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('check_base64_2pad');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('check_nostr_uri');
       helpers.add('check_bech32'); // for is_bech32_char
@@ -281,6 +294,18 @@ function renderPatternCheckRust(check: PatternCheck, varExpr: string): { expr: s
     case 'prefix_delim_rest': {
       helpers.add('check_prefix_delim_rest');
       return { expr: `check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('check_identifier');
+      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, Some('${check.optionalPrefix}')` : ', None'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('check_space_separated_charset');
+      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('check_uri_scheme');
+      return { expr: `check_uri_scheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1342,6 +1367,21 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('check_base64_2pad')) {
+    lines.push('/// strict base64 with mandatory 2-char padding');
+    lines.push('fn check_base64_2pad(s: &str) -> bool {');
+    lines.push('    let b = s.as_bytes();');
+    lines.push('    let len = b.len();');
+    lines.push('    if len < 4 || len % 4 != 0 { return false; }');
+    lines.push("    if b[len - 1] != b'=' || b[len - 2] != b'=' { return false; }");
+    lines.push('    for i in 0..len - 2 {');
+    lines.push('        if !is_b64_char(b[i]) { return false; }');
+    lines.push('    }');
+    lines.push('    true');
+    lines.push('}');
+    lines.push('');
+  }
+
   // nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)
   if (helpers.has('check_nostr_uri')) {
     lines.push('fn check_nostr_uri(s: &str) -> bool {');
@@ -1480,6 +1520,60 @@ function emitRustHelpers(helpers: Set<string>): string {
     lines.push('    true');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('fn check_identifier(s: &str, first_charset: &str, rest_charset: &str, prefix: Option<char>) -> bool {');
+    lines.push('    let bytes = s.as_bytes();');
+    lines.push('    let mut i = 0;');
+    lines.push('    if let Some(p) = prefix {');
+    lines.push('        if i < bytes.len() && bytes[i] == p as u8 { i += 1; }');
+    lines.push('    }');
+    lines.push('    if i >= bytes.len() { return false; }');
+    lines.push('    if !first_charset.contains(bytes[i] as char) { return false; }');
+    lines.push('    i += 1;');
+    lines.push('    while i < bytes.len() {');
+    lines.push('        if !rest_charset.contains(bytes[i] as char) { return false; }');
+    lines.push('        i += 1;');
+    lines.push('    }');
+    lines.push('    true');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('fn check_space_separated_charset(s: &str, charset: &str) -> bool {');
+    lines.push('    let bytes = s.as_bytes();');
+    lines.push('    if bytes.is_empty() { return false; }');
+    lines.push('    let mut i = 0;');
+    lines.push('    if !charset.contains(bytes[i] as char) { return false; }');
+    lines.push('    while i < bytes.len() && charset.contains(bytes[i] as char) { i += 1; }');
+    lines.push("    while i < bytes.len() && bytes[i] == b' ' {");
+    lines.push('        i += 1;');
+    lines.push('        if i >= bytes.len() || !charset.contains(bytes[i] as char) { return false; }');
+    lines.push('        while i < bytes.len() && charset.contains(bytes[i] as char) { i += 1; }');
+    lines.push('    }');
+    lines.push('    i == bytes.len()');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('fn check_uri_scheme(s: &str) -> bool {');
+    lines.push('    let bytes = s.as_bytes();');
+    lines.push('    if bytes.len() < 4 { return false; }');
+    lines.push('    let c = bytes[0];');
+    lines.push('    if !((c >= b\'A\' && c <= b\'Z\') || (c >= b\'a\' && c <= b\'z\')) { return false; }');
+    lines.push('    let mut i = 1;');
+    lines.push('    while i < bytes.len() {');
+    lines.push('        let c = bytes[i];');
+    lines.push('        if (c >= b\'A\' && c <= b\'Z\') || (c >= b\'a\' && c <= b\'z\') || (c >= b\'0\' && c <= b\'9\') || c == b\'+\' || c == b\'.\' || c == b\'-\' { i += 1; }');
+    lines.push('        else { break; }');
+    lines.push('    }');
+    lines.push('    if i + 3 > bytes.len() { return false; }');
+    lines.push('    bytes[i] == b\':\' && bytes[i+1] == b\'/\' && bytes[i+2] == b\'/\'');
+    lines.push('}');
   }
 
   return lines.join('\n');

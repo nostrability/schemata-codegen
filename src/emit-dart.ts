@@ -197,6 +197,19 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkBase64');
       return { expr: `_checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `_checkHex${len}` : `_checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('_checkBase642Pad');
+      helpers.add('_isB64Char');
+      return { expr: `_checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('_checkNostrUri');
       helpers.add('_isBech32Char');
@@ -218,6 +231,18 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     case 'prefix_delim_rest': {
       helpers.add('_checkPrefixDelimRest');
       return { expr: `_checkPrefixDelimRest(${varExpr}, ${dartString(check.charset)}, ${dartString(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('_checkIdentifier');
+      return { expr: `_checkIdentifier(${varExpr}, ${dartString(check.firstCharset)}, ${dartString(check.restCharset)}${check.optionalPrefix ? `, ${dartString(check.optionalPrefix)}` : ''})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('_checkSpaceSeparatedCharset');
+      return { expr: `_checkSpaceSeparatedCharset(${varExpr}, ${dartString(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('_checkUriScheme');
+      return { expr: `_checkUriScheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1243,7 +1268,7 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('_isB64Char') || helpers.has('_checkBase64') || helpers.has('_checkNip04Encrypted')) {
+  if (helpers.has('_isB64Char') || helpers.has('_checkBase64') || helpers.has('_checkNip04Encrypted') || helpers.has('_checkBase642Pad')) {
     lines.push('bool _isB64Char(int c) {');
     lines.push('  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 43 || c == 47;');
     lines.push('}');
@@ -1269,6 +1294,20 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  while (i < l) {');
     lines.push('    if (s.codeUnitAt(i) != 61) return false; // \'=\'');
     lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
+  if (helpers.has('_checkBase642Pad')) {
+    lines.push('// strict base64 with mandatory 2-char padding');
+    lines.push('bool _checkBase642Pad(String s) {');
+    lines.push('  final l = s.length;');
+    lines.push('  if (l < 4 || l % 4 != 0) return false;');
+    lines.push("  if (s.codeUnitAt(l - 1) != 61 || s.codeUnitAt(l - 2) != 61) return false; // '='");
+    lines.push('  for (var i = 0; i < l - 2; i++) {');
+    lines.push('    if (!_isB64Char(s.codeUnitAt(i))) return false;');
     lines.push('  }');
     lines.push('  return true;');
     lines.push('}');
@@ -1409,6 +1448,55 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  return c != 0x0A && c != 0x0D && c != 0x2028 && c != 0x2029;');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('_checkIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push("bool _checkIdentifier(String s, String firstCharset, String restCharset, [String prefix = '']) {");
+    lines.push('  var i = 0;');
+    lines.push("  if (prefix.isNotEmpty && i < s.length && s[i] == prefix) i++;");
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  if (!firstCharset.contains(s[i])) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    if (!restCharset.contains(s[i])) return false;');
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+  }
+
+  if (helpers.has('_checkSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('bool _checkSpaceSeparatedCharset(String s, String charset) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (!charset.contains(s[i])) return false;');
+    lines.push('  while (i < s.length && charset.contains(s[i])) i++;');
+    lines.push("  while (i < s.length && s[i] == ' ') {");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length || !charset.contains(s[i])) return false;');
+    lines.push('    while (i < s.length && charset.contains(s[i])) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+  }
+
+  if (helpers.has('_checkUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('bool _checkUriScheme(String s) {');
+    lines.push('  if (s.length < 4) return false;');
+    lines.push('  var c = s.codeUnitAt(0);');
+    lines.push('  if (!((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A))) return false;');
+    lines.push('  var i = 1;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    c = s.codeUnitAt(i);');
+    lines.push('    if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2B || c == 0x2E || c == 0x2D) { i++; }');
+    lines.push('    else { break; }');
+    lines.push('  }');
+    lines.push('  if (i + 3 > s.length) return false;');
+    lines.push("  return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/';");
+    lines.push('}');
   }
 
   return lines.join('\n');

@@ -214,6 +214,19 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkBase64');
       return { expr: `checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `checkHex${len}` : `checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('checkBase642Pad');
+      helpers.add('checkBase64'); // for isB64Char
+      return { expr: `checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('checkNostrUri');
       helpers.add('strings');
@@ -238,6 +251,20 @@ function renderPatternCheckGo(check: PatternCheck, varExpr: string): { expr: str
       helpers.add('checkPrefixDelimRest');
       helpers.add('strings');
       return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('checkIdentifier');
+      helpers.add('strings');
+      return { expr: `checkIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ', 0'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('checkSpaceSeparatedCharset');
+      helpers.add('strings');
+      return { expr: `checkSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('checkUriScheme');
+      return { expr: `checkUriScheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1867,6 +1894,26 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkBase642Pad')) {
+    lines.push('// strict base64 with mandatory 2-char padding');
+    lines.push('func checkBase642Pad(s string) bool {');
+    lines.push('\tl := len(s)');
+    lines.push('\tif l < 4 || l%4 != 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\tif s[l-1] != '=' || s[l-2] != '=' {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i := 0; i < l-2; i++ {');
+    lines.push('\t\tif !isB64Char(s[i]) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+    lines.push('');
+  }
+
   // checkNostrUri: ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$
   if (helpers.has('checkNostrUri')) {
     lines.push('func isNostrBech32DataChar(b byte) bool {');
@@ -2079,6 +2126,82 @@ function emitGoHelpers(helpers: Set<string>): string {
     lines.push('\treturn true');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('checkIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('func checkIdentifier(s string, firstCharset string, restCharset string, prefix rune) bool {');
+    lines.push('\ti := 0');
+    lines.push('\tif prefix != 0 && i < len(s) && rune(s[i]) == prefix {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\tif i >= len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tif !strings.ContainsRune(firstCharset, rune(s[i])) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti++');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tif !strings.ContainsRune(restCharset, rune(s[i])) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push('\treturn true');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('func checkSpaceSeparatedCharset(s string, charset string) bool {');
+    lines.push('\tif len(s) == 0 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 0');
+    lines.push('\tif !strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tfor i < len(s) && strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\ti++');
+    lines.push('\t}');
+    lines.push("\tfor i < len(s) && s[i] == ' ' {");
+    lines.push('\t\ti++');
+    lines.push('\t\tif i >= len(s) || !strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\t\treturn false');
+    lines.push('\t\t}');
+    lines.push('\t\tfor i < len(s) && strings.ContainsRune(charset, rune(s[i])) {');
+    lines.push('\t\t\ti++');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\treturn i == len(s)');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('func checkUriScheme(s string) bool {');
+    lines.push('\tif len(s) < 4 {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\tc := s[0]');
+    lines.push("\tif !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {");
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push('\ti := 1');
+    lines.push('\tfor i < len(s) {');
+    lines.push('\t\tc = s[i]');
+    lines.push("\t\tif (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-' {");
+    lines.push('\t\t\ti++');
+    lines.push('\t\t} else {');
+    lines.push('\t\t\tbreak');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('\tif i+3 > len(s) {');
+    lines.push('\t\treturn false');
+    lines.push('\t}');
+    lines.push("\treturn s[i] == ':' && s[i+1] == '/' && s[i+2] == '/'");
+    lines.push('}');
   }
 
   return lines.join('\n');

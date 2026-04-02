@@ -204,6 +204,19 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_base64');
       return { expr: `check_base64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `check_hex_${len}` : `check_hex_${len}_mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('check_base64_2pad');
+      helpers.add('check_base64'); // for is_b64_char
+      return { expr: `check_base64_2pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('check_nostr_uri');
       return { expr: `check_nostr_uri(${varExpr})`, helpers };
@@ -226,6 +239,18 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     case 'prefix_delim_rest': {
       helpers.add('check_prefix_delim_rest');
       return { expr: `check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('check_identifier');
+      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ', 0'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('check_space_separated_charset');
+      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('check_uri_scheme');
+      return { expr: `check_uri_scheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1270,6 +1295,19 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('check_base64_2pad')) {
+    lines.push('/* strict base64 with mandatory 2-char padding */');
+    lines.push('inline bool check_base64_2pad(const std::string& s) {');
+    lines.push('    if (s.size() < 4 || s.size() % 4 != 0) return false;');
+    lines.push("    if (s[s.size() - 1] != '=' || s[s.size() - 2] != '=') return false;");
+    lines.push('    for (size_t i = 0; i < s.size() - 2; i++) {');
+    lines.push('        if (!is_b64_char(s[i])) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('check_nostr_uri')) {
     lines.push('inline bool is_bech32_data_char(char c) {');
     lines.push("    return (c >= '0' && c <= '9' && c != '1') || (c >= 'a' && c <= 'z' && c != 'b' && c != 'i' && c != 'o');");
@@ -1431,6 +1469,54 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    return i == s.size();');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_identifier(const std::string& s, const std::string& first_charset, const std::string& rest_charset, char prefix = 0) {');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (prefix && i < s.size() && s[i] == prefix) i++;');
+    lines.push('    if (i >= s.size()) return false;');
+    lines.push('    if (first_charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    i++;');
+    lines.push('    for (; i < s.size(); i++) {');
+    lines.push('        if (rest_charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_space_separated_charset(const std::string& s, const std::string& charset) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push("    while (i < s.size() && s[i] == ' ') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= s.size() || charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('        while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_uri_scheme(const std::string& s) {');
+    lines.push('    if (s.size() < 4) return false;');
+    lines.push('    char c = s[0];');
+    lines.push("    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;");
+    lines.push('    size_t i = 1;');
+    lines.push('    while (i < s.size()) {');
+    lines.push('        c = s[i];');
+    lines.push("        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i + 3 > s.size()) return false;');
+    lines.push("    return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/';");
+    lines.push('}');
   }
 
   return lines.join('\n');

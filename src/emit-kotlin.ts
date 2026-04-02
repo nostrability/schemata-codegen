@@ -199,6 +199,19 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
       helpers.add('checkBase64');
       return { expr: `checkBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `checkHex${len}` : `checkHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('checkBase642Pad');
+      helpers.add('checkBase64'); // for isB64Char
+      return { expr: `checkBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('checkNostrUri');
       helpers.add('checkBech32'); // triggers isBech32Char
@@ -220,6 +233,18 @@ function renderPatternCheckKotlin(check: PatternCheck, varExpr: string): { expr:
     case 'prefix_delim_rest': {
       helpers.add('checkPrefixDelimRest');
       return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('checkIdentifier');
+      return { expr: `checkIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : `, '\\u0000'`})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('checkSpaceSeparatedCharset');
+      return { expr: `checkSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('checkUriScheme');
+      return { expr: `checkUriScheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1203,6 +1228,20 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('checkBase642Pad')) {
+    lines.push('/* strict base64 with mandatory 2-char padding */');
+    lines.push('private fun checkBase642Pad(s: String): Boolean {');
+    lines.push('    val len = s.length');
+    lines.push('    if (len < 4 || len % 4 != 0) return false');
+    lines.push("    if (s[len - 1] != '=' || s[len - 2] != '=') return false");
+    lines.push('    for (i in 0 until len - 2) {');
+    lines.push('        if (!isB64Char(s[i])) return false');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+    lines.push('');
+  }
+
   if (helpers.has('checkNostrUri')) {
     lines.push('/* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
     lines.push('private fun checkNostrUri(s: String): Boolean {');
@@ -1348,6 +1387,55 @@ function emitKotlinHelpers(helpers: Set<string>): string {
     lines.push('    return i == s.length');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('checkIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private fun checkIdentifier(s: String, firstCharset: String, restCharset: String, prefix: Char): Boolean {');
+    lines.push("    var i = 0");
+    lines.push("    if (prefix != '\\u0000' && i < s.length && s[i] == prefix) i++");
+    lines.push('    if (i >= s.length) return false');
+    lines.push('    if (firstCharset.indexOf(s[i]) < 0) return false');
+    lines.push('    i++');
+    lines.push('    while (i < s.length) {');
+    lines.push('        if (restCharset.indexOf(s[i]) < 0) return false');
+    lines.push('        i++');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private fun checkSpaceSeparatedCharset(s: String, charset: String): Boolean {');
+    lines.push('    if (s.isEmpty()) return false');
+    lines.push('    var i = 0');
+    lines.push('    if (charset.indexOf(s[i]) < 0) return false');
+    lines.push('    while (i < s.length && charset.indexOf(s[i]) >= 0) i++');
+    lines.push("    while (i < s.length && s[i] == ' ') {");
+    lines.push('        i++');
+    lines.push('        if (i >= s.length || charset.indexOf(s[i]) < 0) return false');
+    lines.push('        while (i < s.length && charset.indexOf(s[i]) >= 0) i++');
+    lines.push('    }');
+    lines.push('    return i == s.length');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private fun checkUriScheme(s: String): Boolean {');
+    lines.push('    if (s.length < 4) return false');
+    lines.push('    var c = s[0]');
+    lines.push("    if (!((c in 'A'..'Z') || (c in 'a'..'z'))) return false");
+    lines.push('    var i = 1');
+    lines.push('    while (i < s.length) {');
+    lines.push('        c = s[i]');
+    lines.push("        if ((c in 'A'..'Z') || (c in 'a'..'z') || (c in '0'..'9') || c == '+' || c == '.' || c == '-') i++");
+    lines.push('        else break');
+    lines.push('    }');
+    lines.push('    if (i + 3 > s.length) return false');
+    lines.push("    return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/'");
+    lines.push('}');
   }
 
   return lines.join('\n');

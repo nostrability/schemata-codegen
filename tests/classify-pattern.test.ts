@@ -511,6 +511,28 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  // --- hex_alternation ---
+
+  it('classifies multi-length hex alternation as hex_alternation', () => {
+    const r = classifyRegex('^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$');
+    assert.deepStrictEqual(r, { op: 'hex_alternation', lengths: [64, 96, 128], case: 'lower' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies mixed-case hex alternation', () => {
+    const r = classifyRegex('^(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{64})$');
+    assert.deepStrictEqual(r, { op: 'hex_alternation', lengths: [32, 64], case: 'mixed' });
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- base64_2pad ---
+
+  it('classifies strict base64 2-pad as base64_2pad', () => {
+    const r = classifyRegex('^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$');
+    assert.deepStrictEqual(r, { op: 'base64_2pad' });
+    assert.ok(isNativeCheck(r));
+  });
+
   // --- nostr_uri ---
 
   it('classifies nostr URI pattern as nostr_uri', () => {
@@ -554,6 +576,82 @@ describe('classifyRegex', () => {
   it('classifies ^[a-zA-Z0-9_-]+: .+ as prefix_delim_rest', () => {
     const r = classifyRegex('^[a-zA-Z0-9_-]+: .+');
     assert.strictEqual(r.op, 'prefix_delim_rest');
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- identifier ---
+
+  it('classifies ^[a-z][a-z0-9]*$ as identifier', () => {
+    const r = classifyRegex('^[a-z][a-z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.firstCharset.includes('a'));
+    assert.ok(r.firstCharset.includes('z'));
+    assert.ok(!r.firstCharset.includes('0'));
+    assert.ok(r.restCharset.includes('a'));
+    assert.ok(r.restCharset.includes('0'));
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^[A-Z][a-zA-Z0-9]*$ as identifier', () => {
+    const r = classifyRegex('^[A-Z][a-zA-Z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.firstCharset.includes('A'));
+    assert.ok(r.firstCharset.includes('Z'));
+    assert.ok(!r.firstCharset.includes('a'));
+    assert.ok(r.restCharset.includes('a'));
+    assert.ok(r.restCharset.includes('A'));
+    assert.ok(r.restCharset.includes('0'));
+  });
+
+  it('classifies ^[a-z][a-z0-9-]*$ as identifier', () => {
+    const r = classifyRegex('^[a-z][a-z0-9-]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.restCharset.includes('-'));
+  });
+
+  it('classifies ^!?[a-z][a-z0-9]*$ as identifier with prefix', () => {
+    const r = classifyRegex('^!?[a-z][a-z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, '!');
+    assert.ok(r.firstCharset.includes('a'));
+    assert.ok(r.restCharset.includes('0'));
+  });
+
+  it('classifies ^!?[0-9]+$ as identifier with prefix', () => {
+    const r = classifyRegex('^!?[0-9]+$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, '!');
+    assert.ok(r.firstCharset.includes('0'));
+    assert.ok(r.firstCharset.includes('9'));
+    assert.strictEqual(r.firstCharset, r.restCharset);
+  });
+
+  // --- space_separated_charset ---
+
+  it('classifies ^[a-z_]+( [a-z_]+)*$ as space_separated_charset', () => {
+    const r = classifyRegex('^[a-z_]+( [a-z_]+)*$');
+    assert.strictEqual(r.op, 'space_separated_charset');
+    assert.ok(r.op === 'space_separated_charset');
+    assert.ok(r.charset.includes('a'));
+    assert.ok(r.charset.includes('z'));
+    assert.ok(r.charset.includes('_'));
+    assert.ok(!r.charset.includes(' '));
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- uri_scheme ---
+
+  it('classifies ^[A-Za-z][A-Za-z0-9+.-]*:// as uri_scheme', () => {
+    const r = classifyRegex('^[A-Za-z][A-Za-z0-9+.-]*://');
+    assert.deepStrictEqual(r, { op: 'uri_scheme' });
     assert.ok(isNativeCheck(r));
   });
 
@@ -724,6 +822,9 @@ describe('classifyRegex coverage of schemata patterns', () => {
     '^refs/(heads|tags)/[^\\s]+$',
     '^https?://\\S+$',
     '^dim [0-9]{1,5}x[0-9]{1,5}$',
+    // New patterns (PR #37: hex_alternation + base64_2pad)
+    '^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$',
+    '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$',
   ];
 
   it('processes all schemata patterns without throwing', () => {

@@ -201,6 +201,19 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
       helpers.add('IsB64Char');
       return { expr: `CheckBase64(${varExpr})`, helpers };
     }
+    case 'hex_alternation': {
+      const fns = check.lengths.map(len => {
+        const fn = check.case === 'lower' ? `CheckHex${len}` : `CheckHex${len}Mixed`;
+        helpers.add(fn);
+        return `${fn}(${varExpr})`;
+      });
+      return { expr: `(${fns.join(' || ')})`, helpers };
+    }
+    case 'base64_2pad': {
+      helpers.add('CheckBase642Pad');
+      helpers.add('IsB64Char');
+      return { expr: `CheckBase642Pad(${varExpr})`, helpers };
+    }
     case 'nostr_uri': {
       helpers.add('CheckNostrUri');
       helpers.add('IsBech32Char');
@@ -222,6 +235,18 @@ function renderPatternCheckCSharp(check: PatternCheck, varExpr: string): { expr:
     case 'prefix_delim_rest': {
       helpers.add('CheckPrefixDelimRest');
       return { expr: `CheckPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
+    }
+    case 'identifier': {
+      helpers.add('CheckIdentifier');
+      return { expr: `CheckIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ', (char)0'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('CheckSpaceSeparatedCharset');
+      return { expr: `CheckSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('CheckUriScheme');
+      return { expr: `CheckUriScheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1287,6 +1312,23 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
+  if (helpers.has('CheckBase642Pad')) {
+    lines.push('        /* strict base64 with mandatory 2-char padding */');
+    lines.push('        private static bool CheckBase642Pad(string s)');
+    lines.push('        {');
+    lines.push('            if (s == null) return false;');
+    lines.push('            int len = s.Length;');
+    lines.push('            if (len < 4 || len % 4 != 0) return false;');
+    lines.push("            if (s[len - 1] != '=' || s[len - 2] != '=') return false;");
+    lines.push('            for (int i = 0; i < len - 2; i++)');
+    lines.push('            {');
+    lines.push('                if (!IsB64Char(s[i])) return false;');
+    lines.push('            }');
+    lines.push('            return true;');
+    lines.push('        }');
+    lines.push('');
+  }
+
   if (helpers.has('CheckNostrUri')) {
     lines.push('        /* ^nostr:((npub|note)1[bech32]{58}|(nprofile|nevent|naddr)1[bech32]+)$ */');
     lines.push('        private static bool CheckNostrUri(string s)');
@@ -1414,6 +1456,55 @@ function emitCSharpHelpers(helpers: Set<string>): string {
     lines.push("            return s[i] != '\\n';");
     lines.push('        }');
     lines.push('');
+  }
+
+  if (helpers.has('CheckIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('    private static bool CheckIdentifier(string s, string firstCharset, string restCharset, char prefix = (char)0) {');
+    lines.push('        if (s == null) return false;');
+    lines.push('        int i = 0;');
+    lines.push('        if (prefix != 0 && i < s.Length && s[i] == prefix) i++;');
+    lines.push('        if (i >= s.Length) return false;');
+    lines.push('        if (firstCharset.IndexOf(s[i]) < 0) return false;');
+    lines.push('        i++;');
+    lines.push('        for (; i < s.Length; i++) {');
+    lines.push('            if (restCharset.IndexOf(s[i]) < 0) return false;');
+    lines.push('        }');
+    lines.push('        return true;');
+    lines.push('    }');
+  }
+
+  if (helpers.has('CheckSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('    private static bool CheckSpaceSeparatedCharset(string s, string charset) {');
+    lines.push('        if (s == null || s.Length == 0) return false;');
+    lines.push('        int i = 0;');
+    lines.push('        if (charset.IndexOf(s[i]) < 0) return false;');
+    lines.push('        while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
+    lines.push("        while (i < s.Length && s[i] == ' ') {");
+    lines.push('            i++;');
+    lines.push('            if (i >= s.Length || charset.IndexOf(s[i]) < 0) return false;');
+    lines.push('            while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
+    lines.push('        }');
+    lines.push('        return i == s.Length;');
+    lines.push('    }');
+  }
+
+  if (helpers.has('CheckUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('    private static bool CheckUriScheme(string s) {');
+    lines.push('        if (s == null || s.Length < 4) return false;');
+    lines.push('        char c = s[0];');
+    lines.push("        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;");
+    lines.push('        int i = 1;');
+    lines.push('        while (i < s.Length) {');
+    lines.push('            c = s[i];');
+    lines.push("            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') i++;");
+    lines.push('            else break;');
+    lines.push('        }');
+    lines.push('        if (i + 3 > s.Length) return false;');
+    lines.push("        return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/';");
+    lines.push('    }');
   }
 
   return lines.join('\n');
