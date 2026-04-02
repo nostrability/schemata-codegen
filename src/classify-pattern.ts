@@ -113,9 +113,15 @@ export function classifyRegex(pattern: string): PatternCheck {
       /^\^\(\?:(\[(?:a-f0-9|a-fA-F0-9|0-9a-f|0-9a-fA-F)\]\{\d+\}(?:\|\[(?:a-f0-9|a-fA-F0-9|0-9a-f|0-9a-fA-F)\]\{\d+\})+)\)\$$/
     );
     if (m) {
-      const isLower = !m[1].includes('A-F');
-      const lengths = [...m[1].matchAll(/\{(\d+)\}/g)].map(mm => parseInt(mm[1], 10));
-      return { op: 'hex_alternation', lengths, case: isLower ? 'lower' : 'mixed' };
+      // Verify all branches share the same case policy — reject mixed policies
+      const branches = m[1].split('|');
+      const branchCases = branches.map(b => b.includes('A-F') ? 'mixed' : 'lower');
+      const allSame = branchCases.every(c => c === branchCases[0]);
+      if (allSame) {
+        const lengths = [...m[1].matchAll(/\{(\d+)\}/g)].map(mm => parseInt(mm[1], 10));
+        return { op: 'hex_alternation', lengths, case: branchCases[0] };
+      }
+      // Mixed case policies across branches — fall through to regex
     }
   }
 
