@@ -15,11 +15,14 @@ jobs:
         with:
           path: schemata-codegen
 
+      - name: Read schemata version
+        run: echo "SCHEMATA_VERSION=$(cat schemata-codegen/.schemata-version | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
       - name: Checkout schemata
         uses: actions/checkout@v4
         with:
           repository: nostrability/schemata
-          ref: v0.3.1
+          ref: ${{ env.SCHEMATA_VERSION }}
           path: schemata
 
       - name: Setup Node.js
