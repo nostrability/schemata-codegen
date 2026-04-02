@@ -238,6 +238,18 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('check_prefix_delim_rest');
       return { expr: `check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('check_identifier');
+      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ', 0'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('check_space_separated_charset');
+      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('check_uri_scheme');
+      return { expr: `check_uri_scheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1323,6 +1335,54 @@ function emitCppHelpers(helpers: Set<string>): string {
     lines.push('    return i == s.size();');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_identifier(const std::string& s, const std::string& first_charset, const std::string& rest_charset, char prefix = 0) {');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (prefix && i < s.size() && s[i] == prefix) i++;');
+    lines.push('    if (i >= s.size()) return false;');
+    lines.push('    if (first_charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    i++;');
+    lines.push('    for (; i < s.size(); i++) {');
+    lines.push('        if (rest_charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_space_separated_charset(const std::string& s, const std::string& charset) {');
+    lines.push('    if (s.empty()) return false;');
+    lines.push('    size_t i = 0;');
+    lines.push('    if (charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('    while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push("    while (i < s.size() && s[i] == ' ') {");
+    lines.push('        i++;');
+    lines.push('        if (i >= s.size() || charset.find(s[i]) == std::string::npos) return false;');
+    lines.push('        while (i < s.size() && charset.find(s[i]) != std::string::npos) i++;');
+    lines.push('    }');
+    lines.push('    return i == s.size();');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('static bool check_uri_scheme(const std::string& s) {');
+    lines.push('    if (s.size() < 4) return false;');
+    lines.push('    char c = s[0];');
+    lines.push("    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;");
+    lines.push('    size_t i = 1;');
+    lines.push('    while (i < s.size()) {');
+    lines.push('        c = s[i];');
+    lines.push("        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-') i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if (i + 3 > s.size()) return false;');
+    lines.push("    return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/';");
+    lines.push('}');
   }
 
   return lines.join('\n');

@@ -68,6 +68,9 @@ export type PatternCheck =
   | { op: 'base64' }
   | { op: 'hex_alternation'; lengths: number[]; case: 'lower' | 'mixed' }
   | { op: 'base64_2pad' }
+  | { op: 'identifier'; optionalPrefix?: string; firstCharset: string; restCharset: string }
+  | { op: 'space_separated_charset'; charset: string }
+  | { op: 'uri_scheme' }
   | { op: 'nostr_uri' }
   | { op: 'nip04_encrypted' }
   | { op: 'nip05_identifier' }
@@ -458,6 +461,48 @@ export function classifyRegex(pattern: string): PatternCheck {
     return { op: 'prefix_delim_rest', charset: expandCharset('a-zA-Z0-9') + '_-', delimiter: ': ' };
   }
 
+  // Identifier: ^[optionalPrefix]?[firstCharset][restCharset]*$
+  // Covers: ^[a-z][a-z0-9]*$, ^[A-Z][a-zA-Z0-9]*$, ^[a-z][a-z0-9-]*$,
+  //         ^!?[a-z][a-z0-9]*$, ^!?[0-9]+$
+  {
+    // Match: ^<optionalChar>?[firstCharset][restCharset]*$ or ^<optionalChar>?[charset]+$
+    const m = pattern.match(/^\^(!?)\??\[([A-Za-z0-9-]+)\](\[([A-Za-z0-9-]+)\]\*|\+)\$$/);
+    if (m) {
+      const prefixChar = m[1]; // '' or '!'
+      const hasOptionalPrefix = prefixChar !== '' && pattern.startsWith('^' + prefixChar + '?');
+      const firstCharset = expandCharset(m[2]);
+
+      if (m[3] === '+') {
+        // ^[charset]+$ or ^!?[charset]+$
+        if (hasOptionalPrefix) {
+          // ^!?[0-9]+$ — identifier with optional prefix, same first and rest charset
+          return { op: 'identifier', optionalPrefix: prefixChar, firstCharset, restCharset: firstCharset };
+        }
+        // ^[charset]+$ — equivalent to chars_in, already handled above; skip
+      } else {
+        // ^[firstCharset][restCharset]*$ or ^!?[firstCharset][restCharset]*$
+        const restCharset = expandCharset(m[4]);
+        if (hasOptionalPrefix) {
+          return { op: 'identifier', optionalPrefix: prefixChar, firstCharset, restCharset };
+        }
+        return { op: 'identifier', firstCharset, restCharset };
+      }
+    }
+  }
+
+  // Space-separated charset: ^[charset]+( [charset]+)*$
+  {
+    const m = pattern.match(/^\^\[([A-Za-z0-9_-]+)\]\+\( \[([A-Za-z0-9_-]+)\]\+\)\*\$$/);
+    if (m && m[1] === m[2]) {
+      return { op: 'space_separated_charset', charset: expandCharset(m[1]) };
+    }
+  }
+
+  // URI scheme: ^[A-Za-z][A-Za-z0-9+.-]*://
+  if (pattern === '^[A-Za-z][A-Za-z0-9+.-]*://') {
+    return { op: 'uri_scheme' };
+  }
+
   // Fallback: preserve original regex
   return { op: 'regex', pattern };
 }
@@ -665,6 +710,9 @@ export function isNativeCheck(check: PatternCheck): boolean {
     case 'nip05_identifier':
     case 'mime_type_strict':
     case 'prefix_delim_rest':
+    case 'identifier':
+    case 'space_separated_charset':
+    case 'uri_scheme':
       return true;
     case 'compound':
       return check.checks.every(isNativeCheck);

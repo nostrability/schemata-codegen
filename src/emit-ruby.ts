@@ -238,6 +238,18 @@ function renderPatternCheckRuby(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('check_prefix_delim_rest');
       return { expr: `check_prefix_delim_rest(${varExpr}, ${rubyString(check.charset)}, ${rubyString(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('check_identifier');
+      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, ${JSON.stringify(check.optionalPrefix)}` : ''})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('check_space_separated_charset');
+      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('check_uri_scheme');
+      return { expr: `check_uri_scheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1296,6 +1308,60 @@ function emitRubyHelpers(helpers: Set<string>): string {
     lines.push('    true');
     lines.push('  end');
     lines.push('');
+  }
+
+  if (helpers.has('check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push("def check_identifier(s, first_charset, rest_charset, prefix = '')");
+    lines.push('  i = 0');
+    lines.push("  if prefix != '' && i < s.length && s[i] == prefix");
+    lines.push('    i += 1');
+    lines.push('  end');
+    lines.push('  return false if i >= s.length');
+    lines.push('  return false unless first_charset.include?(s[i])');
+    lines.push('  i += 1');
+    lines.push('  while i < s.length');
+    lines.push('    return false unless rest_charset.include?(s[i])');
+    lines.push('    i += 1');
+    lines.push('  end');
+    lines.push('  true');
+    lines.push('end');
+  }
+
+  if (helpers.has('check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('def check_space_separated_charset(s, charset)');
+    lines.push('  return false if s.empty?');
+    lines.push('  i = 0');
+    lines.push('  return false unless charset.include?(s[i])');
+    lines.push('  i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push("  while i < s.length && s[i] == ' '");
+    lines.push('    i += 1');
+    lines.push('    return false if i >= s.length || !charset.include?(s[i])');
+    lines.push('    i += 1 while i < s.length && charset.include?(s[i])');
+    lines.push('  end');
+    lines.push('  i == s.length');
+    lines.push('end');
+  }
+
+  if (helpers.has('check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('def check_uri_scheme(s)');
+    lines.push('  return false if s.length < 4');
+    lines.push('  c = s[0]');
+    lines.push("  return false unless (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')");
+    lines.push('  i = 1');
+    lines.push('  while i < s.length');
+    lines.push('    c = s[i]');
+    lines.push("    if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-'");
+    lines.push('      i += 1');
+    lines.push('    else');
+    lines.push('      break');
+    lines.push('    end');
+    lines.push('  end');
+    lines.push('  return false if i + 3 > s.length');
+    lines.push("  s[i] == ':' && s[i+1] == '/' && s[i+2] == '/'");
+    lines.push('end');
   }
 
   return lines.join('\n');

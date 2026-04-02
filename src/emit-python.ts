@@ -232,6 +232,18 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
       helpers.add('_check_prefix_delim_rest');
       return { expr: `_check_prefix_delim_rest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('_check_identifier');
+      return { expr: `_check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, ${JSON.stringify(check.optionalPrefix)}` : ''})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('_check_space_separated_charset');
+      return { expr: `_check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('_check_uri_scheme');
+      return { expr: `_check_uri_scheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1407,6 +1419,66 @@ function emitPythonHelpers(helpers: Set<string>): string {
     lines.push("    if s[i] == '\\n':");
     lines.push('        return False');
     lines.push('    return True');
+  }
+
+  if (helpers.has('_check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_identifier(s: str, first_charset: str, rest_charset: str, prefix: str = "") -> bool:');
+    lines.push('    i = 0');
+    lines.push('    if prefix and i < len(s) and s[i] == prefix:');
+    lines.push('        i += 1');
+    lines.push('    if i >= len(s):');
+    lines.push('        return False');
+    lines.push('    if s[i] not in first_charset:');
+    lines.push('        return False');
+    lines.push('    i += 1');
+    lines.push('    while i < len(s):');
+    lines.push('        if s[i] not in rest_charset:');
+    lines.push('            return False');
+    lines.push('        i += 1');
+    lines.push('    return True');
+  }
+
+  if (helpers.has('_check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_space_separated_charset(s: str, charset: str) -> bool:');
+    lines.push('    if not s:');
+    lines.push('        return False');
+    lines.push('    i = 0');
+    lines.push('    if s[i] not in charset:');
+    lines.push('        return False');
+    lines.push('    while i < len(s) and s[i] in charset:');
+    lines.push('        i += 1');
+    lines.push("    while i < len(s) and s[i] == ' ':");
+    lines.push('        i += 1');
+    lines.push('        if i >= len(s) or s[i] not in charset:');
+    lines.push('            return False');
+    lines.push('        while i < len(s) and s[i] in charset:');
+    lines.push('            i += 1');
+    lines.push('    return i == len(s)');
+  }
+
+  if (helpers.has('_check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('');
+    lines.push('def _check_uri_scheme(s: str) -> bool:');
+    lines.push('    if len(s) < 4:');
+    lines.push('        return False');
+    lines.push('    c = s[0]');
+    lines.push("    if not (('A' <= c <= 'Z') or ('a' <= c <= 'z')):");
+    lines.push('        return False');
+    lines.push('    i = 1');
+    lines.push('    while i < len(s):');
+    lines.push('        c = s[i]');
+    lines.push("        if ('A' <= c <= 'Z') or ('a' <= c <= 'z') or ('0' <= c <= '9') or c in '+.-':");
+    lines.push('            i += 1');
+    lines.push('        else:');
+    lines.push('            break');
+    lines.push('    if i + 3 > len(s):');
+    lines.push('        return False');
+    lines.push("    return s[i] == ':' and s[i+1] == '/' and s[i+2] == '/'");
   }
 
   return lines.join('\n');

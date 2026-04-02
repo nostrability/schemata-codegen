@@ -238,6 +238,18 @@ function renderPatternCheckSwift(check: PatternCheck, varExpr: string): { expr: 
       helpers.add('checkPrefixDelimRest');
       return { expr: `checkPrefixDelimRest(${varExpr}, ${JSON.stringify(check.charset)}, ${JSON.stringify(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('checkIdentifier');
+      return { expr: `checkIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, Character("${check.optionalPrefix}")` : ', nil'})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('checkSpaceSeparatedCharset');
+      return { expr: `checkSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('checkUriScheme');
+      return { expr: `checkUriScheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1375,6 +1387,58 @@ function emitSwiftHelpers(helpers: Set<string>): string {
     lines.push('    return true');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('checkIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private func checkIdentifier(_ s: String, _ firstCharset: String, _ restCharset: String, _ prefix: Character?) -> Bool {');
+    lines.push('    let chars = Array(s)');
+    lines.push('    var i = 0');
+    lines.push('    if let p = prefix, i < chars.count && chars[i] == p { i += 1 }');
+    lines.push('    if i >= chars.count { return false }');
+    lines.push('    if !firstCharset.contains(chars[i]) { return false }');
+    lines.push('    i += 1');
+    lines.push('    while i < chars.count {');
+    lines.push('        if !restCharset.contains(chars[i]) { return false }');
+    lines.push('        i += 1');
+    lines.push('    }');
+    lines.push('    return true');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private func checkSpaceSeparatedCharset(_ s: String, _ charset: String) -> Bool {');
+    lines.push('    let chars = Array(s)');
+    lines.push('    if chars.isEmpty { return false }');
+    lines.push('    var i = 0');
+    lines.push('    if !charset.contains(chars[i]) { return false }');
+    lines.push('    while i < chars.count && charset.contains(chars[i]) { i += 1 }');
+    lines.push('    while i < chars.count && chars[i] == " " {');
+    lines.push('        i += 1');
+    lines.push('        if i >= chars.count || !charset.contains(chars[i]) { return false }');
+    lines.push('        while i < chars.count && charset.contains(chars[i]) { i += 1 }');
+    lines.push('    }');
+    lines.push('    return i == chars.count');
+    lines.push('}');
+  }
+
+  if (helpers.has('checkUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('private func checkUriScheme(_ s: String) -> Bool {');
+    lines.push('    let u = Array(s.utf8)');
+    lines.push('    if u.count < 4 { return false }');
+    lines.push('    let c = u[0]');
+    lines.push('    if !((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) { return false }');
+    lines.push('    var i = 1');
+    lines.push('    while i < u.count {');
+    lines.push('        let c = u[i]');
+    lines.push('        if (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2B || c == 0x2E || c == 0x2D { i += 1 }');
+    lines.push('        else { break }');
+    lines.push('    }');
+    lines.push('    if i + 3 > u.count { return false }');
+    lines.push('    return u[i] == 0x3A && u[i+1] == 0x2F && u[i+2] == 0x2F');
+    lines.push('}');
   }
 
   return lines.join('\n');

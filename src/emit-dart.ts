@@ -230,6 +230,18 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
       helpers.add('_checkPrefixDelimRest');
       return { expr: `_checkPrefixDelimRest(${varExpr}, ${dartString(check.charset)}, ${dartString(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('_checkIdentifier');
+      return { expr: `_checkIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ''})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('_checkSpaceSeparatedCharset');
+      return { expr: `_checkSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('_checkUriScheme');
+      return { expr: `_checkUriScheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1295,6 +1307,55 @@ function emitDartHelpers(helpers: Set<string>): string {
     lines.push('  return c != 0x0A && c != 0x0D && c != 0x2028 && c != 0x2029;');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('_checkIdentifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push("bool _checkIdentifier(String s, String firstCharset, String restCharset, [String prefix = '']) {");
+    lines.push('  var i = 0;');
+    lines.push("  if (prefix.isNotEmpty && i < s.length && s[i] == prefix) i++;");
+    lines.push('  if (i >= s.length) return false;');
+    lines.push('  if (!firstCharset.contains(s[i])) return false;');
+    lines.push('  i++;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    if (!restCharset.contains(s[i])) return false;');
+    lines.push('    i++;');
+    lines.push('  }');
+    lines.push('  return true;');
+    lines.push('}');
+  }
+
+  if (helpers.has('_checkSpaceSeparatedCharset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('bool _checkSpaceSeparatedCharset(String s, String charset) {');
+    lines.push('  if (s.isEmpty) return false;');
+    lines.push('  var i = 0;');
+    lines.push('  if (!charset.contains(s[i])) return false;');
+    lines.push('  while (i < s.length && charset.contains(s[i])) i++;');
+    lines.push("  while (i < s.length && s[i] == ' ') {");
+    lines.push('    i++;');
+    lines.push('    if (i >= s.length || !charset.contains(s[i])) return false;');
+    lines.push('    while (i < s.length && charset.contains(s[i])) i++;');
+    lines.push('  }');
+    lines.push('  return i == s.length;');
+    lines.push('}');
+  }
+
+  if (helpers.has('_checkUriScheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('bool _checkUriScheme(String s) {');
+    lines.push('  if (s.length < 4) return false;');
+    lines.push('  var c = s.codeUnitAt(0);');
+    lines.push('  if (!((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A))) return false;');
+    lines.push('  var i = 1;');
+    lines.push('  while (i < s.length) {');
+    lines.push('    c = s.codeUnitAt(i);');
+    lines.push('    if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39) || c == 0x2B || c == 0x2E || c == 0x2D) { i++; }');
+    lines.push('    else { break; }');
+    lines.push('  }');
+    lines.push('  if (i + 3 > s.length) return false;');
+    lines.push("  return s[i] == ':' && s[i+1] == '/' && s[i+2] == '/';");
+    lines.push('}');
   }
 
   return lines.join('\n');

@@ -236,6 +236,18 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       helpers.add('schemata_check_prefix_delim_rest');
       return { expr: `schemata_check_prefix_delim_rest(${varExpr}, ${phpString(check.charset)}, ${phpString(check.delimiter)})`, helpers };
     }
+    case 'identifier': {
+      helpers.add('check_identifier');
+      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, ${JSON.stringify(check.optionalPrefix)}` : ''})`, helpers };
+    }
+    case 'space_separated_charset': {
+      helpers.add('check_space_separated_charset');
+      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+    }
+    case 'uri_scheme': {
+      helpers.add('check_uri_scheme');
+      return { expr: `check_uri_scheme(${varExpr})`, helpers };
+    }
     case 'compound': {
       const allHelpers = new Set<string>();
       const parts: string[] = [];
@@ -1417,6 +1429,57 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('    return true;');
     lines.push('}');
     lines.push('');
+  }
+
+  if (helpers.has('check_identifier')) {
+    if (lines.length > 0) lines.push('');
+    lines.push("function check_identifier(string $s, string $first_charset, string $rest_charset, string $prefix = ''): bool {");
+    lines.push('    $i = 0;');
+    lines.push('    $len = strlen($s);');
+    lines.push("    if ($prefix !== '' && $i < $len && $s[$i] === $prefix) $i++;");
+    lines.push('    if ($i >= $len) return false;');
+    lines.push('    if (strpos($first_charset, $s[$i]) === false) return false;');
+    lines.push('    $i++;');
+    lines.push('    for (; $i < $len; $i++) {');
+    lines.push('        if (strpos($rest_charset, $s[$i]) === false) return false;');
+    lines.push('    }');
+    lines.push('    return true;');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_space_separated_charset')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('function check_space_separated_charset(string $s, string $charset): bool {');
+    lines.push('    $len = strlen($s);');
+    lines.push('    if ($len === 0) return false;');
+    lines.push('    $i = 0;');
+    lines.push('    if (strpos($charset, $s[$i]) === false) return false;');
+    lines.push('    while ($i < $len && strpos($charset, $s[$i]) !== false) $i++;');
+    lines.push("    while ($i < $len && $s[$i] === ' ') {");
+    lines.push('        $i++;');
+    lines.push('        if ($i >= $len || strpos($charset, $s[$i]) === false) return false;');
+    lines.push('        while ($i < $len && strpos($charset, $s[$i]) !== false) $i++;');
+    lines.push('    }');
+    lines.push('    return $i === $len;');
+    lines.push('}');
+  }
+
+  if (helpers.has('check_uri_scheme')) {
+    if (lines.length > 0) lines.push('');
+    lines.push('function check_uri_scheme(string $s): bool {');
+    lines.push('    $len = strlen($s);');
+    lines.push('    if ($len < 4) return false;');
+    lines.push('    $c = $s[0];');
+    lines.push("    if (!(($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z'))) return false;");
+    lines.push('    $i = 1;');
+    lines.push('    while ($i < $len) {');
+    lines.push('        $c = $s[$i];');
+    lines.push("        if (($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z') || ($c >= '0' && $c <= '9') || $c === '+' || $c === '.' || $c === '-') $i++;");
+    lines.push('        else break;');
+    lines.push('    }');
+    lines.push('    if ($i + 3 > $len) return false;');
+    lines.push("    return $s[$i] === ':' && $s[$i+1] === '/' && $s[$i+2] === '/';");
+    lines.push('}');
   }
 
   return lines.join('\n');

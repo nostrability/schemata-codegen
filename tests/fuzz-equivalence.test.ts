@@ -899,6 +899,62 @@ function buildNativeChecker(check: PatternCheck, originalPattern?: string): ((s:
       };
     }
 
+    case 'identifier': {
+      const fc = check.firstCharset;
+      const rc = check.restCharset;
+      const prefix = check.optionalPrefix;
+      return (s) => {
+        let i = 0;
+        if (prefix && i < s.length && s[i] === prefix) i++;
+        if (i >= s.length) return false;
+        if (!fc.includes(s[i])) return false;
+        i++;
+        while (i < s.length) {
+          if (!rc.includes(s[i])) return false;
+          i++;
+        }
+        return true;
+      };
+    }
+
+    case 'space_separated_charset': {
+      const cs = check.charset;
+      return (s) => {
+        if (s.length === 0) return false;
+        let i = 0;
+        // First token: at least one char from charset
+        if (!cs.includes(s[i])) return false;
+        while (i < s.length && cs.includes(s[i])) i++;
+        // Subsequent tokens: space + at least one char from charset
+        while (i < s.length && s[i] === ' ') {
+          i++;
+          if (i >= s.length || !cs.includes(s[i])) return false;
+          while (i < s.length && cs.includes(s[i])) i++;
+        }
+        return i === s.length;
+      };
+    }
+
+    case 'uri_scheme': {
+      // ^[A-Za-z][A-Za-z0-9+.-]*://  (no end anchor)
+      return (s) => {
+        if (s.length < 4) return false; // at least "x://"
+        // First char: alpha
+        const c0 = s[0];
+        if (!((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z'))) return false;
+        let i = 1;
+        while (i < s.length) {
+          const c = s[i];
+          if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '.' || c === '-') {
+            i++;
+          } else break;
+        }
+        // Must find :// at current position
+        if (i + 3 > s.length) return false;
+        return s[i] === ':' && s[i + 1] === '/' && s[i + 2] === '/';
+      };
+    }
+
     case 'compound': {
       const checkers = check.checks.map(c => buildNativeChecker(c, originalPattern));
       if (checkers.some(c => c === null)) return null;
@@ -1674,6 +1730,132 @@ function generateHexRangeInputs(rng: Rng, min: number, max: number, caseType: 'l
 // Specific input generators dispatched by op type
 // ---------------------------------------------------------------------------
 
+function generateIdentifierInputs(rng: Rng, check: Extract<PatternCheck, { op: 'identifier' }>): string[] {
+  const inputs: string[] = [];
+  const { firstCharset, restCharset, optionalPrefix } = check;
+
+  // Valid: just first char
+  inputs.push(firstCharset[0]);
+  inputs.push(firstCharset[firstCharset.length - 1]);
+
+  // Valid: first char + rest
+  for (let i = 0; i < 15; i++) {
+    const restLen = rng.nextInt(0, 10);
+    let s = firstCharset[rng.nextInt(0, firstCharset.length - 1)];
+    s += rng.randomString(restLen, restCharset);
+    if (optionalPrefix && rng.next() > 0.5) {
+      s = optionalPrefix + s;
+    }
+    inputs.push(s);
+  }
+
+  // With optional prefix
+  if (optionalPrefix) {
+    inputs.push(optionalPrefix + firstCharset[0]);
+    inputs.push(optionalPrefix + firstCharset[0] + rng.randomString(5, restCharset));
+    inputs.push(optionalPrefix); // prefix only — no first char
+  }
+
+  // Invalid: empty
+  inputs.push('');
+
+  // Invalid: start with rest-only char (if different from first)
+  if (restCharset.length > 0) {
+    for (const c of restCharset) {
+      if (!firstCharset.includes(c)) {
+        inputs.push(c); // starts with non-first char
+        inputs.push(c + rng.randomString(3, restCharset));
+        break;
+      }
+    }
+  }
+
+  // Invalid: uppercase when only lowercase allowed, etc.
+  inputs.push('ABC', 'abc', '123', 'a-b', '!abc', 'hello world', '\n', '\r');
+  inputs.push('a\nb', 'a\rb', 'a\u2028b', 'a\u2029b');
+
+  // Random
+  for (let i = 0; i < 20; i++) {
+    inputs.push(rng.randomString(rng.nextInt(0, 10), ASCII_PRINTABLE));
+  }
+
+  return inputs;
+}
+
+function generateSpaceSeparatedCharsetInputs(rng: Rng, charset: string): string[] {
+  const inputs: string[] = [];
+
+  // Valid: single token
+  inputs.push(charset[0]);
+  inputs.push(rng.randomString(5, charset));
+
+  // Valid: multiple tokens
+  for (let i = 0; i < 10; i++) {
+    const tokenCount = rng.nextInt(1, 4);
+    const tokens: string[] = [];
+    for (let j = 0; j < tokenCount; j++) {
+      tokens.push(rng.randomString(rng.nextInt(1, 6), charset));
+    }
+    inputs.push(tokens.join(' '));
+  }
+
+  // Invalid: empty
+  inputs.push('');
+
+  // Invalid: double space
+  inputs.push(charset[0] + '  ' + charset[0]);
+
+  // Invalid: leading/trailing space
+  inputs.push(' ' + charset[0]);
+  inputs.push(charset[0] + ' ');
+
+  // Invalid: char not in charset
+  inputs.push('ABC', '123', '!!!', ' ', 'hello\tworld');
+
+  // Invalid: line terminators
+  inputs.push(charset[0] + '\n' + charset[0]);
+  inputs.push(charset[0] + '\r' + charset[0]);
+
+  // Random
+  for (let i = 0; i < 20; i++) {
+    inputs.push(rng.randomString(rng.nextInt(0, 15), charset + ' ' + ASCII_PRINTABLE));
+  }
+
+  return inputs;
+}
+
+function generateUriSchemeInputs(rng: Rng): string[] {
+  const inputs: string[] = [];
+  const SCHEME_REST = ASCII_ALPHA + DIGITS + '+.-';
+
+  // Valid
+  inputs.push('http://', 'https://', 'ftp://', 'a://', 'Z://', 'custom+scheme://');
+  inputs.push('a+b.c-d://');
+  inputs.push('http://example.com');
+  inputs.push('x://');
+
+  // Invalid
+  inputs.push('', '://', '1http://', '+http://', '.http://', '-http://');
+  inputs.push('http:', 'http:/', 'http', 'http//');
+  inputs.push('HTTP://'); // uppercase should match — [A-Za-z] covers it
+
+  // Random valid schemes
+  for (let i = 0; i < 15; i++) {
+    const first = ASCII_ALPHA[rng.nextInt(0, ASCII_ALPHA.length - 1)];
+    const restLen = rng.nextInt(0, 10);
+    const rest = rng.randomString(restLen, SCHEME_REST);
+    const hasSep = rng.next() > 0.3;
+    inputs.push(first + rest + (hasSep ? '://' : ''));
+  }
+
+  // Random garbage
+  for (let i = 0; i < 10; i++) {
+    inputs.push(rng.randomString(rng.nextInt(0, 15), ASCII_PRINTABLE));
+  }
+
+  return inputs;
+}
+
 function generateInputsForCheck(rng: Rng, check: PatternCheck): string[] {
   const base = generateBaseInputs(rng);
 
@@ -1782,6 +1964,12 @@ function generateInputsForCheck(rng: Rng, check: PatternCheck): string[] {
     case 'prefix_delim_rest':
       return [...base, '123:hello', '0:x', '', '123', '123:', 'abc:def',
         '123:\n', '123:\r', '123:\u2028', '123:\u2029', '123:\nfoo', '123:a\nfoo'];
+    case 'identifier':
+      return [...base, ...generateIdentifierInputs(rng, check)];
+    case 'space_separated_charset':
+      return [...base, ...generateSpaceSeparatedCharsetInputs(rng, check.charset)];
+    case 'uri_scheme':
+      return [...base, ...generateUriSchemeInputs(rng)];
     case 'compound':
       // For compound, generate inputs for the first sub-check
       if (check.checks.length > 0) {
@@ -1884,6 +2072,16 @@ const ALL_PATTERNS: string[] = [
   '^(?:[a-f0-9]{64}|[a-f0-9]{96}|[a-f0-9]{128})$',
   // Strict base64 2-pad (MIP-05 token tag)
   '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$',
+  // Identifier patterns
+  '^[a-z][a-z0-9]*$',
+  '^[A-Z][a-zA-Z0-9]*$',
+  '^[a-z][a-z0-9-]*$',
+  '^!?[a-z][a-z0-9]*$',
+  '^!?[0-9]+$',
+  // Space-separated charset
+  '^[a-z_]+( [a-z_]+)*$',
+  // URI scheme
+  '^[A-Za-z][A-Za-z0-9+.-]*://',
 ];
 
 // Deduplicate

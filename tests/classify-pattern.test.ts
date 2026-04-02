@@ -579,6 +579,82 @@ describe('classifyRegex', () => {
     assert.ok(isNativeCheck(r));
   });
 
+  // --- identifier ---
+
+  it('classifies ^[a-z][a-z0-9]*$ as identifier', () => {
+    const r = classifyRegex('^[a-z][a-z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.firstCharset.includes('a'));
+    assert.ok(r.firstCharset.includes('z'));
+    assert.ok(!r.firstCharset.includes('0'));
+    assert.ok(r.restCharset.includes('a'));
+    assert.ok(r.restCharset.includes('0'));
+    assert.ok(isNativeCheck(r));
+  });
+
+  it('classifies ^[A-Z][a-zA-Z0-9]*$ as identifier', () => {
+    const r = classifyRegex('^[A-Z][a-zA-Z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.firstCharset.includes('A'));
+    assert.ok(r.firstCharset.includes('Z'));
+    assert.ok(!r.firstCharset.includes('a'));
+    assert.ok(r.restCharset.includes('a'));
+    assert.ok(r.restCharset.includes('A'));
+    assert.ok(r.restCharset.includes('0'));
+  });
+
+  it('classifies ^[a-z][a-z0-9-]*$ as identifier', () => {
+    const r = classifyRegex('^[a-z][a-z0-9-]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, undefined);
+    assert.ok(r.restCharset.includes('-'));
+  });
+
+  it('classifies ^!?[a-z][a-z0-9]*$ as identifier with prefix', () => {
+    const r = classifyRegex('^!?[a-z][a-z0-9]*$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, '!');
+    assert.ok(r.firstCharset.includes('a'));
+    assert.ok(r.restCharset.includes('0'));
+  });
+
+  it('classifies ^!?[0-9]+$ as identifier with prefix', () => {
+    const r = classifyRegex('^!?[0-9]+$');
+    assert.strictEqual(r.op, 'identifier');
+    assert.ok(r.op === 'identifier');
+    assert.strictEqual(r.optionalPrefix, '!');
+    assert.ok(r.firstCharset.includes('0'));
+    assert.ok(r.firstCharset.includes('9'));
+    assert.strictEqual(r.firstCharset, r.restCharset);
+  });
+
+  // --- space_separated_charset ---
+
+  it('classifies ^[a-z_]+( [a-z_]+)*$ as space_separated_charset', () => {
+    const r = classifyRegex('^[a-z_]+( [a-z_]+)*$');
+    assert.strictEqual(r.op, 'space_separated_charset');
+    assert.ok(r.op === 'space_separated_charset');
+    assert.ok(r.charset.includes('a'));
+    assert.ok(r.charset.includes('z'));
+    assert.ok(r.charset.includes('_'));
+    assert.ok(!r.charset.includes(' '));
+    assert.ok(isNativeCheck(r));
+  });
+
+  // --- uri_scheme ---
+
+  it('classifies ^[A-Za-z][A-Za-z0-9+.-]*:// as uri_scheme', () => {
+    const r = classifyRegex('^[A-Za-z][A-Za-z0-9+.-]*://');
+    assert.deepStrictEqual(r, { op: 'uri_scheme' });
+    assert.ok(isNativeCheck(r));
+  });
+
   // --- Compound: compressed pubkey ---
 
   it('classifies ^(02|03)[a-f0-9]{64}$ as compound', () => {
