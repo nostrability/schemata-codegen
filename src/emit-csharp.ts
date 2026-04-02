@@ -1319,6 +1319,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckIdentifier')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static bool CheckIdentifier(string s, string firstCharset, string restCharset, char prefix = (char)0) {');
+    lines.push('        if (s == null) return false;');
     lines.push('        int i = 0;');
     lines.push('        if (prefix != 0 && i < s.Length && s[i] == prefix) i++;');
     lines.push('        if (i >= s.Length) return false;');
@@ -1334,7 +1335,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckSpaceSeparatedCharset')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static bool CheckSpaceSeparatedCharset(string s, string charset) {');
-    lines.push('        if (s.Length == 0) return false;');
+    lines.push('        if (s == null || s.Length == 0) return false;');
     lines.push('        int i = 0;');
     lines.push('        if (charset.IndexOf(s[i]) < 0) return false;');
     lines.push('        while (i < s.Length && charset.IndexOf(s[i]) >= 0) i++;');
@@ -1350,7 +1351,7 @@ function emitCSharpHelpers(helpers: Set<string>): string {
   if (helpers.has('CheckUriScheme')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static bool CheckUriScheme(string s) {');
-    lines.push('        if (s.Length < 4) return false;');
+    lines.push('        if (s == null || s.Length < 4) return false;');
     lines.push('        char c = s[0];');
     lines.push("        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;");
     lines.push('        int i = 1;');

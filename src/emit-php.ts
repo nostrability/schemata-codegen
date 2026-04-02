@@ -237,16 +237,16 @@ function renderPatternCheckPhp(check: PatternCheck, varExpr: string): { expr: st
       return { expr: `schemata_check_prefix_delim_rest(${varExpr}, ${phpString(check.charset)}, ${phpString(check.delimiter)})`, helpers };
     }
     case 'identifier': {
-      helpers.add('check_identifier');
-      return { expr: `check_identifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, ${JSON.stringify(check.optionalPrefix)}` : ''})`, helpers };
+      helpers.add('schemata_check_identifier');
+      return { expr: `schemata_check_identifier(${varExpr}, ${phpString(check.firstCharset)}, ${phpString(check.restCharset)}${check.optionalPrefix ? `, ${phpString(check.optionalPrefix)}` : ''})`, helpers };
     }
     case 'space_separated_charset': {
-      helpers.add('check_space_separated_charset');
-      return { expr: `check_space_separated_charset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+      helpers.add('schemata_check_space_separated_charset');
+      return { expr: `schemata_check_space_separated_charset(${varExpr}, ${phpString(check.charset)})`, helpers };
     }
     case 'uri_scheme': {
-      helpers.add('check_uri_scheme');
-      return { expr: `check_uri_scheme(${varExpr})`, helpers };
+      helpers.add('schemata_check_uri_scheme');
+      return { expr: `schemata_check_uri_scheme(${varExpr})`, helpers };
     }
     case 'compound': {
       const allHelpers = new Set<string>();
@@ -1431,9 +1431,9 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('');
   }
 
-  if (helpers.has('check_identifier')) {
+  if (helpers.has('schemata_check_identifier')) {
     if (lines.length > 0) lines.push('');
-    lines.push("function check_identifier(string $s, string $first_charset, string $rest_charset, string $prefix = ''): bool {");
+    lines.push("function schemata_check_identifier(string $s, string $first_charset, string $rest_charset, string $prefix = ''): bool {");
     lines.push('    $i = 0;');
     lines.push('    $len = strlen($s);');
     lines.push("    if ($prefix !== '' && $i < $len && $s[$i] === $prefix) $i++;");
@@ -1447,9 +1447,9 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('}');
   }
 
-  if (helpers.has('check_space_separated_charset')) {
+  if (helpers.has('schemata_check_space_separated_charset')) {
     if (lines.length > 0) lines.push('');
-    lines.push('function check_space_separated_charset(string $s, string $charset): bool {');
+    lines.push('function schemata_check_space_separated_charset(string $s, string $charset): bool {');
     lines.push('    $len = strlen($s);');
     lines.push('    if ($len === 0) return false;');
     lines.push('    $i = 0;');
@@ -1464,9 +1464,9 @@ function emitPhpHelpers(helpers: Set<string>): string {
     lines.push('}');
   }
 
-  if (helpers.has('check_uri_scheme')) {
+  if (helpers.has('schemata_check_uri_scheme')) {
     if (lines.length > 0) lines.push('');
-    lines.push('function check_uri_scheme(string $s): bool {');
+    lines.push('function schemata_check_uri_scheme(string $s): bool {');
     lines.push('    $len = strlen($s);');
     lines.push('    if ($len < 4) return false;');
     lines.push('    $c = $s[0];');

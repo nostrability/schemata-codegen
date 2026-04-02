@@ -204,7 +204,7 @@ function renderPatternCheckCpp(check: PatternCheck, varExpr: string): { expr: st
     }
     case 'hex_alternation': {
       const fns = check.lengths.map(len => {
-        const fn = check.case === 'lower' ? `check_hex${len}` : `check_hex${len}_mixed`;
+        const fn = check.case === 'lower' ? `check_hex_${len}` : `check_hex_${len}_mixed`;
         helpers.add(fn);
         return `${fn}(${varExpr})`;
       });

@@ -1338,6 +1338,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
   if (helpers.has('checkIdentifier')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static boolean checkIdentifier(String s, String firstCharset, String restCharset, char prefix) {');
+    lines.push('        if (s == null) return false;');
     lines.push('        int i = 0;');
     lines.push('        if (prefix != 0 && i < s.length() && s.charAt(i) == prefix) i++;');
     lines.push('        if (i >= s.length()) return false;');
@@ -1353,7 +1354,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
   if (helpers.has('checkSpaceSeparatedCharset')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static boolean checkSpaceSeparatedCharset(String s, String charset) {');
-    lines.push('        if (s.isEmpty()) return false;');
+    lines.push('        if (s == null || s.isEmpty()) return false;');
     lines.push('        int i = 0;');
     lines.push('        if (charset.indexOf(s.charAt(i)) < 0) return false;');
     lines.push('        while (i < s.length() && charset.indexOf(s.charAt(i)) >= 0) i++;');
@@ -1369,7 +1370,7 @@ function emitJavaHelpers(helpers: Set<string>): string {
   if (helpers.has('checkUriScheme')) {
     if (lines.length > 0) lines.push('');
     lines.push('    private static boolean checkUriScheme(String s) {');
-    lines.push('        if (s.length() < 4) return false;');
+    lines.push('        if (s == null || s.length() < 4) return false;');
     lines.push('        char c = s.charAt(0);');
     lines.push("        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;");
     lines.push('        int i = 1;');

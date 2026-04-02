@@ -232,11 +232,11 @@ function renderPatternCheckDart(check: PatternCheck, varExpr: string): { expr: s
     }
     case 'identifier': {
       helpers.add('_checkIdentifier');
-      return { expr: `_checkIdentifier(${varExpr}, ${JSON.stringify(check.firstCharset)}, ${JSON.stringify(check.restCharset)}${check.optionalPrefix ? `, '${check.optionalPrefix}'` : ''})`, helpers };
+      return { expr: `_checkIdentifier(${varExpr}, ${dartString(check.firstCharset)}, ${dartString(check.restCharset)}${check.optionalPrefix ? `, ${dartString(check.optionalPrefix)}` : ''})`, helpers };
     }
     case 'space_separated_charset': {
       helpers.add('_checkSpaceSeparatedCharset');
-      return { expr: `_checkSpaceSeparatedCharset(${varExpr}, ${JSON.stringify(check.charset)})`, helpers };
+      return { expr: `_checkSpaceSeparatedCharset(${varExpr}, ${dartString(check.charset)})`, helpers };
     }
     case 'uri_scheme': {
       helpers.add('_checkUriScheme');

@@ -200,7 +200,7 @@ function renderPatternCheckPython(check: PatternCheck, varExpr: string): { expr:
     }
     case 'hex_alternation': {
       const fns = check.lengths.map(len => {
-        const fn = check.case === 'lower' ? `_check_hex${len}` : `_check_hex${len}_mixed`;
+        const fn = check.case === 'lower' ? `_check_hex_${len}` : `_check_hex_${len}_mixed`;
         helpers.add(fn);
         return `${fn}(${varExpr})`;
       });
