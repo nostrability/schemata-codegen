@@ -36,7 +36,7 @@ export function tagTypeName(fileName: string): string {
 /**
  * Emit a TypeScript type string for a single position.
  */
-function emitPositionType(pos: PositionType): string {
+export function emitPositionType(pos: PositionType): string {
   if (pos.constValue !== undefined) {
     return JSON.stringify(pos.constValue);
   }
